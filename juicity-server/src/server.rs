@@ -79,6 +79,12 @@ impl JuicityServer {
     }
 
     pub async fn serve(&self, addr: &str) -> anyhow::Result<()> {
+        // Support ":port" shorthand (e.g. ":23182") — bind to all interfaces
+        let addr = if addr.starts_with(':') {
+            format!("0.0.0.0{}", addr)
+        } else {
+            addr.to_string()
+        };
         let socket_addr: SocketAddr = addr.parse()?;
 
         let udp_socket = std::net::UdpSocket::bind(socket_addr)?;
