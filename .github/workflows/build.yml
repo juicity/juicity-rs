@@ -176,16 +176,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
 
-      - name: Setup MSYS2
+      - name: Install MSYS2 toolchain (gnullvm)
         uses: msys2/setup-msys2@v2.31.1
         with:
           msystem: ${{ matrix.msystem }}
           update: true
           install: >-
-            mingw-w64-${{ matrix.msystem == 'CLANG64' && 'x86_64' || 'aarch64' }}-clang
-            mingw-w64-${{ matrix.msystem == 'CLANG64' && 'x86_64' || 'aarch64' }}-lld
-            mingw-w64-${{ matrix.msystem == 'CLANG64' && 'x86_64' || 'aarch64' }}-llvm
-            mingw-w64-${{ matrix.msystem == 'CLANG64' && 'x86_64' || 'aarch64' }}-rust
+            mingw-w64-${{ matrix.msystem == 'CLANG64' && 'clang-x86_64' || 'clang-aarch64' }}-clang
+            mingw-w64-${{ matrix.msystem == 'CLANG64' && 'clang-x86_64' || 'clang-aarch64' }}-lld
+            mingw-w64-${{ matrix.msystem == 'CLANG64' && 'clang-x86_64' || 'clang-aarch64' }}-llvm
+            mingw-w64-${{ matrix.msystem == 'CLANG64' && 'clang-x86_64' || 'clang-aarch64' }}-rust
 
       - name: Build (static CRT)
         shell: msys2 {0}
