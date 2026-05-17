@@ -33,6 +33,11 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Install the default rustls CryptoProvider (aws-lc-rs)
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("Failed to install default rustls CryptoProvider");
+
     let args = Args::parse();
 
     // Initialize logging
