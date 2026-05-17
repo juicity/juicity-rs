@@ -205,7 +205,7 @@ jobs:
           cp juicity-server/examples/config.json "dist/${PKG_NAME}/server-config.json"
 
       - name: Package zip
-        shell: msys2 {0}
+        shell: bash
         run: |
           cd dist
           zip -r "../juicity-windows-gnullvm-${{ matrix.target }}.zip" "juicity-windows-gnullvm-${{ matrix.target }}/"
