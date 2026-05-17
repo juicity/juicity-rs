@@ -4,9 +4,9 @@
 # Supported platforms:
 #   Linux glibc  (zigbuild): x86_64, aarch64, i686, armv7, riscv64gc, loongarch64
 #   Linux musl   (zigbuild): x86_64, aarch64, i686, armv7, riscv64gc, loongarch64
-#   Windows gnullvm (static): x86_64, aarch64, i686  (via MSYS2)
+#   Windows gnullvm (static): x86_64, aarch64  (via MSYS2 CLANG64/CLANGARM64)
 #   macOS        (native)  : x86_64, aarch64
-#   FreeBSD      (VM)      : x86_64
+#   FreeBSD      (cross)   : x86_64
 # ============================================
 
 name: Build & Release
@@ -49,9 +49,9 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install Zig
-        uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: master
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew install zig
 
       - name: Install cargo-zigbuild
         uses: taiki-e/install-action@v2.78.3
@@ -109,9 +109,9 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install Zig
-        uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: master
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew install zig
 
       - name: Install cargo-zigbuild
         uses: taiki-e/install-action@v2.78.3
@@ -162,53 +162,39 @@ jobs:
   # --------------------------------------------------
   windows-gnullvm:
     name: Windows gnullvm (${{ matrix.target }})
-    runs-on: windows-latest
-    defaults:
-      run:
-        shell: msys2 {0}
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - x86_64-pc-windows-gnullvm
-          - aarch64-pc-windows-gnullvm
-          - i686-pc-windows-gnullvm
+        include:
+          - target: x86_64-pc-windows-gnullvm
+            runner: windows-latest
+            msystem: CLANG64
+          - target: aarch64-pc-windows-gnullvm
+            runner: windows-11-arm
+            msystem: CLANGARM64
     steps:
       - uses: actions/checkout@v6.0.2
 
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2.31.1
         with:
-          msystem: MINGW64
+          msystem: ${{ matrix.msystem }}
           update: true
-          install: >
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-make
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-pkg-config
-            zip
-            unzip
-
-      - name: Install Rust toolchain
-        shell: msys2 {0}
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          source "$HOME/.cargo/env"
-          rustup target add ${{ matrix.target }}
+          install: >-
+            mingw-w64-${{ matrix.msystem == 'CLANG64' && 'x86_64' || 'aarch64' }}-clang
+            mingw-w64-${{ matrix.msystem == 'CLANG64' && 'x86_64' || 'aarch64' }}-lld
+            mingw-w64-${{ matrix.msystem == 'CLANG64' && 'x86_64' || 'aarch64' }}-llvm
+            mingw-w64-${{ matrix.msystem == 'CLANG64' && 'x86_64' || 'aarch64' }}-rust
 
       - name: Build (static CRT)
         shell: msys2 {0}
-        env:
-          RUSTFLAGS: -C target-feature=+crt-static
         run: |
-          source "$HOME/.cargo/env"
           cargo build --release --target ${{ matrix.target }}
 
       - name: Prepare package
         shell: msys2 {0}
         run: |
-          source "$HOME/.cargo/env"
           PKG_NAME="juicity-windows-gnullvm-${{ matrix.target }}"
           mkdir -p "dist/${PKG_NAME}"
           cp "target/${{ matrix.target }}/release/juicity-client.exe" "dist/${PKG_NAME}/"
@@ -278,7 +264,7 @@ jobs:
           if-no-files-found: error
 
   # --------------------------------------------------
-  # FreeBSD — VM build
+  # FreeBSD — cross build via actions-rust-cross
   # --------------------------------------------------
   freebsd:
     name: FreeBSD x86_64
@@ -286,25 +272,26 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
 
-      - name: Build in FreeBSD VM
-        uses: vmactions/freebsd-vm@v1.4.5
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@v1
         with:
-          usesh: true
-          prepare: |
-            pkg install -y curl
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-            source $HOME/.cargo/env
-          run: |
-            source $HOME/.cargo/env
-            cargo build --release --target x86_64-unknown-freebsd
+          toolchain: stable
+          targets: x86_64-unknown-freebsd
+
+      - name: Build (cross)
+        uses: houseabsolute/actions-rust-cross@v1
+        with:
+          command: build
+          target: x86_64-unknown-freebsd
+          args: "--release"
 
       - name: Prepare package
         shell: bash
         run: |
           PKG_NAME="juicity-freebsd-x86_64"
           mkdir -p "dist/${PKG_NAME}"
-          cp -r "target/x86_64-unknown-freebsd/release/juicity-client" "dist/${PKG_NAME}/" || true
-          cp -r "target/x86_64-unknown-freebsd/release/juicity-server" "dist/${PKG_NAME}/" || true
+          cp "target/x86_64-unknown-freebsd/release/juicity-client" "dist/${PKG_NAME}/" || true
+          cp "target/x86_64-unknown-freebsd/release/juicity-server" "dist/${PKG_NAME}/" || true
           cp juicity-client/examples/config.json "dist/${PKG_NAME}/client-config.json"
           cp juicity-server/examples/config.json "dist/${PKG_NAME}/server-config.json"
 
