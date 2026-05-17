@@ -4,7 +4,7 @@
 # Supported platforms:
 #   Linux glibc  (zigbuild): x86_64, aarch64, i686, armv7, riscv64gc, loongarch64
 #   Linux musl   (zigbuild): x86_64, aarch64, i686, armv7, riscv64gc, loongarch64
-#   Windows gnu  (static)  : x86_64, aarch64, i686
+#   Windows gnullvm (static): x86_64, aarch64, i686  (via MSYS2)
 #   macOS        (native)  : x86_64, aarch64
 #   FreeBSD      (VM)      : x86_64
 # ============================================
@@ -47,6 +47,11 @@ jobs:
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
+
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: master
 
       - name: Install cargo-zigbuild
         uses: taiki-e/install-action@v2.78.3
@@ -103,6 +108,11 @@ jobs:
           toolchain: stable
           targets: ${{ matrix.target }}
 
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: master
+
       - name: Install cargo-zigbuild
         uses: taiki-e/install-action@v2.78.3
         with:
@@ -148,37 +158,58 @@ jobs:
           if-no-files-found: warn
 
   # --------------------------------------------------
-  # Windows gnu — static compile
+  # Windows gnullvm — static compile via MSYS2
   # --------------------------------------------------
-  windows-gnu:
-    name: Windows gnu (${{ matrix.target }})
+  windows-gnullvm:
+    name: Windows gnullvm (${{ matrix.target }})
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
     strategy:
       fail-fast: false
       matrix:
         target:
-          - x86_64-pc-windows-gnu
-          - aarch64-pc-windows-gnu
-          - i686-pc-windows-gnu
+          - x86_64-pc-windows-gnullvm
+          - aarch64-pc-windows-gnullvm
+          - i686-pc-windows-gnullvm
     steps:
       - uses: actions/checkout@v6.0.2
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@v1
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2.31.1
         with:
-          toolchain: stable
-          targets: ${{ matrix.target }}
+          msystem: MINGW64
+          update: true
+          install: >
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-make
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-pkg-config
+            zip
+            unzip
+
+      - name: Install Rust toolchain
+        shell: msys2 {0}
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          source "$HOME/.cargo/env"
+          rustup target add ${{ matrix.target }}
 
       - name: Build (static CRT)
-        shell: bash
+        shell: msys2 {0}
         env:
           RUSTFLAGS: -C target-feature=+crt-static
-        run: cargo build --release --target ${{ matrix.target }}
+        run: |
+          source "$HOME/.cargo/env"
+          cargo build --release --target ${{ matrix.target }}
 
       - name: Prepare package
-        shell: bash
+        shell: msys2 {0}
         run: |
-          PKG_NAME="juicity-windows-gnu-${{ matrix.target }}"
+          source "$HOME/.cargo/env"
+          PKG_NAME="juicity-windows-gnullvm-${{ matrix.target }}"
           mkdir -p "dist/${PKG_NAME}"
           cp "target/${{ matrix.target }}/release/juicity-client.exe" "dist/${PKG_NAME}/"
           cp "target/${{ matrix.target }}/release/juicity-server.exe" "dist/${PKG_NAME}/"
@@ -186,16 +217,16 @@ jobs:
           cp juicity-server/examples/config.json "dist/${PKG_NAME}/server-config.json"
 
       - name: Package zip
-        shell: bash
+        shell: msys2 {0}
         run: |
           cd dist
-          7z a -tzip "../juicity-windows-gnu-${{ matrix.target }}.zip" "juicity-windows-gnu-${{ matrix.target }}/"
+          zip -r "../juicity-windows-gnullvm-${{ matrix.target }}.zip" "juicity-windows-gnullvm-${{ matrix.target }}/"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: juicity-windows-gnu-${{ matrix.target }}
-          path: juicity-windows-gnu-${{ matrix.target }}.zip
+          name: juicity-windows-gnullvm-${{ matrix.target }}
+          path: juicity-windows-gnullvm-${{ matrix.target }}.zip
           if-no-files-found: error
 
   # --------------------------------------------------
@@ -272,7 +303,6 @@ jobs:
         run: |
           PKG_NAME="juicity-freebsd-x86_64"
           mkdir -p "dist/${PKG_NAME}"
-          # Binaries are built inside the VM; copy from the FreeBSD VM output
           cp -r "target/x86_64-unknown-freebsd/release/juicity-client" "dist/${PKG_NAME}/" || true
           cp -r "target/x86_64-unknown-freebsd/release/juicity-server" "dist/${PKG_NAME}/" || true
           cp juicity-client/examples/config.json "dist/${PKG_NAME}/client-config.json"
@@ -299,7 +329,7 @@ jobs:
     needs:
       - linux-glibc
       - linux-musl
-      - windows-gnu
+      - windows-gnullvm
       - macos
       - freebsd
     runs-on: ubuntu-latest
