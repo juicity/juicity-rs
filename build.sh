@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ============================================
 # Juicity-RS Build Script for Unix/Linux
 # ============================================
