@@ -105,7 +105,7 @@ async fn handle_socks5(mut stream: TcpStream, client: JuicityClient) -> anyhow::
             let mut port_buf = [0u8; 2];
             stream.read_exact(&mut port_buf).await?;
             (
-                String::from_utf8_lossy(&domain).to_string(),
+                String::from_utf8(domain)?,
                 u16::from_be_bytes(port_buf),
             )
         }
@@ -398,7 +398,7 @@ fn parse_socks5_udp_request(packet: &[u8]) -> Option<UdpOutboundDatagram> {
             if packet.len() < offset + dlen + 2 {
                 return None;
             }
-            let domain = String::from_utf8_lossy(&packet[offset..offset + dlen]).to_string();
+            let domain = String::from_utf8(packet[offset..offset + dlen].to_vec()).ok()?;
             offset += dlen;
             let p = u16::from_be_bytes([packet[offset], packet[offset + 1]]);
             offset += 2;

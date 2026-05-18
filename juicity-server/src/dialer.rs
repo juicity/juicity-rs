@@ -14,6 +14,7 @@ pub struct DefaultDialer;
 impl Dialer for DefaultDialer {
     async fn dial_tcp(&self, addr: &str) -> anyhow::Result<TcpStream> {
         let stream = TcpStream::connect(addr).await?;
+        stream.set_nodelay(true)?;
         Ok(stream)
     }
 
@@ -44,6 +45,7 @@ impl Dialer for BindDialer {
         };
         socket.bind(std::net::SocketAddr::new(self.bind_addr, 0))?;
         let stream = socket.connect(addr.parse()?).await?;
+        stream.set_nodelay(true)?;
         Ok(stream)
     }
 

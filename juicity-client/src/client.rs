@@ -110,17 +110,27 @@ impl JuicityClient {
             }
         };
 
-        let endpoint = Endpoint::client("[::]:0".parse()?)?;
+        // Endpoint::client() may perform synchronous DNS resolution and socket
+        // operations internally. Run it in spawn_blocking to avoid blocking
+        // the async runtime during startup.
+        let bind_addr: SocketAddr = "[::]:0".parse()?;
+        let endpoint = tokio::task::spawn_blocking(move || {
+            Endpoint::client(bind_addr)
+        })
+        .await??;
         let endpoint = Arc::new(endpoint);
 
-        // Build and cache the QUIC client config once
+        // Build and cache the QUIC client config once.
+        // TLS config construction is CPU-bound (certificate parsing, crypto setup).
+        // Run it in spawn_blocking to avoid blocking the async runtime.
         let allow_insecure = config.allow_insecure;
-        let provider = rustls::crypto::aws_lc_rs::default_provider();
-        let quic_config = Arc::new(Self::build_quic_config(
-            allow_insecure,
-            &pinned_hash,
-            &provider,
-        )?);
+        let pinned_hash_for_config = pinned_hash.clone();
+        let quic_config = tokio::task::spawn_blocking(move || {
+            let provider = rustls::crypto::aws_lc_rs::default_provider();
+            Self::build_quic_config(allow_insecure, &pinned_hash_for_config, &provider)
+        })
+        .await??;
+        let quic_config = Arc::new(quic_config);
 
         Ok(Self {
             endpoint,
@@ -136,8 +146,20 @@ impl JuicityClient {
 
     /// Connect to the server and authenticate using TLS ExportKeyingMaterial
     pub async fn connect(&self) -> anyhow::Result<Connection> {
-        // Use a single write lock to atomically check connection state and reset,
-        // avoiding a TOCTOU race condition between the read-lock check and write-lock reset.
+        // Fast path: read lock allows concurrent callers to check a live connection
+        // in parallel without blocking each other.
+        {
+            let guard = self.conn.read().await;
+            if let Some(conn) = guard.as_ref() {
+                if conn.close_reason().is_none() {
+                    return Ok(conn.clone());
+                }
+            }
+        }
+
+        // Slow path: write lock for reconnection.
+        // Re-check after acquiring the write lock to avoid duplicate reconnections
+        // when multiple tasks race to this point simultaneously.
         {
             let mut guard = self.conn.write().await;
             if let Some(conn) = guard.as_ref() {
@@ -164,16 +186,16 @@ impl JuicityClient {
         // Format: [version=0][cmd_type=Authenticate(0x00)][uuid(16)][token(32)]
         let mut uni = quinn_conn.open_uni().await?;
 
-        // Command head: version + cmd_type
-        uni.write_all(&[protocol::PROTOCOL_VERSION, protocol::AUTHENTICATE_TYPE])
-            .await?;
-
         // Token using TLS ExportKeyingMaterial(uuid, password, 32) per RFC 5705
         let token = protocol::gen_token_via_connection(&quinn_conn, &self.uuid, &self.password)?;
 
-        // Body: uuid(16 bytes) + token(32 bytes)
-        uni.write_all(self.uuid.as_bytes()).await?;
-        uni.write_all(&token).await?;
+        // Batch all 50 auth bytes into a single write to reduce async round-trips:
+        // [version(1)][cmd_type(1)][uuid(16)][token(32)]
+        let mut auth_buf = Vec::with_capacity(2 + 16 + 32);
+        auth_buf.extend_from_slice(&[protocol::PROTOCOL_VERSION, protocol::AUTHENTICATE_TYPE]);
+        auth_buf.extend_from_slice(self.uuid.as_bytes());
+        auth_buf.extend_from_slice(&token);
+        uni.write_all(&auth_buf).await?;
 
         tracing::info!("Authenticated as user {}", self.uuid);
 
@@ -235,16 +257,20 @@ impl JuicityClient {
         let conn = self.connect().await?;
         let (mut send, recv) = conn.open_bi().await?;
 
-        // Stream header: [network=3][trojanc_addr]
+        // Batch stream header + first datagram into a single write to reduce async round-trips:
+        //   stream header:  [network=3][trojanc_addr]
+        //   first datagram: [trojanc_addr][len(2)][payload]
         let stream_header = protocol::build_proxy_header(protocol::NETWORK_UDP, addr, port)?;
-        send.write_all(&stream_header).await?;
-
-        // First datagram: [trojanc_addr][len(2)][payload]
         let dgram_addr = protocol::build_trojanc_addr(addr, port)?;
-        send.write_all(&dgram_addr).await?;
-        let len = (first_packet.len() as u16).to_be_bytes();
-        send.write_all(&len).await?;
-        send.write_all(first_packet).await?;
+        let pkt_len = (first_packet.len() as u16).to_be_bytes();
+        let mut buf = Vec::with_capacity(
+            stream_header.len() + dgram_addr.len() + 2 + first_packet.len(),
+        );
+        buf.extend_from_slice(&stream_header);
+        buf.extend_from_slice(&dgram_addr);
+        buf.extend_from_slice(&pkt_len);
+        buf.extend_from_slice(first_packet);
+        send.write_all(&buf).await?;
 
         Ok((send, recv))
     }

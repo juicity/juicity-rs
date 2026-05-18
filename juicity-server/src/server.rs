@@ -35,8 +35,16 @@ impl JuicityServer {
             users.insert(uuid, password.clone());
         }
 
-        let certs = load_certs(&config.certificate)?;
-        let key = load_private_key(&config.private_key)?;
+        // Load TLS certificates and private key via spawn_blocking to avoid
+        // blocking the async runtime with synchronous file I/O.
+        let cert_path = config.certificate.clone();
+        let key_path = config.private_key.clone();
+        let (certs, key) = tokio::try_join!(
+            tokio::task::spawn_blocking(move || load_certs(&cert_path)),
+            tokio::task::spawn_blocking(move || load_private_key(&key_path)),
+        )?;
+        let certs = certs?;
+        let key = key?;
 
         let mut tls_server_config = rustls::ServerConfig::builder()
             .with_no_client_auth()
@@ -89,7 +97,9 @@ impl JuicityServer {
         };
         let socket_addr: SocketAddr = addr.parse()?;
 
-        let udp_socket = std::net::UdpSocket::bind(socket_addr)?;
+        // Use tokio::net::UdpSocket for async bind to avoid blocking the runtime.
+        let tokio_udp = tokio::net::UdpSocket::bind(socket_addr).await?;
+        let udp_socket = tokio_udp.into_std()?;
         udp_socket.set_nonblocking(true)?;
         let sidecar_socket = udp_socket.try_clone()?;
         sidecar_socket.set_nonblocking(true)?;
@@ -180,18 +190,26 @@ async fn run_underlay_packet_loop(
         Arc::new(tokio::sync::Mutex::new(HashMap::new()));
 
     while let Some(packet) = rx.recv().await {
-        if let Err(e) = handle_non_quic_underlay_packet(
-            packet,
-            in_flight.clone(),
-            udp_pool.clone(),
-            sessions.clone(),
-            server_socket.clone(),
-            disable_udp_443,
-        )
-        .await
-        {
-            tracing::debug!("non-QUIC underlay packet handling failed: {:?}", e);
-        }
+        // Spawn each packet handler so that a slow evict() (up to 100 ms wait for
+        // in-flight underlay auth) in one handler cannot block subsequent packets.
+        let in_flight = in_flight.clone();
+        let udp_pool = udp_pool.clone();
+        let sessions = sessions.clone();
+        let server_socket = server_socket.clone();
+        tokio::spawn(async move {
+            if let Err(e) = handle_non_quic_underlay_packet(
+                packet,
+                in_flight,
+                udp_pool,
+                sessions,
+                server_socket,
+                disable_udp_443,
+            )
+            .await
+            {
+                tracing::debug!("non-QUIC underlay packet handling failed: {:?}", e);
+            }
+        });
     }
 }
 
@@ -594,18 +612,18 @@ async fn handle_udp_relay(
                         // Response: [trojanc_addr][len(2)][payload] (no network byte)
                         let addr_str = addr.ip().to_string();
                         let addr_port = addr.port();
-                        if let Ok(hdr) = protocol::build_trojanc_addr(&addr_str, addr_port) {
-                            if send_stream.write_all(&hdr).await.is_err() {
-                                break;
-                            }
-                        } else {
-                            break;
-                        }
-                        let len = (n as u16).to_be_bytes();
-                        if send_stream.write_all(&len).await.is_err() {
-                            break;
-                        }
-                        if send_stream.write_all(&buf[..n]).await.is_err() {
+                        let hdr = match protocol::build_trojanc_addr(&addr_str, addr_port) {
+                            Ok(h) => h,
+                            Err(_) => break,
+                        };
+                        // Batch header + length + payload into a single write to reduce
+                        // async round-trips through the QUIC send state machine.
+                        let pkt_len = (n as u16).to_be_bytes();
+                        let mut frame = Vec::with_capacity(hdr.len() + 2 + n);
+                        frame.extend_from_slice(&hdr);
+                        frame.extend_from_slice(&pkt_len);
+                        frame.extend_from_slice(&buf[..n]);
+                        if send_stream.write_all(&frame).await.is_err() {
                             break;
                         }
                     }

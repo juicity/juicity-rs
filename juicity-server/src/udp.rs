@@ -23,8 +23,11 @@ pub struct UdpEndpoint {
 }
 
 impl UdpEndpoint {
-    pub fn new(options: UdpEndpointOptions) -> anyhow::Result<Self> {
-        let socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
+    /// Create a new UDP endpoint bound to a random port.
+    /// Uses tokio::net::UdpSocket for async bind to avoid blocking the runtime.
+    pub async fn new(options: UdpEndpointOptions) -> anyhow::Result<Self> {
+        let tokio_socket = tokio::net::UdpSocket::bind("0.0.0.0:0").await?;
+        let socket = tokio_socket.into_std()?;
         socket.set_nonblocking(true)?;
 
         Ok(Self {
@@ -62,22 +65,28 @@ impl UdpEndpointPool {
         addr: SocketAddr,
         options: UdpEndpointOptions,
     ) -> anyhow::Result<((std::net::UdpSocket, String), bool)> {
-        let mut inner = self.inner.lock().await;
-
-        // Check if already exists
-        if let Some(endpoint) = inner.get_mut(&addr) {
-            if !endpoint.is_expired() {
-                endpoint.touch();
-                // Clone socket and dial_target only when needed (existing session)
-                let socket = endpoint.socket.try_clone()?;
-                let dial_target = endpoint.dial_target.clone();
-                return Ok(((socket, dial_target), false));
+        // Fast path: check if already exists without creating a new endpoint.
+        // We hold the lock only briefly to check and clone.
+        {
+            let mut inner = self.inner.lock().await;
+            if let Some(endpoint) = inner.get_mut(&addr) {
+                if !endpoint.is_expired() {
+                    endpoint.touch();
+                    // Clone socket and dial_target only when needed (existing session)
+                    let socket = endpoint.socket.try_clone()?;
+                    let dial_target = endpoint.dial_target.clone();
+                    return Ok(((socket, dial_target), false));
+                }
             }
         }
 
-        let endpoint = UdpEndpoint::new(options)?;
+        // Slow path: create a new endpoint outside the lock to avoid holding
+        // the mutex across an async bind (which would block other tasks).
+        let endpoint = UdpEndpoint::new(options).await?;
         let dial_target = endpoint.dial_target.clone();
         let socket = endpoint.socket.try_clone()?;
+
+        let mut inner = self.inner.lock().await;
         inner.insert(addr, endpoint);
 
         Ok(((socket, dial_target), true))
