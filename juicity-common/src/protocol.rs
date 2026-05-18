@@ -15,10 +15,36 @@ pub enum ProtocolError {
     UnsupportedAddressType(u8),
 }
 
+/// Network type for proxied connections
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Network {
+    Tcp,
+    Udp,
+}
+
+impl Network {
+    /// Convert to wire format byte (compatible with upstream)
+    pub fn to_wire_byte(self) -> u8 {
+        match self {
+            Network::Tcp => NETWORK_TCP,
+            Network::Udp => NETWORK_UDP,
+        }
+    }
+
+    /// Convert from wire format byte
+    pub fn from_wire_byte(b: u8) -> Option<Self> {
+        match b {
+            NETWORK_TCP => Some(Network::Tcp),
+            NETWORK_UDP => Some(Network::Udp),
+            _ => None,
+        }
+    }
+}
+
 /// Represents the metadata for proxied connections
 #[derive(Debug, Clone)]
 pub struct ProxyMetadata {
-    pub network: String,
+    pub network: Network,
     pub hostname: String,
     pub port: u16,
     pub uuid: Uuid,
@@ -162,7 +188,7 @@ pub async fn read_underlay_auth_async<R: tokio::io::AsyncReadExt + Unpin>(
         iv,
         psk,
         metadata: ProxyMetadata {
-            network: "udp".to_string(),
+            network: Network::Udp,
             hostname,
             port,
             uuid,

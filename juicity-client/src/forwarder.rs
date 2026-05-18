@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use bytes::Bytes;
 use juicity_common::consts;
 use juicity_common::protocol;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
@@ -23,7 +24,7 @@ pub struct ForwardEntry {
     /// Local listen address (e.g. "0.0.0.0:1080")
     pub local_addr: SocketAddr,
     /// Target address to forward to (e.g. "1.2.3.4:443")
-    pub target: String,
+    pub target: Arc<str>,
     /// Protocol filter
     pub protocol: ProtocolFilter,
 }
@@ -52,7 +53,7 @@ impl Forwarder {
 
             entries.push(ForwardEntry {
                 local_addr,
-                target: target.clone(),
+                target: Arc::from(target.as_str()),
                 protocol,
             });
         }
@@ -205,8 +206,8 @@ async fn start_udp_forward(entry: ForwardEntry, client: JuicityClient) -> anyhow
         entry.target
     );
 
-    let target = entry.target.clone();
-    let (host, port) = parse_target(&target)?;
+    let (host, port) = parse_target(&entry.target)?;
+    let host = Arc::from(host);
 
     // We use a shared state to track UDP sessions per source address.
     // Each unique source address gets its own QUIC bidirectional stream.
@@ -217,16 +218,16 @@ async fn start_udp_forward(entry: ForwardEntry, client: JuicityClient) -> anyhow
 
     loop {
         let (n, src_addr) = socket.recv_from(&mut buf).await?;
-        let data = buf[..n].to_vec();
+        let data = Bytes::copy_from_slice(&buf[..n]);
 
         let socket = Arc::clone(&socket);
         let client = client.clone();
-        let host = host.clone();
+        let host = Arc::clone(&host);
         let sessions = Arc::clone(&sessions);
 
         tokio::spawn(async move {
             if let Err(e) = handle_udp_datagram(
-                socket, sessions, src_addr, data, &host, port, &client,
+                socket, sessions, src_addr, data, host, port, &client,
             )
             .await
             {
@@ -239,7 +240,7 @@ async fn start_udp_forward(entry: ForwardEntry, client: JuicityClient) -> anyhow
 /// A UDP session that holds the QUIC stream for a given source address.
 struct UdpSession {
     /// Sender channel to push outbound datagrams to the QUIC writer task
-    tx: tokio::sync::mpsc::Sender<Vec<u8>>,
+    tx: tokio::sync::mpsc::Sender<Bytes>,
 }
 
 /// Handle an incoming UDP datagram: find or create a session, then forward.
@@ -247,14 +248,11 @@ async fn handle_udp_datagram(
     socket: Arc<UdpSocket>,
     sessions: Arc<Mutex<HashMap<SocketAddr, UdpSession>>>,
     src_addr: SocketAddr,
-    data: Vec<u8>,
-    host: &str,
+    data: Bytes,
+    host: Arc<str>,
     port: u16,
     client: &JuicityClient,
 ) -> anyhow::Result<()> {
-    // Clone host string for the spawned tasks
-    let host_owned = host.to_string();
-
     // Check if we already have a session for this source
     let existing_tx = {
         let guard = sessions.lock().await;
@@ -263,8 +261,7 @@ async fn handle_udp_datagram(
 
     if let Some(tx) = existing_tx {
         // Session exists, send datagram through it.
-        // Clone data so the original is still available if the session is dead
-        // and we need to create a new one.
+        // Bytes is Arc-based, so clone is cheap (refcount increment).
         if tx.send(data.clone()).await.is_ok() {
             return Ok(());
         }
@@ -275,9 +272,9 @@ async fn handle_udp_datagram(
     }
 
     // Create a new session: open a QUIC UDP stream with the first datagram
-    let (mut send, mut recv) = client.open_udp_stream(&host_owned, port, &data).await?;
+    let (mut send, mut recv) = client.open_udp_stream(&host, port, &data[..]).await?;
 
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(256);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Bytes>(256);
 
     // Insert session
     {
@@ -296,7 +293,7 @@ async fn handle_udp_datagram(
         loop {
             match tokio::time::timeout(consts::DEFAULT_NAT_TIMEOUT, rx.recv()).await {
                 Ok(Some(datagram)) => {
-                    if JuicityClient::send_udp_datagram(&mut send, &host_owned, port, &datagram)
+                    if JuicityClient::send_udp_datagram(&mut send, &host, port, &datagram[..])
                         .await
                         .is_err()
                     {

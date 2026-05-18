@@ -4,13 +4,14 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
+use bytes::Bytes;
 use quinn::udp::{RecvMeta, Transmit};
 use quinn::{AsyncUdpSocket, UdpPoller};
 
 #[derive(Debug, Clone)]
 pub struct UnderlayPacket {
     pub peer: SocketAddr,
-    pub payload: Vec<u8>,
+    pub payload: Bytes,
 }
 
 /// Split non-QUIC packets away from Quinn while keeping one shared UDP port.
@@ -91,9 +92,11 @@ impl AsyncUdpSocket for DemuxUdpSocket {
                 let stride = meta[i].stride.max(1);
                 while offset < meta[i].len {
                     let end = (offset + stride).min(meta[i].len);
+                    // Use Bytes::copy_from_slice to create a reference-counted
+                    // copy of the payload, avoiding per-packet Vec allocation overhead.
                     let _ = self.underlay_tx.send(UnderlayPacket {
                         peer: meta[i].addr,
-                        payload: bufs[i][offset..end].to_vec(),
+                        payload: Bytes::copy_from_slice(&bufs[i][offset..end]),
                     });
                     offset = end;
                 }

@@ -15,8 +15,7 @@ pub struct JuicityClient {
     uuid: Uuid,
     password: String,
     sni: String,
-    allow_insecure: bool,
-    pinned_certchain_sha256: Vec<u8>,
+    quic_config: Arc<ClientConfig>,
     conn: Arc<tokio::sync::RwLock<Option<Connection>>>,
     auth_uni_stream: Arc<tokio::sync::Mutex<Option<SendStream>>>,
 }
@@ -114,14 +113,22 @@ impl JuicityClient {
         let endpoint = Endpoint::client("[::]:0".parse()?)?;
         let endpoint = Arc::new(endpoint);
 
+        // Build and cache the QUIC client config once
+        let allow_insecure = config.allow_insecure;
+        let provider = rustls::crypto::aws_lc_rs::default_provider();
+        let quic_config = Arc::new(Self::build_quic_config(
+            allow_insecure,
+            &pinned_hash,
+            &provider,
+        )?);
+
         Ok(Self {
             endpoint,
             server_addr,
             uuid,
             password: config.password.clone(),
             sni,
-            allow_insecure: config.allow_insecure,
-            pinned_certchain_sha256: pinned_hash,
+            quic_config,
             conn: Arc::new(tokio::sync::RwLock::new(None)),
             auth_uni_stream: Arc::new(tokio::sync::Mutex::new(None)),
         })
@@ -147,18 +154,10 @@ impl JuicityClient {
 
         tracing::info!("Connecting to Juicity server at {}", self.server_addr);
 
-        let provider = rustls::crypto::aws_lc_rs::default_provider();
-
-        let quic_config = Self::build_quic_config(
-            self.allow_insecure,
-            &self.pinned_certchain_sha256,
-            &provider,
-        )?;
-
         let addr = SocketAddr::new(self.server_addr.ip(), self.server_addr.port());
         let quinn_conn = self
             .endpoint
-            .connect_with(quic_config, addr, &self.sni)?
+            .connect_with((*self.quic_config).clone(), addr, &self.sni)?
             .await?;
 
         // === Authenticate (compatible with upstream) ===

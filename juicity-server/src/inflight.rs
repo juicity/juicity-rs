@@ -41,34 +41,45 @@ impl InFlightUnderlayKey {
         self.notify.notify_waiters();
     }
 
-    /// Evict and retrieve an authentication (async version using Notify)
+    /// Evict and retrieve an authentication using Notify for zero-latency wakeup.
+    /// Uses a loop with notified() to avoid the 100ms sleep penalty.
     pub async fn evict(&self, key: &InFlightKey) -> Option<UnderlayAuth> {
         // First attempt without waiting
         {
             let mut inner = self.inner.lock().unwrap();
-            let auth = inner.keys.remove(key);
-            inner.timestamps.remove(key);
-            if auth.is_some() {
-                return auth;
+            if let Some(auth) = inner.keys.remove(key) {
+                inner.timestamps.remove(key);
+                return Some(auth);
             }
         }
 
-        // If not found yet, wait for notification (with timeout)
-        // (In the Go implementation, it waits on a condition variable)
-        tokio::select! {
-            _ = self.notify.notified() => {
-                // Woken up - check if our key arrived
-                let mut guard = self.inner.lock().unwrap();
-                let auth = guard.keys.remove(key);
-                guard.timestamps.remove(key);
-                auth
-            }
-            _ = tokio::time::sleep(Duration::from_millis(100)) => {
-                // Timeout - try one last time
-                let mut guard = self.inner.lock().unwrap();
-                let auth = guard.keys.remove(key);
-                guard.timestamps.remove(key);
-                auth
+        // If not found yet, wait for notification with a short timeout
+        // to handle the case where the key never arrives.
+        // We use a loop to re-check after notification, since notify_waiters()
+        // wakes ALL waiters and our key might not be the one that arrived.
+        let deadline = Instant::now() + Duration::from_millis(100);
+        loop {
+            let wait = self.notify.notified();
+            tokio::select! {
+                _ = wait => {
+                    // Woken up - check if our key arrived
+                    let mut guard = self.inner.lock().unwrap();
+                    if let Some(auth) = guard.keys.remove(key) {
+                        guard.timestamps.remove(key);
+                        return Some(auth);
+                    }
+                    // Not our key, loop back to wait again (if within deadline)
+                    if Instant::now() >= deadline {
+                        return None;
+                    }
+                }
+                _ = tokio::time::sleep_until(deadline.into()) => {
+                    // Timeout - try one last time
+                    let mut guard = self.inner.lock().unwrap();
+                    let auth = guard.keys.remove(key);
+                    guard.timestamps.remove(key);
+                    return auth;
+                }
             }
         }
     }

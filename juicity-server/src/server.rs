@@ -4,6 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use juicity_common::consts;
+use juicity_common::crypto::juicity_underlay;
+use juicity_common::crypto::UnderlayCipher;
 use juicity_common::protocol;
 use juicity_common::Config;
 use quinn::{Endpoint, EndpointConfig, RecvStream, SendStream, VarInt};
@@ -12,7 +14,7 @@ use uuid::Uuid;
 #[derive(Clone)]
 struct UnderlaySession {
     target: String,
-    psk: Vec<u8>,
+    cipher: UnderlayCipher,
 }
 
 /// Juicity proxy server
@@ -128,7 +130,7 @@ impl JuicityServer {
             let mut interval = tokio::time::interval(Duration::from_secs(60));
             loop {
                 interval.tick().await;
-                udp_pool_cleanup.cleanup();
+                udp_pool_cleanup.cleanup_async().await;
             }
         });
 
@@ -206,31 +208,31 @@ async fn handle_non_quic_underlay_packet(
     }
 
     let source = packet.peer;
+    // Convert Bytes to Vec<u8> for in-place decryption
+    let mut payload = packet.payload.to_vec();
+
     let existing_session = {
         let guard = sessions.lock().await;
         guard.get(&source).cloned()
     };
 
-    let (session, plaintext) = if let Some(existing) = existing_session {
-        let plain = match juicity_common::crypto::juicity_underlay::decrypt_udp(
-            &existing.psk,
-            &packet.payload,
-        ) {
-            Ok(plain) => plain,
-            Err(e) => {
-                tracing::debug!(
-                    "drop invalid underlay packet from {} for target {}: {:?}",
-                    source,
-                    existing.target,
-                    e
-                );
-                return Ok(());
-            }
-        };
-        (existing, plain)
+    let (session, pt_len) = if let Some(existing) = existing_session {
+        // In-place decrypt using cached cipher
+        if let Err(e) = existing.cipher.decrypt_in_place(&mut payload) {
+            tracing::debug!(
+                "drop invalid underlay packet from {} for target {}: {:?}",
+                source,
+                existing.target,
+                e
+            );
+            return Ok(());
+        }
+        // After decrypt_in_place, payload contains only plaintext
+        let pt_len = payload.len();
+        (existing, pt_len)
     } else {
         let mut salt = [0u8; consts::UNDERLAY_SALT_LEN];
-        salt.copy_from_slice(&packet.payload[..consts::UNDERLAY_SALT_LEN]);
+        salt.copy_from_slice(&payload[..consts::UNDERLAY_SALT_LEN]);
         let auth = match in_flight.evict(&salt).await {
             Some(auth) => auth,
             None => {
@@ -247,24 +249,25 @@ async fn handle_non_quic_underlay_packet(
             return Ok(());
         }
 
+        // Derive subkey once and cache it in UnderlayCipher
+        let subkey = juicity_underlay::derive_subkey(&auth.psk, &salt)?;
+        let cipher = UnderlayCipher::from_subkey(&subkey);
+
+        // In-place decrypt
+        if let Err(e) = cipher.decrypt_in_place(&mut payload) {
+            tracing::debug!(
+                "drop first underlay packet from {} for target {}: {:?}",
+                source,
+                auth.metadata.target_addr(),
+                e
+            );
+            return Ok(());
+        }
+        let pt_len = payload.len();
+
         let session = UnderlaySession {
             target: auth.metadata.target_addr(),
-            psk: auth.psk,
-        };
-        let plaintext = match juicity_common::crypto::juicity_underlay::decrypt_udp(
-            &session.psk,
-            &packet.payload,
-        ) {
-            Ok(plain) => plain,
-            Err(e) => {
-                tracing::debug!(
-                    "drop first underlay packet from {} for target {}: {:?}",
-                    source,
-                    session.target,
-                    e
-                );
-                return Ok(());
-            }
+            cipher,
         };
 
         {
@@ -272,7 +275,7 @@ async fn handle_non_quic_underlay_packet(
             guard.insert(source, session.clone());
         }
         tracing::debug!("new underlay session {} -> {}", source, session.target);
-        (session, plaintext)
+        (session, pt_len)
     };
 
     let ((udp_socket, dial_target), is_new) = udp_pool
@@ -282,7 +285,7 @@ async fn handle_non_quic_underlay_packet(
                 // Response path is handled by the dedicated reader spawned below.
                 handler: Box::new(|_, _| Ok(())),
                 nat_timeout: Duration::from_secs(180),
-                dial_target: session.target,
+                dial_target: session.target.clone(),
             },
         )
         .await?;
@@ -290,31 +293,21 @@ async fn handle_non_quic_underlay_packet(
     if is_new {
         let recv_socket = tokio::net::UdpSocket::from_std(udp_socket.try_clone()?)?;
         let relay_back = server_socket.clone();
-        let session_psk = session.psk.clone();
+        let session_cipher = session.cipher.clone();
         let sessions_for_task = sessions.clone();
         tokio::spawn(async move {
             let mut buf = vec![0u8; consts::ETHERNET_MTU * 4];
             loop {
                 match recv_socket.recv_from(&mut buf).await {
                     Ok((n, _)) => {
-                        let salt = juicity_common::crypto::juicity_underlay::generate_underlay_salt();
-                        let encrypted = match juicity_common::crypto::juicity_underlay::encrypt_udp(
-                            &session_psk,
-                            &buf[..n],
-                            &salt,
-                        ) {
-                            Ok(encrypted) => encrypted,
-                            Err(e) => {
-                                tracing::debug!(
-                                    "underlay response encrypt failed for {}: {:?}",
-                                    source,
-                                    e
-                                );
-                                break;
-                            }
-                        };
+                        let salt = juicity_underlay::generate_underlay_salt();
+                        // Encrypt in-place using cached cipher
+                        let mut plaintext = buf[..n].to_vec();
+                        if session_cipher.encrypt_in_place(&mut plaintext, &salt).is_err() {
+                            break;
+                        }
 
-                        if relay_back.send_to(&encrypted, source).await.is_err() {
+                        if relay_back.send_to(&plaintext, source).await.is_err() {
                             break;
                         }
                     }
@@ -331,7 +324,7 @@ async fn handle_non_quic_underlay_packet(
     }
 
     let send_socket = tokio::net::UdpSocket::from_std(udp_socket)?;
-    if let Err(e) = send_socket.send_to(&plaintext, &dial_target).await {
+    if let Err(e) = send_socket.send_to(&payload[..pt_len], &dial_target).await {
         udp_pool.remove(&source).await;
         let mut guard = sessions.lock().await;
         guard.remove(&source);

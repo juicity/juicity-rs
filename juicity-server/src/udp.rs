@@ -17,6 +17,8 @@ pub struct UdpEndpoint {
     pub dial_target: String,
     created_at: Instant,
     nat_timeout: Duration,
+    // handler is kept for API compatibility but unused internally
+    #[allow(dead_code)]
     handler: Box<dyn Fn(&[u8], SocketAddr) -> anyhow::Result<()> + Send + Sync>,
 }
 
@@ -32,28 +34,6 @@ impl UdpEndpoint {
             nat_timeout: options.nat_timeout,
             handler: options.handler,
         })
-    }
-
-    pub async fn start(&self) {
-        let mut buf = vec![0u8; 1500];
-        loop {
-            match self.socket.recv_from(&mut buf) {
-                Ok((n, addr)) => {
-                    if let Err(e) = (self.handler)(&buf[..n], addr) {
-                        tracing::debug!("UDP endpoint handler error: {:?}", e);
-                        break;
-                    }
-                }
-                Err(e) => {
-                    tracing::debug!("UDP endpoint read error: {:?}", e);
-                    break;
-                }
-            }
-        }
-    }
-
-    pub async fn write_to(&self, data: &[u8], target: &str) -> anyhow::Result<usize> {
-        Ok(self.socket.send_to(data, target)?)
     }
 
     pub fn is_expired(&self) -> bool {
@@ -108,9 +88,16 @@ impl UdpEndpointPool {
         inner.remove(addr);
     }
 
+    /// Clean up expired endpoints. Called from a periodic async task.
+    /// Uses the async mutex directly since it runs in an async context.
+    pub async fn cleanup_async(&self) {
+        let mut inner = self.inner.lock().await;
+        inner.retain(|_, endpoint| !endpoint.is_expired());
+    }
+
+    /// Sync cleanup with try_lock (kept for backward compatibility).
+    /// Prefer cleanup_async() in async contexts.
     pub fn cleanup(&self) {
-        // cleanup is called from a sync context (tokio::spawn with block on lock)
-        // We use try_lock to avoid blocking the async runtime
         if let Ok(mut inner) = self.inner.try_lock() {
             inner.retain(|_, endpoint| !endpoint.is_expired());
         }
