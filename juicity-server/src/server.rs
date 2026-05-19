@@ -89,17 +89,32 @@ impl JuicityServer {
     }
 
     pub async fn serve(&self, addr: &str) -> anyhow::Result<()> {
-        // Support ":port" shorthand (e.g. ":23182") — bind to all interfaces
-        let addr = if addr.starts_with(':') {
-            format!("0.0.0.0{}", addr)
+        // Support ":port" shorthand (e.g. ":23182").
+        // When only a port is given, bind a dual-stack socket ([::]:port with
+        // IPV6_V6ONLY=false) so both IPv4 and IPv6 clients are accepted on a
+        // single socket.  An explicit address (e.g. "0.0.0.0:23182" or
+        // "[::1]:23182") is parsed and used as-is.
+        let (socket_addr, log_addr, dual_stack) = if addr.starts_with(':') {
+            let v6: SocketAddr = format!("[::]{}", addr).parse()?;
+            (v6, format!("[::]{} (dual-stack IPv4+IPv6)", addr), true)
         } else {
-            addr.to_string()
+            let sa: SocketAddr = addr.parse()?;
+            (sa, addr.to_string(), false)
         };
-        let socket_addr: SocketAddr = addr.parse()?;
 
-        // Use tokio::net::UdpSocket for async bind to avoid blocking the runtime.
-        let tokio_udp = tokio::net::UdpSocket::bind(socket_addr).await?;
-        let udp_socket = tokio_udp.into_std()?;
+        // Build the raw UDP socket.  For dual-stack we use socket2 to clear
+        // IPV6_V6ONLY before bind, which is necessary on Windows (Linux already
+        // defaults to dual-stack but being explicit is safer).
+        let udp_socket: std::net::UdpSocket = if dual_stack {
+            use socket2::{Domain, Protocol, Socket, Type};
+            let sock = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
+            sock.set_only_v6(false)?;
+            sock.bind(&socket_addr.into())?;
+            std::net::UdpSocket::from(sock)
+        } else {
+            let tokio_udp = tokio::net::UdpSocket::bind(socket_addr).await?;
+            tokio_udp.into_std()?
+        };
         udp_socket.set_nonblocking(true)?;
         let sidecar_socket = udp_socket.try_clone()?;
         sidecar_socket.set_nonblocking(true)?;
@@ -124,7 +139,7 @@ impl JuicityServer {
             runtime,
         )?;
 
-        tracing::info!("Juicity server listening on {}", addr);
+        tracing::info!("Juicity server listening on {}", log_addr);
 
         // Spawn periodic cleanup task for in-flight underlay keys
         let inflight_cleanup = self.in_flight.clone();

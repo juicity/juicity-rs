@@ -57,17 +57,18 @@ async fn handle_connection(
     _addr: SocketAddr,
     client: JuicityClient,
 ) -> anyhow::Result<()> {
+    let local_addr = stream.local_addr()?;
     let mut buf = [0u8; 1];
     stream.peek(&mut buf).await?;
 
     match buf[0] {
-        0x05 => handle_socks5(stream, client).await,
+        0x05 => handle_socks5(stream, local_addr, client).await,
         _ => handle_http_proxy(stream, client).await,
     }
 }
 
 /// Handle a SOCKS5 proxy connection
-async fn handle_socks5(mut stream: TcpStream, client: JuicityClient) -> anyhow::Result<()> {
+async fn handle_socks5(mut stream: TcpStream, local_addr: SocketAddr, client: JuicityClient) -> anyhow::Result<()> {
     // Handshake: read methods
     let mut buf = [0u8; 2];
     stream.read_exact(&mut buf).await?;
@@ -149,8 +150,12 @@ async fn handle_socks5(mut stream: TcpStream, client: JuicityClient) -> anyhow::
             // UDP ASSOCIATE
             tracing::debug!("SOCKS5 UDP ASSOCIATE: {}:{}", host, port);
 
-            // Bind a local UDP port for the SOCKS5 client to send UDP datagrams to
-            let bind_socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await?);
+            // Bind a local UDP port for the SOCKS5 client to send UDP datagrams to.
+            // Use the same IP family as the incoming TCP connection so the address
+            // returned in the SOCKS5 response is reachable by the client
+            // (127.0.0.1 for IPv4 connections, ::1 for IPv6 connections).
+            let udp_bind_addr = SocketAddr::new(local_addr.ip(), 0);
+            let bind_socket = Arc::new(UdpSocket::bind(udp_bind_addr).await?);
             let udp_listen_addr = bind_socket.local_addr()?;
 
             // Send success response with the actual UDP listening address
