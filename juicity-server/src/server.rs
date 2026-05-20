@@ -156,10 +156,12 @@ impl JuicityServer {
             }
         });
 
-        // Spawn periodic cleanup task for UDP endpoint pool
+        // Spawn periodic cleanup task for UDP endpoint pool.
+        // Use a 30s interval (matching the sessions cleanup) so expired endpoints
+        // are reclaimed promptly without accumulating stale kernel port bindings.
         let udp_pool_cleanup = self.udp_endpoint_pool.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
             loop {
                 interval.tick().await;
                 udp_pool_cleanup.cleanup_async().await;
@@ -235,9 +237,22 @@ async fn run_underlay_packet_loop(
         });
     }
 
+    // Limit concurrent underlay packet handler tasks to prevent unbounded task
+    // accumulation under high traffic. Each handler may wait up to 100ms in
+    // evict() for in-flight underlay auth, and without a cap, thousands of
+    // tasks could pile up during a burst, consuming significant memory.
+    // The limit is set to 2x the channel capacity so the channel backpressure
+    // (drop at 1024 queued) and the semaphore work together as a two-layer throttle.
+    let concurrency_limit = Arc::new(tokio::sync::Semaphore::new(
+        crate::underlay_socket::UNDERLAY_CHANNEL_CAPACITY * 2,
+    ));
+
     while let Some(packet) = rx.recv().await {
-        // Spawn each packet handler so that a slow evict() (up to 100 ms wait for
-        // in-flight underlay auth) in one handler cannot block subsequent packets.
+        // Acquire a permit before spawning. If all permits are taken (i.e. there
+        // are already 2048 in-flight handler tasks), this await will back-pressure
+        // the channel receiver, causing the DemuxUdpSocket's try_send to fail and
+        // drop excess packets — a controlled degradation instead of unbounded growth.
+        let permit = concurrency_limit.clone().acquire_owned().await;
         let in_flight = in_flight.clone();
         let udp_pool = udp_pool.clone();
         let sessions = sessions.clone();
@@ -255,6 +270,9 @@ async fn run_underlay_packet_loop(
             {
                 tracing::debug!("non-QUIC underlay packet handling failed: {:?}", e);
             }
+            // Drop the permit explicitly (though it will be dropped when the task
+            // exits anyway) to release the slot for the next packet.
+            drop(permit);
         });
     }
 }
@@ -461,8 +479,10 @@ async fn handle_connection(
     };
 
     // Keep reading underlay auth entries from the authenticated uni stream.
+    // Store the abort handle so the task can be cancelled when the connection drops,
+    // preventing the task (and its Arc references) from lingering indefinitely.
     let in_flight_for_auth = in_flight.clone();
-    tokio::spawn(async move {
+    let auth_task_handle = tokio::spawn(async move {
         loop {
             match protocol::read_underlay_auth_async(&mut auth_uni_stream).await {
                 Ok(auth) => {
@@ -512,6 +532,9 @@ async fn handle_connection(
             }
         }
     }
+    // Abort the underlay auth reader task to ensure its Arc references
+    // (in_flight, auth_uni_stream) are released promptly when the connection ends.
+    auth_task_handle.abort();
     Ok(())
 }
 
@@ -575,7 +598,7 @@ async fn handle_stream(
     }
 }
 
-/// TCP relay: bidirectional copy between QUIC stream and remote TCP
+/// TCP relay: bidirectional copy between QUIC stream and remote TCP.
 async fn handle_tcp_relay(
     send_stream: SendStream,
     recv_stream: RecvStream,
@@ -735,10 +758,13 @@ async fn resolve_udp_target(
     let resolved = addrs
         .next()
         .ok_or_else(|| anyhow::anyhow!("no DNS result for {}:{}", host, port))?;
-    // Evict all entries when the cache is full to bound memory usage.
-    // In practice a single UDP stream rarely targets more than a handful of distinct hosts.
+    // When the cache is full, evict the oldest entry (the one that will be
+    // iterated first) instead of clearing the entire map. This preserves
+    // recently-used entries and avoids unnecessary DNS re-resolutions.
     if domain_ip_map.len() >= consts::MAX_UDP_DNS_CACHE {
-        domain_ip_map.clear();
+        if let Some(oldest_key) = domain_ip_map.keys().next().cloned() {
+            domain_ip_map.remove(&oldest_key);
+        }
     }
     domain_ip_map.insert(key, resolved);
     Ok(resolved)

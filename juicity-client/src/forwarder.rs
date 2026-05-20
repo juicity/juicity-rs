@@ -214,14 +214,13 @@ async fn start_udp_forward(entry: ForwardEntry, client: JuicityClient) -> anyhow
     let sessions: Arc<Mutex<HashMap<SocketAddr, UdpSession>>> =
         Arc::new(Mutex::new(HashMap::new()));
 
-    // Periodic cleanup: remove sessions whose writer channel has been closed
-    // (writer exits after NAT timeout or QUIC stream error). This ensures the
-    // map doesn't accumulate stale entries between the writer exit and the
-    // supervisor-task cleanup.
+    // Periodic cleanup: remove sessions whose writer channel has been closed.
+    // Use a shorter interval (30s) to prevent stale entries from accumulating
+    // in the map between writer exit and supervisor-task cleanup.
     {
         let sessions_cleanup = sessions.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(consts::DEFAULT_NAT_TIMEOUT);
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
             loop {
                 interval.tick().await;
                 sessions_cleanup.lock().await.retain(|_, s| !s.tx.is_closed());
@@ -229,12 +228,24 @@ async fn start_udp_forward(entry: ForwardEntry, client: JuicityClient) -> anyhow
         });
     }
 
+    // Limit concurrent datagram handler tasks to prevent unbounded task
+    // accumulation when QUIC writes are slow (e.g. network congestion).
+    // Each handler may block on mpsc::channel::send() if the session's
+    // writer is backlogged. Without a cap, a burst of UDP datagrams could
+    // spawn thousands of waiting tasks, consuming significant memory.
+    // 256 permits allows healthy concurrency while bounding worst-case growth.
+    let concurrency_limit = Arc::new(tokio::sync::Semaphore::new(256));
+
     let mut buf = vec![0u8; consts::ETHERNET_MTU];
 
     loop {
         let (n, src_addr) = socket.recv_from(&mut buf).await?;
         let data = Bytes::copy_from_slice(&buf[..n]);
 
+        // Back-pressure: if all 256 permits are taken, wait here instead of
+        // spawning yet another task. This naturally throttles the receive loop
+        // to match the processing capacity.
+        let permit = concurrency_limit.clone().acquire_owned().await;
         let socket = Arc::clone(&socket);
         let client = client.clone();
         let host = Arc::clone(&host);
@@ -248,6 +259,7 @@ async fn start_udp_forward(entry: ForwardEntry, client: JuicityClient) -> anyhow
             {
                 tracing::debug!("UDP forward datagram error: {:?}", e);
             }
+            drop(permit);
         });
     }
 }
