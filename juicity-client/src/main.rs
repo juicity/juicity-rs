@@ -5,13 +5,22 @@ pub mod local;
 use clap::{Parser, Subcommand};
 use juicity_common::config::Config;
 use juicity_common::link;
+use juicity_common::BuildInfo;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
-#[command(name = "juicity-client", about = "A QUIC-based proxy client")]
+#[command(
+    name = "juicity-client",
+    about = "A QUIC-based proxy client",
+    disable_version_flag = true,
+)]
 struct Cli {
+    /// Show version information
+    #[arg(short = 'v', long = "version", help = "Print version information")]
+    version: bool,
+
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -60,7 +69,21 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
 
-    match cli.command {
+    // Handle -v/--version before any subcommand logic
+    if cli.version {
+        println!("{}", BuildInfo::version_string());
+        return Ok(());
+    }
+
+    let Some(command) = cli.command else {
+        // No subcommand and no --version flag; show help
+        let mut cmd = <Cli as clap::CommandFactory>::command();
+        cmd.print_help()?;
+        println!();
+        return Ok(());
+    };
+
+    match command {
         Commands::Run { config, log_level } => {
             tracing_subscriber::fmt()
                 .with_env_filter(
@@ -129,4 +152,3 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-
