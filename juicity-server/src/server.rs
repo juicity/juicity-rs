@@ -213,10 +213,12 @@ async fn run_underlay_packet_loop(
 
     // Periodic cleanup: remove sessions that have been idle for longer than the NAT
     // timeout and abort their relay-back tasks so they don't run indefinitely.
+    // Use a shorter interval (30s) to prevent memory from growing unboundedly
+    // under heavy traffic with many distinct source addresses.
     {
         let sessions_cleanup = sessions.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(consts::DEFAULT_NAT_TIMEOUT);
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
             loop {
                 interval.tick().await;
                 sessions_cleanup.lock().unwrap().retain(|_, s| {
@@ -363,15 +365,18 @@ async fn handle_non_quic_underlay_packet(
         let session_cipher = session.cipher.clone();
         let sessions_for_task = sessions.clone();
         let relay_handle = tokio::spawn(async move {
+            // Pre-allocate full-capacity output buffer to avoid repeated Vec resizing.
+            // Max payload: ETHERNET_MTU * 4, plus 32-byte salt prefix + 16-byte AEAD tag.
+            let max_out_len = consts::ETHERNET_MTU * 4 + 48;
             let mut buf = vec![0u8; consts::ETHERNET_MTU * 4];
-            // Pre-allocate output buffer for encrypt_in_place reuse across packets.
-            // Capacity: max payload + 32-byte salt prefix + 16-byte AEAD tag.
-            let mut outbuf = Vec::with_capacity(consts::ETHERNET_MTU * 4 + 48);
+            let mut outbuf = Vec::with_capacity(max_out_len);
             loop {
                 match recv_socket.recv_from(&mut buf).await {
                     Ok((n, _)) => {
                         let salt = juicity_underlay::generate_underlay_salt();
+                        // Pre-allocate exact capacity to avoid resize during encrypt_in_place
                         outbuf.clear();
+                        outbuf.reserve(n + 48);
                         outbuf.extend_from_slice(&buf[..n]);
                         if session_cipher.encrypt_in_place(&mut outbuf, &salt).is_err() {
                             break;
@@ -392,8 +397,17 @@ async fn handle_non_quic_underlay_packet(
             guard.remove(&source);
         });
         // Store the abort handle so periodic cleanup can cancel this task.
-        if let Some(s) = sessions.lock().unwrap().get_mut(&source) {
-            s.relay_abort = Some(relay_handle.abort_handle());
+        // Use Entry API to avoid the race where relay_handle exits before we store the abort handle,
+        // which could cause a stale empty entry to remain in the map.
+        let mut guard = sessions.lock().unwrap();
+        match guard.entry(source) {
+            std::collections::hash_map::Entry::Occupied(mut o) => {
+                o.get_mut().relay_abort = Some(relay_handle.abort_handle());
+            }
+            std::collections::hash_map::Entry::Vacant(_) => {
+                // Session was already removed (e.g. relay task exited before we acquired the lock).
+                // Nothing to do — the relay_handle will clean itself up on exit.
+            }
         }
     }
 

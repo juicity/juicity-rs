@@ -88,6 +88,9 @@ impl UdpEndpointPool {
                 existing.touch();
                 let socket = existing.socket.try_clone()?;
                 let dial_target = existing.dial_target.clone();
+                // Explicitly drop the unused endpoint to release its kernel port binding
+                // immediately, preventing port exhaustion under high concurrency.
+                drop(endpoint);
                 return Ok(((socket, dial_target), false));
             }
         }

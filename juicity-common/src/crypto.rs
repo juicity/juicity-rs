@@ -149,11 +149,19 @@ impl UnderlayCipher {
 
     /// Encrypt a packet in-place, prepending salt.
     /// `plaintext` contains the data to encrypt; on return it holds [salt(32)][ciphertext+tag].
+    ///
+    /// Optimized to pre-allocate the full capacity upfront, avoiding multiple Vec resizes:
+    /// - `encrypt_in_place` appends a 16-byte AEAD tag
+    /// - Then we prepend a 32-byte salt
+    /// By reserving `plaintext.len() + SALT_LEN + TAG_LEN` upfront, we ensure a single allocation.
     pub fn encrypt_in_place(&self, plaintext: &mut Vec<u8>, salt: &[u8; 32]) -> anyhow::Result<()> {
         use chacha20poly1305::aead::AeadInPlace;
-        use crate::crypto::juicity_underlay::SALT_LEN;
+        use crate::crypto::juicity_underlay::{SALT_LEN, TAG_LEN};
 
         let nonce = chacha20poly1305::Nonce::from_slice(&[0u8; 12]);
+
+        // Pre-allocate full capacity: plaintext + salt + AEAD tag — single allocation.
+        plaintext.reserve(SALT_LEN + TAG_LEN);
 
         // Step 1: encrypt plaintext in-place (appends 16-byte tag).
         self.cipher

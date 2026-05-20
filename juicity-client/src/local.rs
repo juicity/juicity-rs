@@ -172,6 +172,12 @@ async fn handle_socks5(mut stream: TcpStream, local_addr: SocketAddr, client: Ju
                 Arc::new(Mutex::new(HashMap::new()));
             let session_seq = Arc::new(AtomicU64::new(1));
 
+            // Use a cancellation token so the UDP forwarder task can be aborted
+            // when the TCP control connection drops, preventing session leaks.
+            let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
+            // Pin the receiver on the heap so it lives long enough for the spawned task.
+            let mut cancel_rx = Box::pin(cancel_rx);
+
             // Spawn UDP forwarder. Per Juicity spec, datagrams from the same source
             // address triplet SHOULD share one stream and be recycled by NAT timeout.
             tokio::spawn(async move {
@@ -246,13 +252,22 @@ async fn handle_socks5(mut stream: TcpStream, local_addr: SocketAddr, client: Ju
                             guard.clear();
                             break;
                         }
+                        _ = &mut cancel_rx => {
+                            // TCP control connection dropped — clean up all sessions
+                            tracing::debug!("UDP ASSOCIATE control connection closed, cleaning up sessions");
+                            let mut guard = sessions.lock().await;
+                            guard.clear();
+                            break;
+                        }
                     }
                 }
             });
 
-            // Keep the TCP control connection alive until the client disconnects
+            // Keep the TCP control connection alive until the client disconnects.
+            // When the client disconnects, send cancellation signal to clean up sessions.
             let mut dummy = [0u8; 1];
             let _ = stream.read(&mut dummy).await;
+            let _ = cancel_tx.send(());
         }
         _ => {
             let response = build_socks5_response(0x07, "0.0.0.0", 0);
