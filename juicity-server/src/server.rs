@@ -4,6 +4,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use juicity_common::consts;
+
+/// RAII guard: aborts the wrapped task when this guard is dropped.
+/// Ensures background cleanup tasks do not outlive their owner.
+struct AbortOnDrop(tokio::task::AbortHandle);
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
 use juicity_common::crypto::juicity_underlay;
 use juicity_common::crypto::UnderlayCipher;
 use juicity_common::protocol;
@@ -145,43 +154,53 @@ impl JuicityServer {
 
         tracing::info!("Juicity server listening on {}", log_addr);
 
-        // Spawn periodic cleanup task for in-flight underlay keys
+        // Spawn periodic cleanup task for in-flight underlay keys.
+        // AbortOnDrop ensures the task is cancelled when serve() returns.
         let inflight_cleanup = self.in_flight.clone();
-        tokio::spawn(async move {
-            // Run at half the IN_FLIGHT_UNDERLAY_TTL interval to halve worst-case key residue.
-            let mut interval = tokio::time::interval(consts::IN_FLIGHT_UNDERLAY_TTL / 2);
-            loop {
-                interval.tick().await;
-                inflight_cleanup.cleanup();
-            }
-        });
+        let _inflight_guard = AbortOnDrop(
+            tokio::spawn(async move {
+                // Run at half the IN_FLIGHT_UNDERLAY_TTL interval to halve worst-case key residue.
+                let mut interval = tokio::time::interval(consts::IN_FLIGHT_UNDERLAY_TTL / 2);
+                loop {
+                    interval.tick().await;
+                    inflight_cleanup.cleanup();
+                }
+            })
+            .abort_handle(),
+        );
 
         // Spawn periodic cleanup task for UDP endpoint pool.
-        // Use a 30s interval (matching the sessions cleanup) so expired endpoints
-        // are reclaimed promptly without accumulating stale kernel port bindings.
         let udp_pool_cleanup = self.udp_endpoint_pool.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(30));
-            loop {
-                interval.tick().await;
-                udp_pool_cleanup.cleanup_async().await;
-            }
-        });
+        let _pool_guard = AbortOnDrop(
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(30));
+                loop {
+                    interval.tick().await;
+                    udp_pool_cleanup.cleanup_async().await;
+                }
+            })
+            .abort_handle(),
+        );
 
         let underlay_in_flight = self.in_flight.clone();
         let underlay_udp_pool = self.udp_endpoint_pool.clone();
         let underlay_disable_443 = self.disable_outbound_udp443;
         let underlay_socket = server_underlay_socket.clone();
-        tokio::spawn(async move {
-            run_underlay_packet_loop(
-                underlay_rx,
-                underlay_in_flight,
-                underlay_udp_pool,
-                underlay_socket,
-                underlay_disable_443,
-            )
-            .await;
-        });
+        // The underlay loop self-terminates when underlay_rx closes (endpoint drop),
+        // but AbortOnDrop ensures it is also cancelled on any early serve() exit.
+        let _underlay_guard = AbortOnDrop(
+            tokio::spawn(async move {
+                run_underlay_packet_loop(
+                    underlay_rx,
+                    underlay_in_flight,
+                    underlay_udp_pool,
+                    underlay_socket,
+                    underlay_disable_443,
+                )
+                .await;
+            })
+            .abort_handle(),
+        );
 
         while let Some(incoming) = endpoint.accept().await {
             let users = self.users.clone();
@@ -215,10 +234,9 @@ async fn run_underlay_packet_loop(
 
     // Periodic cleanup: remove sessions that have been idle for longer than the NAT
     // timeout and abort their relay-back tasks so they don't run indefinitely.
-    // Use a shorter interval (30s) to prevent memory from growing unboundedly
-    // under heavy traffic with many distinct source addresses.
-    {
-        let sessions_cleanup = sessions.clone();
+    // AbortOnDrop ensures this task is cancelled when run_underlay_packet_loop returns.
+    let sessions_cleanup = sessions.clone();
+    let _sessions_cleanup_guard = AbortOnDrop(
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(30));
             loop {
@@ -234,8 +252,9 @@ async fn run_underlay_packet_loop(
                     }
                 });
             }
-        });
-    }
+        })
+        .abort_handle(),
+    );
 
     // Limit concurrent underlay packet handler tasks to prevent unbounded task
     // accumulation under high traffic. Each handler may wait up to 100ms in
@@ -377,8 +396,16 @@ async fn handle_non_quic_underlay_packet(
         )
         .await?;
 
-    if is_new {
-        let recv_socket = tokio::net::UdpSocket::from_std(udp_socket.try_clone()?)?;
+    // Convert both sockets BEFORE any spawn so that a conversion failure
+    // (e.g. kernel fd exhaustion) cannot produce an orphaned relay-back task.
+    let recv_socket_for_relay = if is_new {
+        Some(tokio::net::UdpSocket::from_std(udp_socket.try_clone()?)?)
+    } else {
+        None
+    };
+    let send_socket = tokio::net::UdpSocket::from_std(udp_socket)?;
+
+    if let Some(recv_socket) = recv_socket_for_relay {
         let relay_back = server_socket.clone();
         let session_cipher = session.cipher.clone();
         let sessions_for_task = sessions.clone();
@@ -415,8 +442,7 @@ async fn handle_non_quic_underlay_packet(
             guard.remove(&source);
         });
         // Store the abort handle so periodic cleanup can cancel this task.
-        // Use Entry API to avoid the race where relay_handle exits before we store the abort handle,
-        // which could cause a stale empty entry to remain in the map.
+        // Use Entry API to avoid the race where relay_handle exits before we store the abort handle.
         let mut guard = sessions.lock().unwrap();
         match guard.entry(source) {
             std::collections::hash_map::Entry::Occupied(mut o) => {
@@ -424,16 +450,19 @@ async fn handle_non_quic_underlay_packet(
             }
             std::collections::hash_map::Entry::Vacant(_) => {
                 // Session was already removed (e.g. relay task exited before we acquired the lock).
-                // Nothing to do — the relay_handle will clean itself up on exit.
             }
         }
     }
 
-    let send_socket = tokio::net::UdpSocket::from_std(udp_socket)?;
     if let Err(e) = send_socket.send_to(&payload[..pt_len], &dial_target).await {
         udp_pool.remove(&source).await;
-        let mut guard = sessions.lock().unwrap();
-        guard.remove(&source);
+        // Remove the session and abort the relay task if one was spawned.
+        let removed = sessions.lock().unwrap().remove(&source);
+        if let Some(s) = removed {
+            if let Some(h) = s.relay_abort {
+                h.abort();
+            }
+        }
         return Err(anyhow::anyhow!("underlay send_to {} failed: {:?}", dial_target, e));
     }
 
@@ -500,15 +529,22 @@ async fn handle_connection(
         }
     });
 
-    // Accept and handle streams
+    // Accept and handle streams.
+    // JoinSet tracks all in-flight stream tasks: when dropped at connection end it
+    // aborts any still-running streams, releasing their Arc<Dialer> and network
+    // resources promptly instead of waiting for remote-side idle timeouts.
+    let mut stream_tasks: tokio::task::JoinSet<()> = tokio::task::JoinSet::new();
     loop {
+        // Drain completed tasks each iteration to free their resources without blocking.
+        while stream_tasks.try_join_next().is_some() {}
+
         match connection.accept_bi().await {
             Ok((send_stream, recv_stream)) => {
                 let s_dialer = dialer.clone();
                 let s_user_uuid = user_uuid;
                 let s_disable_443 = disable_udp_443;
 
-                tokio::spawn(async move {
+                stream_tasks.spawn(async move {
                     if let Err(e) = handle_stream(
                         send_stream,
                         recv_stream,
@@ -532,9 +568,10 @@ async fn handle_connection(
             }
         }
     }
-    // Abort the underlay auth reader task to ensure its Arc references
-    // (in_flight, auth_uni_stream) are released promptly when the connection ends.
+    // Abort the underlay auth reader task and all stream tasks so their Arc
+    // references (in_flight, dialer, etc.) are released promptly.
     auth_task_handle.abort();
+    // JoinSet drop aborts all remaining stream tasks automatically.
     Ok(())
 }
 

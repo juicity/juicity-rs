@@ -38,6 +38,7 @@ hickory-resolver = "0.24"
 socket2 = "0.5"
 async-trait = "0.1"
 hkdf = "0.12"
+tokio-util = { version = "0.7" }
 qrcode = "0.14"
 image = "0.25"
 url = "2"

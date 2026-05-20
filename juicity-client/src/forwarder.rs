@@ -7,8 +7,17 @@ use juicity_common::consts;
 use juicity_common::protocol;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 
 use crate::client::JuicityClient;
+
+/// RAII guard: aborts the wrapped task when this guard is dropped.
+struct AbortOnDrop(tokio::task::AbortHandle);
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
 
 /// Protocol filter for a forward entry
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -215,25 +224,27 @@ async fn start_udp_forward(entry: ForwardEntry, client: JuicityClient) -> anyhow
         Arc::new(Mutex::new(HashMap::new()));
 
     // Periodic cleanup: remove sessions whose writer channel has been closed.
-    // Use a shorter interval (30s) to prevent stale entries from accumulating
-    // in the map between writer exit and supervisor-task cleanup.
-    {
-        let sessions_cleanup = sessions.clone();
+    // AbortOnDrop ensures this task is cancelled when start_udp_forward returns
+    // (either on error or listener close), preventing the sessions Arc from being
+    // kept alive indefinitely by an orphaned background task.
+    let sessions_cleanup = sessions.clone();
+    let _cleanup_guard = AbortOnDrop(
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
             loop {
                 interval.tick().await;
                 sessions_cleanup.lock().await.retain(|_, s| !s.tx.is_closed());
             }
-        });
-    }
+        })
+        .abort_handle(),
+    );
 
-    // Limit concurrent datagram handler tasks to prevent unbounded task
-    // accumulation when QUIC writes are slow (e.g. network congestion).
-    // Each handler may block on mpsc::channel::send() if the session's
-    // writer is backlogged. Without a cap, a burst of UDP datagrams could
-    // spawn thousands of waiting tasks, consuming significant memory.
-    // 256 permits allows healthy concurrency while bounding worst-case growth.
+    // CancellationToken: cancelled when start_udp_forward returns (via drop_guard).
+    // All session supervisor tasks select! on this token to exit promptly instead of
+    // waiting up to DEFAULT_NAT_TIMEOUT for QUIC I/O to time out.
+    let cancel = CancellationToken::new();
+    let _cancel_guard = cancel.clone().drop_guard();
+
     let concurrency_limit = Arc::new(tokio::sync::Semaphore::new(256));
 
     let mut buf = vec![0u8; consts::ETHERNET_MTU];
@@ -250,10 +261,11 @@ async fn start_udp_forward(entry: ForwardEntry, client: JuicityClient) -> anyhow
         let client = client.clone();
         let host = Arc::clone(&host);
         let sessions = Arc::clone(&sessions);
+        let cancel = cancel.clone();
 
         tokio::spawn(async move {
             if let Err(e) = handle_udp_datagram(
-                socket, sessions, src_addr, data, host, port, &client,
+                socket, sessions, src_addr, data, host, port, &client, cancel,
             )
             .await
             {
@@ -279,6 +291,7 @@ async fn handle_udp_datagram(
     host: Arc<str>,
     port: u16,
     client: &JuicityClient,
+    cancel: CancellationToken,
 ) -> anyhow::Result<()> {
     // Check if we already have a session for this source
     let existing_tx = {
@@ -348,9 +361,27 @@ async fn handle_udp_datagram(
         }
     });
 
-    // Clean up when either task finishes
+    // Supervisor: abort the non-finishing side when one task exits, or abort both
+    // immediately if the parent forwarder has been cancelled (start_udp_forward exited).
+    // Using select! instead of join! ensures the reader's NAT timeout does not block
+    // cleanup when the writer exits early.
     tokio::spawn(async move {
-        let _ = tokio::join!(writer_handle, reader_handle);
+        let mut writer = writer_handle;
+        let mut reader = reader_handle;
+        tokio::select! {
+            _ = &mut writer => {
+                reader.abort();
+                let _ = reader.await;
+            }
+            _ = &mut reader => {
+                writer.abort();
+                let _ = writer.await;
+            }
+            _ = cancel.cancelled() => {
+                writer.abort();
+                reader.abort();
+            }
+        }
         sessions_clone.lock().await.remove(&src_addr);
     });
 

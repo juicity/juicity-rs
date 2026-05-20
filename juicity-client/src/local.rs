@@ -9,6 +9,7 @@ use juicity_common::protocol;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::{mpsc, Mutex};
+use tokio_util::sync::CancellationToken;
 
 use crate::client::JuicityClient;
 
@@ -178,9 +179,18 @@ async fn handle_socks5(mut stream: TcpStream, local_addr: SocketAddr, client: Ju
             // Pin the receiver on the heap so it lives long enough for the spawned task.
             let mut cancel_rx = Box::pin(cancel_rx);
 
+            // Per-session CancellationToken: when the forwarder task exits for any reason
+            // (TCP control close, NAT timeout, socket error), all session supervisor tasks
+            // are cancelled promptly via drop_guard instead of waiting for NAT timeout.
+            let session_cancel = CancellationToken::new();
+            let cancel_guard = session_cancel.clone().drop_guard();
+
             // Spawn UDP forwarder. Per Juicity spec, datagrams from the same source
             // address triplet SHOULD share one stream and be recycled by NAT timeout.
             tokio::spawn(async move {
+                // When this task exits (any path), cancel_guard fires and cancels all
+                // session supervisors, releasing their Arc references promptly.
+                let _cancel_guard = cancel_guard;
                 let mut buf = vec![0u8; consts::ETHERNET_MTU];
                 // Use a persistent sleep_until so the timer is only created once and
                 // can be reset on each received datagram without recreating the future.
@@ -222,6 +232,7 @@ async fn handle_socks5(mut stream: TcpStream, local_addr: SocketAddr, client: Ju
                                         src,
                                         new_session_id,
                                         datagram,
+                                        session_cancel.clone(),
                                     )
                                     .await
                                     {
@@ -285,6 +296,7 @@ async fn start_udp_assoc_session(
     local_client_addr: SocketAddr,
     session_id: u64,
     first_datagram: UdpOutboundDatagram,
+    cancel: CancellationToken,
 ) -> anyhow::Result<mpsc::Sender<UdpOutboundDatagram>> {
     let (mut send, mut recv) = client
         .open_udp_stream(
@@ -349,6 +361,12 @@ async fn start_udp_assoc_session(
             _ = &mut reader => {
                 writer.abort();
                 let _ = writer.await;
+            }
+            _ = cancel.cancelled() => {
+                // Forwarder exited: abort both tasks immediately instead of
+                // waiting for QUIC I/O to time out (up to DEFAULT_NAT_TIMEOUT).
+                writer.abort();
+                reader.abort();
             }
         }
 
