@@ -393,11 +393,7 @@ fn build_ui(app: &adw::Application) -> anyhow::Result<()> {
     bottom_bar.append(&apply_btn);
     outer_box.append(&bottom_bar);
 
-    let header_bar = adw::HeaderBar::new();
-    let toolbar_view = adw::ToolbarView::new();
-    toolbar_view.add_top_bar(&header_bar);
-    toolbar_view.set_content(Some(&outer_box));
-    window.set_content(Some(&toolbar_view));
+    window.set_content(Some(&outer_box));
 
     // ── Shared tray state ─────────────────────────────────────────────────
     let tray_shared: Arc<Mutex<TraySharedState>> = Arc::new(Mutex::new(TraySharedState::default()));
