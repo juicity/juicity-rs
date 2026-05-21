@@ -2152,6 +2152,7 @@ dependencies = [
  "gtk4",
  "image",
  "ksni",
+ "libadwaita",
  "resvg",
  "rust-i18n",
  "serde",
@@ -2241,6 +2242,37 @@ name = "lebe"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a79a3332a6609480d7d0c9eab957bca6b455b91bb84e66d19f5ff66294b85b8"
+
+[[package]]
+name = "libadwaita"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "500135d29c16aabf67baafd3e7741d48e8b8978ca98bac39e589165c8dc78191"
+dependencies = [
+ "gdk4",
+ "gio 0.20.12",
+ "glib 0.20.12",
+ "gtk4",
+ "libadwaita-sys",
+ "libc",
+ "pango 0.20.12",
+]
+
+[[package]]
+name = "libadwaita-sys"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6680988058c2558baf3f548a370e4e78da3bf7f08469daa822ac414842c912db"
+dependencies = [
+ "gdk4-sys",
+ "gio-sys 0.20.10",
+ "glib-sys 0.20.10",
+ "gobject-sys 0.20.10",
+ "gtk4-sys",
+ "libc",
+ "pango-sys 0.20.10",
+ "system-deps 7.0.8",
+]
 
 [[package]]
 name = "libappindicator"

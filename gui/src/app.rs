@@ -8,8 +8,10 @@ use crate::pac;
 use crate::system_proxy;
 use crate::tray::{self, TrayEvent, TraySharedState};
 use gtk::glib;
+use adw::prelude::*;
 use gtk::prelude::*;
 use gtk4 as gtk;
+use libadwaita as adw;
 use rust_i18n::t;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -77,7 +79,7 @@ impl GuiState {
 }
 
 pub fn run() -> anyhow::Result<()> {
-    let app = gtk::Application::builder()
+    let app = adw::Application::builder()
         .application_id("io.juicity.gui")
         .build();
 
@@ -97,7 +99,7 @@ pub fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn build_ui(app: &gtk::Application) -> anyhow::Result<()> {
+fn build_ui(app: &adw::Application) -> anyhow::Result<()> {
     let state = Rc::new(RefCell::new(GuiState::new()?));
 
     // ── PAC server: start once at launch, keep alive for the app lifetime ─
@@ -116,7 +118,7 @@ fn build_ui(app: &gtk::Application) -> anyhow::Result<()> {
         }
     }
     // ── Window ────────────────────────────────────────────────────────────
-    let window = gtk::ApplicationWindow::builder()
+    let window = adw::ApplicationWindow::builder()
         .application(app)
         .title(&*t!("window.title"))
         .default_width(530)
@@ -390,7 +392,11 @@ fn build_ui(app: &gtk::Application) -> anyhow::Result<()> {
     bottom_bar.append(&apply_btn);
     outer_box.append(&bottom_bar);
 
-    window.set_child(Some(&outer_box));
+    let header_bar = adw::HeaderBar::new();
+    let toolbar_view = adw::ToolbarView::new();
+    toolbar_view.add_top_bar(&header_bar);
+    toolbar_view.set_content(Some(&outer_box));
+    window.set_content(Some(&toolbar_view));
 
     // ── Shared tray state ─────────────────────────────────────────────────
     let tray_shared: Arc<Mutex<TraySharedState>> = Arc::new(Mutex::new(TraySharedState::default()));
