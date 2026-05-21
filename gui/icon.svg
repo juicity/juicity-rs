@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <!-- 主飞翼渐变：代表科技与未来 -->
+    <linearGradient id="wingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f2fe" />
+      <stop offset="100%" stop-color="#4facfe" />
+    </linearGradient>
+
+    <!-- 副飞翼渐变：代表速度与突破 -->
+    <linearGradient id="speedGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2575fc" />
+      <stop offset="100%" stop-color="#6a11cb" />
+    </linearGradient>
+
+    <!-- 现代科技感发光阴影 -->
+    <filter id="neonGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="6" flood-color="#00f2fe" flood-opacity="0.25" />
+    </filter>
+  </defs>
+
+  <!-- 背景：深色科技质感底盘（可选，若在深色网页使用可删除此背景矩形） -->
+  <rect width="120" height="120" rx="28" fill="#0b0f19" />
+
+  <!-- 组合图形：整体向右上倾斜12度，强化高空飞翔和破空而出的速度感 -->
+  <g transform="translate(15, 12) rotate(12, 45, 45)" filter="url(#neonGlow)">
+
+    <!-- 底部/后方副飞翼：提供向后喷射、破开空气的视觉留白 -->
+    <path d="M 25,65
+             C 25,78 35,88 50,88
+             C 60,88 65,82 65,72
+             L 65,48
+             L 53,56
+             L 53,68
+             C 53,74 48,77 43,77
+             C 36,77 34,72 34,65
+             Z"
+          fill="url(#speedGrad)" opacity="0.8" />
+
+    <!-- 前方主飞翼：由J的顶端演变成向右上全力展开的巨大翅膀 -->
+    <path d="M 65,15
+             L 48,32
+             L 48,58
+             C 48,72 38,80 25,80
+             C 18,80 12,76 8,70
+             C 15,62 28,64 34,54
+             L 34,24
+             L 82,15
+             C 76,22 70,20 65,15 Z"
+          fill="url(#wingGrad)" />
+
+    <!-- 科技感粒子点缀：象征飞翔时带起的能量气流 -->
+    <circle cx="88" cy="18" r="2.5" fill="#00f2fe" />
+    <circle cx="78" cy="32" r="1.5" fill="#00f2fe" opacity="0.6" />
+  </g>
+</svg>

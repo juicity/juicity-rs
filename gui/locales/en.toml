@@ -1,0 +1,88 @@
+[window]
+title = "Edit Servers"
+
+[btn]
+add = "Add"
+delete = "Delete"
+duplicate = "Duplicate"
+up = "Up"
+down = "Down"
+start = "Start"
+stop = "Stop"
+import_url = "Import URL"
+export_url = "Export URL"
+ok = "OK"
+cancel = "Cancel"
+apply = "Apply"
+
+[field]
+server_hdr = "Server"
+protocol = "Protocol"
+server_ip = "Server IP"
+server_port = "Server Port"
+password = "Password"
+show_password = "Show Password"
+allow_insecure = "Allow Insecure"
+uuid = "UUID"
+sni = "SNI"
+encryption = "Encryption"
+plugin_program = "Plugin Program"
+plugin_options = "Plugin Options"
+plugin_args = "Plugin Arguments"
+need_plugin_arg = "Need Plugin Argument"
+remarks = "Remarks"
+timeout = "Timeout (Sec)"
+group = "Group"
+proxy_port = "Proxy Port"
+close_to_tray = "Close to Tray"
+
+[status]
+stopped = "Status: Stopped"
+running = "Status: %{proto} running — %{name}"
+start_failed = "Status: Start failed: %{err}"
+stop_failed = "Status: Stop failed: %{err}"
+save_failed = "Status: Save failed: %{err}"
+no_server = "Status: No server"
+saved = "Status: Saved"
+imported = "Status: Imported from clipboard"
+import_failed = "Status: Import failed: %{err}"
+no_server_selected = "Status: No server selected"
+url_copied = "Status: Share URL copied to clipboard"
+export_failed = "Status: Export failed: %{err}"
+system_proxy = "Status: System proxy — %{mode}"
+pac_rule = "Status: PAC rule — %{mode}"
+pac_downloading = "Status: Downloading PAC rules…"
+pac_download_failed = "Status: PAC download failed: %{err}"
+pac_updated = "Status: PAC rules updated"
+core_exited = "Status: Core exited (%{code})"
+poll_error = "Status: Poll error: %{err}"
+
+[tray]
+title = "Juicity GUI"
+system_proxy = "System Proxy"
+pac_rules = "PAC Rules"
+servers = "Servers"
+quit = "Quit"
+edit_servers = "Edit Servers..."
+import_clipboard = "Import URL from Clipboard"
+update_rules = "Update Rules..."
+start_proxy = "Start Proxy"
+stop_proxy = "Stop Proxy"
+status_running = "▶ Running — %{name}"
+status_stopped = "■ Stopped"
+
+[proxy]
+disable = "Disable"
+pac = "PAC"
+global = "Global"
+
+[pac]
+bypass_china = "Bypass China"
+gfw_only = "GFW List Only"
+
+[protocol]
+juicity = "Juicity"
+shadowsocks = "Shadowsocks"
+
+[misc]
+new_server = "Server %{n}"

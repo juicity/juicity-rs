@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "gui",
     "juicity-common",
     "juicity-client",
     "juicity-server",

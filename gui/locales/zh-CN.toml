@@ -1,0 +1,88 @@
+[window]
+title = "编辑服务器"
+
+[btn]
+add = "添加"
+delete = "删除"
+duplicate = "复制"
+up = "上移"
+down = "下移"
+start = "启动"
+stop = "停止"
+import_url = "导入链接"
+export_url = "导出链接"
+ok = "确定"
+cancel = "取消"
+apply = "应用"
+
+[field]
+server_hdr = "服务器"
+protocol = "协议"
+server_ip = "服务器地址"
+server_port = "服务器端口"
+password = "密码"
+show_password = "显示密码"
+allow_insecure = "允许不安全连接"
+uuid = "UUID"
+sni = "SNI"
+encryption = "加密方式"
+plugin_program = "插件程序"
+plugin_options = "插件选项"
+plugin_args = "插件附加参数"
+need_plugin_arg = "需要插件参数"
+remarks = "备注"
+timeout = "超时 (秒)"
+group = "分组"
+proxy_port = "代理端口"
+close_to_tray = "关闭时最小化到托盘"
+
+[status]
+stopped = "状态: 已停止"
+running = "状态: %{proto} 运行中 — %{name}"
+start_failed = "状态: 启动失败: %{err}"
+stop_failed = "状态: 停止失败: %{err}"
+save_failed = "状态: 保存失败: %{err}"
+no_server = "状态: 无服务器"
+saved = "状态: 已保存"
+imported = "状态: 已从剪贴板导入"
+import_failed = "状态: 导入失败: %{err}"
+no_server_selected = "状态: 未选择服务器"
+url_copied = "状态: 分享链接已复制到剪贴板"
+export_failed = "状态: 导出失败: %{err}"
+system_proxy = "状态: 系统代理 — %{mode}"
+pac_rule = "状态: PAC 规则 — %{mode}"
+pac_downloading = "状态: 正在下载 PAC 规则…"
+pac_download_failed = "状态: PAC 下载失败: %{err}"
+pac_updated = "状态: PAC 规则已更新"
+core_exited = "状态: 进程已退出 (%{code})"
+poll_error = "状态: 轮询错误: %{err}"
+
+[tray]
+title = "Juicity GUI"
+system_proxy = "系统代理"
+pac_rules = "PAC 规则"
+servers = "服务器"
+quit = "退出"
+edit_servers = "编辑服务器..."
+import_clipboard = "从剪贴板导入链接"
+update_rules = "更新规则..."
+start_proxy = "启动代理"
+stop_proxy = "停止代理"
+status_running = "▶ 运行中 — %{name}"
+status_stopped = "■ 已停止"
+
+[proxy]
+disable = "禁用"
+pac = "PAC 模式"
+global = "全局模式"
+
+[pac]
+bypass_china = "绕过中国大陆"
+gfw_only = "仅代理 GFW 列表"
+
+[protocol]
+juicity = "Juicity"
+shadowsocks = "Shadowsocks"
+
+[misc]
+new_server = "服务器 %{n}"
