@@ -58,31 +58,8 @@ jobs:
         with:
           tool: cargo-zigbuild
 
-      - name: Install GTK4 dev libraries
-        if: startsWith(matrix.target, 'x86_64') || startsWith(matrix.target, 'aarch64')
-        shell: bash
-        run: |
-          sudo apt-get update -q
-          if [[ "${{ matrix.target }}" == aarch64-* ]]; then
-            sudo dpkg --add-architecture arm64
-            sudo apt-get update -q
-            sudo apt-get install -y libgtk-4-dev:arm64 pkg-config
-          else
-            sudo apt-get install -y libgtk-4-dev pkg-config
-          fi
-
       - name: Build with zigbuild
-        shell: bash
-        run: |
-          if [[ "${{ matrix.target }}" == x86_64-* || "${{ matrix.target }}" == aarch64-* ]]; then
-            if [[ "${{ matrix.target }}" == aarch64-* ]]; then
-              export PKG_CONFIG_ALLOW_CROSS=1
-              export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
-            fi
-            cargo zigbuild --workspace --release --target ${{ matrix.target }}
-          else
-            cargo zigbuild --release --target ${{ matrix.target }} --workspace --exclude juicity-gui
-          fi
+        run: cargo zigbuild --workspace --release --target ${{ matrix.target }} --exclude juicity-gui
 
       - name: Prepare package
         shell: bash
@@ -91,9 +68,6 @@ jobs:
           mkdir -p "dist/${PKG_NAME}"
           cp "target/${{ matrix.target }}/release/juicity-client" "dist/${PKG_NAME}/"
           cp "target/${{ matrix.target }}/release/juicity-server" "dist/${PKG_NAME}/"
-          if [[ "${{ matrix.target }}" == x86_64-* || "${{ matrix.target }}" == aarch64-* ]]; then
-            cp "target/${{ matrix.target }}/release/juicity-gui" "dist/${PKG_NAME}/"
-          fi
           cp juicity-client/examples/config.json "dist/${PKG_NAME}/client-config.json"
           cp juicity-server/examples/config.json "dist/${PKG_NAME}/server-config.json"
 
@@ -212,15 +186,12 @@ jobs:
             mingw-w64-${{ matrix.msystem == 'CLANG64' && 'clang-x86_64' || 'clang-aarch64' }}-lld
             mingw-w64-${{ matrix.msystem == 'CLANG64' && 'clang-x86_64' || 'clang-aarch64' }}-llvm
             mingw-w64-${{ matrix.msystem == 'CLANG64' && 'clang-x86_64' || 'clang-aarch64' }}-rust
-            mingw-w64-${{ matrix.msystem == 'CLANG64' && 'clang-x86_64' || 'clang-aarch64' }}-gtk4
-            mingw-w64-${{ matrix.msystem == 'CLANG64' && 'clang-x86_64' || 'clang-aarch64' }}-pkg-config
 
-      - name: Build (static CRT)
+      - name: Build
         shell: msys2 {0}
         env:
           RUSTFLAGS: -C target-feature=+crt-static
-        run: |
-          cargo build --release --target ${{ matrix.target }}
+        run: cargo build --workspace --release --target ${{ matrix.target }} --exclude juicity-gui
 
       - name: Prepare package
         shell: msys2 {0}
@@ -229,7 +200,6 @@ jobs:
           mkdir -p "dist/${PKG_NAME}"
           cp "target/${{ matrix.target }}/release/juicity-client.exe" "dist/${PKG_NAME}/"
           cp "target/${{ matrix.target }}/release/juicity-server.exe" "dist/${PKG_NAME}/"
-          cp "target/${{ matrix.target }}/release/juicity-gui.exe"    "dist/${PKG_NAME}/"
           cp juicity-client/examples/config.json "dist/${PKG_NAME}/client-config.json"
           cp juicity-server/examples/config.json "dist/${PKG_NAME}/server-config.json"
 
@@ -269,11 +239,8 @@ jobs:
           toolchain: stable
           targets: ${{ matrix.target }}
 
-      - name: Install GTK4 (Homebrew)
-        run: brew install gtk4
-
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --workspace --release --target ${{ matrix.target }} --exclude juicity-gui
 
       - name: Prepare package
         shell: bash
@@ -282,7 +249,6 @@ jobs:
           mkdir -p "dist/${PKG_NAME}"
           cp "target/${{ matrix.target }}/release/juicity-client" "dist/${PKG_NAME}/"
           cp "target/${{ matrix.target }}/release/juicity-server" "dist/${PKG_NAME}/"
-          cp "target/${{ matrix.target }}/release/juicity-gui"    "dist/${PKG_NAME}/"
           cp juicity-client/examples/config.json "dist/${PKG_NAME}/client-config.json"
           cp juicity-server/examples/config.json "dist/${PKG_NAME}/server-config.json"
 
