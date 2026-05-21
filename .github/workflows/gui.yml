@@ -127,10 +127,10 @@ jobs:
 
       - name: Run tests (Windows, clear POSIX env vars to validate i18n fallback)
         if: matrix.os == 'windows'
-        shell: pwsh
+        shell: msys2 {0}
         run: |
-          $env:LANG=$null; $env:LC_ALL=$null; $env:LC_MESSAGES=$null
-          cargo test -p juicity-gui
+          unset LANG LC_ALL LC_MESSAGES
+          cargo test -p juicity-gui --target ${{ matrix.target }}
 
       # ── Download shadowsocks-rust ─────────────────────────────────────────
 
