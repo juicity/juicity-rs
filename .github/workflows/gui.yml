@@ -50,13 +50,14 @@ jobs:
             msystem_arch: clang-x86_64
             os: windows
 
-          - name: windows-aarch64
-            runner: windows-11-arm
-            target: aarch64-pc-windows-gnullvm
-            ss_suffix: aarch64-pc-windows-msvc.zip
-            msystem: CLANGARM64
-            msystem_arch: clang-aarch64
-            os: windows
+          # windows-aarch64 disabled: shadowsocks-rust has no aarch64-pc-windows binary yet
+          # - name: windows-aarch64
+          #   runner: windows-11-arm
+          #   target: aarch64-pc-windows-gnullvm
+          #   ss_suffix: aarch64-pc-windows-msvc.zip
+          #   msystem: CLANGARM64
+          #   msystem_arch: clang-aarch64
+          #   os: windows
 
           - name: macos-x86_64
             runner: macos-26-intel
