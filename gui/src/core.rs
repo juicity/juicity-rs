@@ -2,6 +2,8 @@ use crate::config::{AppConfig, ProxyProfile, ProxyProtocol};
 use anyhow::Context;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 /// Resolve the path of a proxy binary:
 /// 1. If `override_path` is given and the file exists, use it.
@@ -163,6 +165,9 @@ fn build_juicity_command(config: &AppConfig, profile: &ProxyProfile) -> anyhow::
         .arg("info")
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    // On Windows, prevent the child process from opening a console window.
+    #[cfg(windows)]
+    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     Ok((cmd, temp))
 }
 
@@ -212,5 +217,8 @@ fn build_shadowsocks_command(config: &AppConfig, profile: &ProxyProfile) -> anyh
         .arg(&config_path)
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    // On Windows, prevent the child process from opening a console window.
+    #[cfg(windows)]
+    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     Ok((cmd, temp))
 }
