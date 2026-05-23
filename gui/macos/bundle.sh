@@ -171,9 +171,9 @@ echo "==> Generated icon"
 # ── Bundle dylib dependencies ────────────────────────────────────────────
 echo "==> Bundling dylib dependencies..."
 
-# Collect all dylib deps recursively, deduplicate by basename
-declare -A COPIED_DEPS
-COPIED_DEPS=()
+# Use a temp file to track copied dylib names (bash 3.2 compatible dedup)
+COPIED_FILE="$(mktemp "${FRAMEWORKS_DIR}/.copied.XXXXXX")"
+trap 'rm -f "${COPIED_FILE}"' EXIT
 
 # We need to process multiple binaries
 BINS_TO_PROCESS=("${MACOS_DIR}/juicity-gui")
@@ -204,9 +204,11 @@ while [[ ${#QUEUE[@]} -gt 0 ]]; do
     [[ "${dep}" == "${BIN}" ]] && continue
 
     dep_name="$(basename "${dep}")"
-    # Skip if already copied
-    [[ -n "${COPIED_DEPS[${dep_name}]+x}" ]] && continue
-    COPIED_DEPS["${dep_name}"]=1
+    # Skip if already copied (check temp file)
+    if grep -qFx "${dep_name}" "${COPIED_FILE}" 2>/dev/null; then
+      continue
+    fi
+    echo "${dep_name}" >> "${COPIED_FILE}"
 
     target="${FRAMEWORKS_DIR}/${dep_name}"
     if [[ -f "${dep}" ]]; then
@@ -218,7 +220,10 @@ while [[ ${#QUEUE[@]} -gt 0 ]]; do
   done < <(otool -L "${BIN}" 2>/dev/null | tail -n +2 | awk '{print $1}')
 done
 
-echo "==> Copied $(echo "${#COPIED_DEPS[@]}") unique dylib dependencies"
+COPIED_COUNT="$(wc -l < "${COPIED_FILE}" 2>/dev/null || echo 0)"
+rm -f "${COPIED_FILE}"
+trap - EXIT
+echo "==> Copied ${COPIED_COUNT} unique dylib dependencies"
 
 # ── Fix up dylib paths with install_name_tool ────────────────────────────
 echo "==> Fixing dylib paths..."
