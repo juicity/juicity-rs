@@ -340,6 +340,33 @@ else
     cp -R "${ADW_ICON_SRC}/" "${ADW_ICON_DST}/"
     echo "  Bundled Adwaita icon theme"
   fi
+
+  # dbus-daemon binary (GLib/GIO needs this to start a session bus;
+  # without it GTK4 prints "win32 session dbus binary not found" or
+  # the macOS equivalent and some GIO features may not work).
+  DBUS_BIN="${BREW_PREFIX}/bin/dbus-daemon"
+  if [[ -f "${DBUS_BIN}" ]]; then
+    cp "${DBUS_BIN}" "${MACOS_DIR}/dbus-daemon"
+    chmod +x "${MACOS_DIR}/dbus-daemon"
+    # Bundle any additional dylibs required by dbus-daemon that were not
+    # already pulled in while processing the main application binaries.
+    while IFS= read -r dep; do
+      [[ -z "${dep}" ]] && continue
+      case "${dep}" in /usr/lib/*|/System/*) continue ;; esac
+      dep_name="$(basename "${dep}")"
+      if [[ -f "${dep}" && ! -f "${FRAMEWORKS_DIR}/${dep_name}" ]]; then
+        cp -n "${dep}" "${FRAMEWORKS_DIR}/${dep_name}" 2>/dev/null || true
+        chmod 644 "${FRAMEWORKS_DIR}/${dep_name}" 2>/dev/null || true
+        fix_rpath "${FRAMEWORKS_DIR}/${dep_name}"
+        echo "  Copied dbus dep: ${dep_name}"
+      fi
+    done < <(otool -L "${MACOS_DIR}/dbus-daemon" 2>/dev/null | tail -n +2 | awk '{print $1}')
+    fix_rpath "${MACOS_DIR}/dbus-daemon"
+    echo "  Bundled dbus-daemon"
+  else
+    echo "  WARNING: dbus-daemon not found at ${DBUS_BIN}"
+    echo "           Install with: brew install dbus"
+  fi
 fi
 
 # ── Ad-hoc code signing ─────────────────────────────────────────────────
@@ -354,6 +381,10 @@ if command -v codesign &>/dev/null; then
     --entitlements "${GUI_DIR}/macos/Entitlements.plist" \
     "${MACOS_DIR}/juicity-gui" 2>/dev/null || \
     codesign --force --sign - "${MACOS_DIR}/juicity-gui" 2>/dev/null || true
+  [[ -f "${MACOS_DIR}/juicity-client" ]] && \
+    codesign --force --sign - "${MACOS_DIR}/juicity-client" 2>/dev/null || true
+  [[ -f "${MACOS_DIR}/dbus-daemon" ]] && \
+    codesign --force --sign - "${MACOS_DIR}/dbus-daemon" 2>/dev/null || true
   # Sign entire bundle
   codesign --force --deep --sign - "${APP_BUNDLE}" 2>/dev/null || true
   echo "  Ad-hoc code signature applied"
@@ -372,6 +403,7 @@ echo "  Contents:"
 echo "    Info.plist"
 echo "    MacOS/juicity-gui"
 echo "    MacOS/juicity-client"
+echo "    MacOS/dbus-daemon  (GLib/GIO session bus)"
 echo "    Frameworks/ ($(ls "${FRAMEWORKS_DIR}" 2>/dev/null | wc -l) dylibs)"
 echo "    Resources/ (icons, schemas, themes)"
 echo "  Size: $(du -sh "${APP_BUNDLE}" | cut -f1)"

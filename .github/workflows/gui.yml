@@ -84,7 +84,7 @@ jobs:
 
       - name: Install GTK4 (macOS)
         if: matrix.os == 'macos'
-        run: brew install gtk4 libadwaita
+        run: brew install gtk4 libadwaita dbus
 
       - name: Install Rust toolchain (Linux/macOS)
         if: matrix.os != 'windows'
@@ -107,6 +107,7 @@ jobs:
             mingw-w64-${{ matrix.msystem_arch }}-gtk4
             mingw-w64-${{ matrix.msystem_arch }}-libadwaita
             mingw-w64-${{ matrix.msystem_arch }}-pkg-config
+            mingw-w64-${{ matrix.msystem_arch }}-dbus
 
       # ── Build ────────────────────────────────────────────────────────────
 
@@ -266,6 +267,23 @@ jobs:
           # Hicolor icon theme
           [[ -d "${PREFIX}/share/icons/hicolor" ]] && \
             { mkdir -p "${PKG_DIR}/share/icons"; cp -r "${PREFIX}/share/icons/hicolor" "${PKG_DIR}/share/icons/"; }
+
+          # Adwaita icon theme
+          [[ -d "${PREFIX}/share/icons/Adwaita" ]] && \
+            { mkdir -p "${PKG_DIR}/share/icons"; cp -r "${PREFIX}/share/icons/Adwaita" "${PKG_DIR}/share/icons/"; }
+
+          # dbus-daemon.exe — GLib/GIO on Windows searches for this binary to start
+          # a session bus; without it the runtime prints:
+          #   GLib-GIO-WARNING: win32 session dbus binary not found
+          if [[ -f "${PREFIX}/bin/dbus-daemon.exe" ]]; then
+            cp "${PREFIX}/bin/dbus-daemon.exe" "${PKG_DIR}/"
+            while IFS= read -r dll; do
+              name=$(basename "$dll")
+              [[ -n "${seen[$name]+x}" ]] && continue
+              seen[$name]=1
+              cp "$dll" "${PKG_DIR}/"
+            done < <(ldd "${PKG_DIR}/dbus-daemon.exe" 2>/dev/null | awk '/=> \//' | awk '{print $3}' | grep -v '/c/[Ww]indows')
+          fi
 
       # ── Package zip ───────────────────────────────────────────────────────
 
