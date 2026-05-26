@@ -88,9 +88,6 @@ impl Config {
         if self.password.is_empty() {
             anyhow::bail!("'password' is required");
         }
-        if self.password.len() < 8 {
-            anyhow::bail!("'password' must be at least 8 characters long");
-        }
         if self.listen.is_empty() && self.forward.is_empty() {
             anyhow::bail!("'listen' or 'forward' is required");
         }
