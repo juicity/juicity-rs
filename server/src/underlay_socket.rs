@@ -2,6 +2,7 @@ use std::io::IoSliceMut;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 
 use quinn::udp::{RecvMeta, Transmit};
@@ -16,6 +17,14 @@ pub struct UnderlayPacket {
 /// Maximum number of non-QUIC underlay packets that can be queued before new ones are dropped.
 /// This provides back-pressure and prevents unbounded memory growth under high load.
 pub const UNDERLAY_CHANNEL_CAPACITY: usize = 1024;
+
+/// Max recv batches processed in one `poll_recv` call before yielding.
+/// Prevents sustained non-QUIC traffic from monopolizing a runtime worker.
+const MAX_DEMUX_BATCHES_PER_POLL: usize = 8;
+
+/// Counts dropped non-QUIC packets when underlay channel is full.
+/// Used to rate-limit warning logs under burst traffic.
+static UNDERLAY_DROPPED_PACKETS: AtomicU64 = AtomicU64::new(0);
 
 /// Split non-QUIC packets away from Quinn while keeping one shared UDP port.
 #[derive(Debug)]
@@ -71,7 +80,7 @@ impl AsyncUdpSocket for DemuxUdpSocket {
         bufs: &mut [IoSliceMut<'_>],
         meta: &mut [RecvMeta],
     ) -> Poll<std::io::Result<usize>> {
-        loop {
+        for _ in 0..MAX_DEMUX_BATCHES_PER_POLL {
             let msgs = match self.inner.poll_recv(cx, bufs, meta) {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
@@ -103,12 +112,16 @@ impl AsyncUdpSocket for DemuxUdpSocket {
                         peer: meta[i].addr,
                         payload: bufs[i][offset..end].to_vec(),
                     }).is_err() {
-                        // Channel full: drop the packet and warn. Under sustained high
-                        // underlay load this may cause UDP handshake failures.
-                        tracing::warn!(
-                            "underlay channel full, dropping non-QUIC packet from {}",
-                            meta[i].addr
-                        );
+                        // Channel full: drop packet. Warn only periodically to avoid
+                        // log storms amplifying CPU under hostile/burst traffic.
+                        let dropped = UNDERLAY_DROPPED_PACKETS.fetch_add(1, Ordering::Relaxed) + 1;
+                        if dropped == 1 || dropped % 1024 == 0 {
+                            tracing::warn!(
+                                "underlay channel full, dropped {} non-QUIC packets (latest from {})",
+                                dropped,
+                                meta[i].addr
+                            );
+                        }
                     }
                     offset = end;
                 }
@@ -118,6 +131,11 @@ impl AsyncUdpSocket for DemuxUdpSocket {
                 return Poll::Ready(Ok(keep));
             }
         }
+
+        // We only handled non-QUIC packets in this call and exhausted the budget.
+        // Yield to let other runtime tasks make progress, then request a re-poll.
+        cx.waker().wake_by_ref();
+        Poll::Pending
     }
 
     fn local_addr(&self) -> std::io::Result<SocketAddr> {
