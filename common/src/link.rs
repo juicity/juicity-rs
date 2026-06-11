@@ -105,13 +105,16 @@ pub fn save_qrcode_png(link: &str, path: &str) -> Result<(), anyhow::Error> {
 // ── Helpers ──
 
 /// Parse a `host:port` string into `(host, port)`.
-fn parse_host_port(addr: &str) -> Result<(String, String), String> {
+fn parse_host_port(addr: &str) -> Result<(String, u16), String> {
     // Handle IPv6 addresses like [::1]:443
     if addr.starts_with('[') {
         if let Some(close_bracket) = addr.find(']') {
             if close_bracket + 1 < addr.len() && addr.as_bytes()[close_bracket + 1] == b':' {
                 let host = addr[1..close_bracket].to_string();
-                let port = addr[close_bracket + 2..].to_string();
+                let port_str = &addr[close_bracket + 2..];
+                let port: u16 = port_str
+                    .parse()
+                    .map_err(|_| format!("Invalid port in address: {}", addr))?;
                 return Ok((host, port));
             }
         }
@@ -121,10 +124,13 @@ fn parse_host_port(addr: &str) -> Result<(String, String), String> {
     // Standard host:port
     if let Some(colon_pos) = addr.rfind(':') {
         let host = addr[..colon_pos].to_string();
-        let port = addr[colon_pos + 1..].to_string();
-        if port.is_empty() || port.chars().any(|c| !c.is_ascii_digit()) {
+        let port_str = &addr[colon_pos + 1..];
+        if port_str.is_empty() || port_str.chars().any(|c| !c.is_ascii_digit()) {
             return Err(format!("Invalid port in address: {}", addr));
         }
+        let port: u16 = port_str
+            .parse()
+            .map_err(|_| format!("Invalid port in address: {}", addr))?;
         Ok((host, port))
     } else {
         Err(format!(
@@ -199,14 +205,14 @@ mod tests {
     fn test_parse_host_port() {
         let (host, port) = parse_host_port("example.com:443").unwrap();
         assert_eq!(host, "example.com");
-        assert_eq!(port, "443");
+        assert_eq!(port, 443u16);
     }
 
     #[test]
     fn test_parse_host_port_ipv6() {
         let (host, port) = parse_host_port("[::1]:443").unwrap();
         assert_eq!(host, "::1");
-        assert_eq!(port, "443");
+        assert_eq!(port, 443u16);
     }
 
     #[test]

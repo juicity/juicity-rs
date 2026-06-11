@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+
+use indexmap::IndexMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -346,7 +348,8 @@ async fn handle_non_quic_underlay_packet(
         }
     };
 
-    let (session, pt_len) = if let Some(existing) = existing_session {
+    // ── Existing session: decrypt + forward immediately ──
+    if let Some(existing) = existing_session {
         // In-place decrypt using cached cipher
         if let Err(e) = existing.cipher.decrypt_in_place(&mut payload) {
             tracing::debug!(
@@ -357,83 +360,78 @@ async fn handle_non_quic_underlay_packet(
             );
             return Ok(());
         }
-        // After decrypt_in_place, payload contains only plaintext
-        let pt_len = payload.len();
-        (existing, pt_len)
-    } else {
-        let mut salt = [0u8; consts::UNDERLAY_SALT_LEN];
-        salt.copy_from_slice(&payload[..consts::UNDERLAY_SALT_LEN]);
-        let auth = match in_flight.evict(&salt).await {
-            Some(auth) => auth,
-            None => {
-                tracing::debug!(
-                    "drop non-QUIC packet from {}: missing in-flight underlay auth",
-                    source
-                );
-                return Ok(());
-            }
-        };
 
-        if disable_udp_443 && auth.metadata.port == 443 {
-            tracing::debug!("blocked underlay UDP/443: {}", auth.metadata.target_addr());
-            return Ok(());
-        }
-
-        // Derive subkey once and cache it in UnderlayCipher
-        let subkey = juicity_underlay::derive_subkey(&auth.psk, &salt)?;
-        let cipher = UnderlayCipher::from_subkey(&subkey);
-
-        // In-place decrypt
-        if let Err(e) = cipher.decrypt_in_place(&mut payload) {
-            tracing::debug!(
-                "drop first underlay packet from {} for target {}: {:?}",
+        // Get or create the UDP endpoint and forward the decrypted payload.
+        let ((udp_socket, dial_target), _is_new) = udp_pool
+            .get_or_create(
                 source,
-                auth.metadata.target_addr(),
-                e
+                crate::udp::UdpEndpointOptions {
+                    nat_timeout: consts::DEFAULT_NAT_TIMEOUT,
+                    dial_target: existing.target.clone(),
+                },
+            )
+            .await?;
+
+        let send_socket = tokio::net::UdpSocket::from_std(udp_socket)?;
+        if let Err(e) = send_socket.send_to(&payload, &dial_target).await {
+            udp_pool.remove(&source).await;
+            // Remove the session; the relay task will be aborted by cleanup.
+            let removed = sessions.lock().unwrap().remove(&source);
+            if let Some(s) = removed {
+                if let Some(h) = s.relay_abort {
+                    h.abort();
+                }
+            }
+            return Err(anyhow::anyhow!("underlay send_to {} failed: {:?}", dial_target, e));
+        }
+        return Ok(());
+    }
+
+    // ── New session: auth, decrypt, create endpoint+relay, then insert ──
+    let mut salt = [0u8; consts::UNDERLAY_SALT_LEN];
+    salt.copy_from_slice(&payload[..consts::UNDERLAY_SALT_LEN]);
+    let auth = match in_flight.evict(&salt).await {
+        Some(auth) => auth,
+        None => {
+            tracing::debug!(
+                "drop non-QUIC packet from {}: missing in-flight underlay auth",
+                source
             );
             return Ok(());
         }
-        let pt_len = payload.len();
-
-        let session = UnderlaySession {
-            target: auth.metadata.target_addr(),
-            cipher,
-            last_used: std::time::Instant::now(),
-            relay_abort: None,
-        };
-
-        let mut evicted_session: Option<(SocketAddr, Option<tokio::task::AbortHandle>)> = None;
-        {
-            let mut guard = sessions.lock().unwrap();
-            if guard.len() >= consts::MAX_UNDERLAY_SESSIONS {
-                if let Some(oldest_addr) = guard
-                    .iter()
-                    .min_by_key(|(_, s)| s.last_used)
-                    .map(|(addr, _)| *addr)
-                {
-                    if let Some(old) = guard.remove(&oldest_addr) {
-                        evicted_session = Some((oldest_addr, old.relay_abort));
-                    }
-                }
-            }
-            guard.insert(source, session.clone());
-        }
-        if let Some((oldest_addr, relay_abort)) = evicted_session {
-            if let Some(h) = relay_abort {
-                h.abort()
-            }
-            udp_pool.remove(&oldest_addr).await;
-        }
-        tracing::debug!("new underlay session {} -> {}", source, session.target);
-        (session, pt_len)
     };
 
+    if disable_udp_443 && auth.metadata.port == 443 {
+        tracing::debug!("blocked underlay UDP/443: {}", auth.metadata.target_addr());
+        return Ok(());
+    }
+
+    // Derive subkey once and cache it in UnderlayCipher
+    let subkey = juicity_underlay::derive_subkey(&auth.psk, &salt)?;
+    let cipher = UnderlayCipher::from_subkey(&subkey);
+
+    // In-place decrypt
+    if let Err(e) = cipher.decrypt_in_place(&mut payload) {
+        tracing::debug!(
+            "drop first underlay packet from {} for target {}: {:?}",
+            source,
+            auth.metadata.target_addr(),
+            e
+        );
+        return Ok(());
+    }
+    let pt_len = payload.len();
+    let target = auth.metadata.target_addr();
+
+    // ── Create UDP endpoint and spawn relay-back task BEFORE inserting session ──
+    // This eliminates the race window where the cleanup task could remove the session
+    // between insertion and abort handle storage, which would orphan the relay task.
     let ((udp_socket, dial_target), is_new) = udp_pool
         .get_or_create(
             source,
             crate::udp::UdpEndpointOptions {
                 nat_timeout: consts::DEFAULT_NAT_TIMEOUT,
-                dial_target: session.target.clone(),
+                dial_target: target.clone(),
             },
         )
         .await?;
@@ -447,9 +445,9 @@ async fn handle_non_quic_underlay_packet(
     };
     let send_socket = tokio::net::UdpSocket::from_std(udp_socket)?;
 
-    if let Some(recv_socket) = recv_socket_for_relay {
+    let relay_abort = if let Some(recv_socket) = recv_socket_for_relay {
         let relay_back = server_socket.clone();
-        let session_cipher = session.cipher.clone();
+        let session_cipher = cipher.clone();
         let sessions_for_task = sessions.clone();
         let udp_pool_for_task = udp_pool.clone();
         let relay_handle = tokio::spawn(async move {
@@ -488,22 +486,46 @@ async fn handle_non_quic_underlay_packet(
             }
             udp_pool_for_task.remove(&source).await;
         });
-        // Store the abort handle so periodic cleanup can cancel this task.
-        // Use Entry API to avoid the race where relay_handle exits before we store the abort handle.
+        Some(relay_handle.abort_handle())
+    } else {
+        None
+    };
+
+    let session = UnderlaySession {
+        target,
+        cipher,
+        last_used: std::time::Instant::now(),
+        relay_abort,
+    };
+
+    // Now insert the session atomically — abort handle is already set, no race possible.
+    let mut evicted_session: Option<(SocketAddr, Option<tokio::task::AbortHandle>)> = None;
+    {
         let mut guard = sessions.lock().unwrap();
-        match guard.entry(source) {
-            std::collections::hash_map::Entry::Occupied(mut o) => {
-                o.get_mut().relay_abort = Some(relay_handle.abort_handle());
-            }
-            std::collections::hash_map::Entry::Vacant(_) => {
-                // Session was already removed (e.g. relay task exited before we acquired the lock).
+        if guard.len() >= consts::MAX_UNDERLAY_SESSIONS {
+            if let Some(oldest_addr) = guard
+                .iter()
+                .min_by_key(|(_, s)| s.last_used)
+                .map(|(addr, _)| *addr)
+            {
+                if let Some(old) = guard.remove(&oldest_addr) {
+                    evicted_session = Some((oldest_addr, old.relay_abort));
+                }
             }
         }
+        guard.insert(source, session.clone());
     }
+    if let Some((oldest_addr, relay_abort)) = evicted_session {
+        if let Some(h) = relay_abort {
+            h.abort()
+        }
+        udp_pool.remove(&oldest_addr).await;
+    }
+    tracing::debug!("new underlay session {} -> {}", source, session.target);
 
+    // Send first packet immediately — relay task is already running.
     if let Err(e) = send_socket.send_to(&payload[..pt_len], &dial_target).await {
         udp_pool.remove(&source).await;
-        // Remove the session and abort the relay task if one was spawned.
         let removed = sessions.lock().unwrap().remove(&source);
         if let Some(s) = removed {
             if let Some(h) = s.relay_abort {
@@ -729,7 +751,7 @@ async fn handle_udp_relay(
     dialer: Arc<dyn crate::dialer::Dialer>,
     disable_udp_443: bool,
 ) -> anyhow::Result<()> {
-    let mut domain_ip_map: HashMap<(String, u16), SocketAddr> = HashMap::new();
+    let mut domain_ip_map: IndexMap<(String, u16), SocketAddr> = IndexMap::new();
 
     // First datagram: [trojanc_addr][len(2)][payload]
     let (first_host, first_port) = protocol::read_trojanc_addr_async(&mut recv_stream).await?;
@@ -840,7 +862,7 @@ async fn handle_udp_relay(
 async fn resolve_udp_target(
     host: &str,
     port: u16,
-    domain_ip_map: &mut HashMap<(String, u16), SocketAddr>,
+    domain_ip_map: &mut IndexMap<(String, u16), SocketAddr>,
 ) -> anyhow::Result<SocketAddr> {
     if let Ok(ip) = host.parse::<std::net::IpAddr>() {
         return Ok(SocketAddr::new(ip, port));
@@ -860,7 +882,7 @@ async fn resolve_udp_target(
     // recently-used entries and avoids unnecessary DNS re-resolutions.
     if domain_ip_map.len() >= consts::MAX_UDP_DNS_CACHE {
         if let Some(oldest_key) = domain_ip_map.keys().next().cloned() {
-            domain_ip_map.remove(&oldest_key);
+            domain_ip_map.shift_remove(&oldest_key);
         }
     }
     domain_ip_map.insert(key, resolved);

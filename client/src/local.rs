@@ -343,13 +343,16 @@ async fn start_udp_assoc_session(
         });
 
         let mut reader = tokio::spawn(async move {
+            // Pre-allocate a reusable buffer (max UDP datagram size) to avoid
+            // per-packet heap allocation inside the hot loop.
+            let mut recv_buf = Vec::with_capacity(65535);
             loop {
-                let (resp_addr, resp_port, resp_payload) = match read_one_udp_response(&mut recv).await {
+                let (resp_addr, resp_port) = match read_one_udp_response(&mut recv, &mut recv_buf).await {
                     Ok(v) => v,
                     Err(_) => break,
                 };
 
-                let socks5_packet = build_socks5_udp_packet(&resp_addr, resp_port, &resp_payload);
+                let socks5_packet = build_socks5_udp_packet(&resp_addr, resp_port, &recv_buf);
                 if bind_socket_for_reader
                     .send_to(&socks5_packet, local_client_addr)
                     .await
@@ -385,7 +388,8 @@ async fn start_udp_assoc_session(
 
 async fn read_one_udp_response(
     recv: &mut quinn::RecvStream,
-) -> anyhow::Result<(String, u16, Vec<u8>)> {
+    buf: &mut Vec<u8>,
+) -> anyhow::Result<(String, u16)> {
     // Wire format (upstream-compatible): [trojanc_addr][len(2)][payload]
     let (resp_addr, resp_port) = tokio::time::timeout(
         consts::DEFAULT_NAT_TIMEOUT,
@@ -396,11 +400,11 @@ async fn read_one_udp_response(
     let mut len_buf = [0u8; 2];
     tokio::time::timeout(consts::DEFAULT_NAT_TIMEOUT, recv.read_exact(&mut len_buf)).await??;
     let pkt_len = u16::from_be_bytes(len_buf) as usize;
-    let mut resp_payload = vec![0u8; pkt_len];
-    tokio::time::timeout(consts::DEFAULT_NAT_TIMEOUT, recv.read_exact(&mut resp_payload))
+    buf.resize(pkt_len, 0);
+    tokio::time::timeout(consts::DEFAULT_NAT_TIMEOUT, recv.read_exact(&mut buf[..pkt_len]))
         .await??;
 
-    Ok((resp_addr, resp_port, resp_payload))
+    Ok((resp_addr, resp_port))
 }
 
 async fn remove_session_if_match(

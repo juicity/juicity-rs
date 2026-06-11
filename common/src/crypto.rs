@@ -23,16 +23,6 @@ pub fn generate_cert_chain_hash(raw_certs: &[&[u8]]) -> Vec<u8> {
     chain.map(|h| h.to_vec()).unwrap_or_default()
 }
 
-/// Deduplicate a slice while preserving order
-#[allow(dead_code)]
-pub fn deduplicate<T: Eq + std::hash::Hash + Clone>(list: &[T]) -> Vec<T> {
-    let mut seen = std::collections::HashSet::new();
-    list.iter()
-        .filter(|item| seen.insert((*item).clone()))
-        .cloned()
-        .collect()
-}
-
 /// AES-128-GCM encryption/decryption for shadowsocks-style underlay UDP
 pub mod aead {
     use aes_gcm::aead::{AeadInPlace, KeyInit};

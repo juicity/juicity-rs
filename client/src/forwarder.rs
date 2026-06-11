@@ -129,14 +129,16 @@ fn parse_local_addr(raw: &str) -> anyhow::Result<(&str, ProtocolFilter)> {
     if let Some(slash_pos) = raw.rfind('/') {
         let addr = &raw[..slash_pos];
         let proto = &raw[slash_pos + 1..];
-        match proto.to_lowercase().as_str() {
-            "tcp" => Ok((addr, ProtocolFilter::Tcp)),
-            "udp" => Ok((addr, ProtocolFilter::Udp)),
-            _ => anyhow::bail!(
+        if proto.eq_ignore_ascii_case("tcp") {
+            Ok((addr, ProtocolFilter::Tcp))
+        } else if proto.eq_ignore_ascii_case("udp") {
+            Ok((addr, ProtocolFilter::Udp))
+        } else {
+            anyhow::bail!(
                 "unknown protocol '{}' in forward address '{}', expected tcp/udp",
                 proto,
                 raw
-            ),
+            )
         }
     } else {
         // No protocol suffix: default to both TCP and UDP
@@ -375,10 +377,13 @@ async fn handle_udp_datagram(
 
     // Spawn reader task: reads responses from QUIC and sends back to local UDP
     let reader_handle = tokio::spawn(async move {
+        // Pre-allocate a reusable buffer (max UDP datagram size) to avoid
+        // per-packet heap allocation inside the hot loop.
+        let mut recv_buf = Vec::with_capacity(65535);
         loop {
-            match read_one_udp_response(&mut recv).await {
-                Ok(payload) => {
-                    if socket_clone.send_to(&payload, src_addr).await.is_err() {
+            match read_one_udp_response(&mut recv, &mut recv_buf).await {
+                Ok(()) => {
+                    if socket_clone.send_to(&recv_buf, src_addr).await.is_err() {
                         break;
                     }
                 }
@@ -424,9 +429,13 @@ async fn handle_udp_datagram(
 
 /// Read one UDP response from a QUIC recv stream.
 /// Wire format (upstream-compatible): [trojanc_addr][len(2)][payload]
+///
+/// Uses the caller-provided `buf` (pre-allocated with sufficient capacity) to
+/// avoid per-packet heap allocation inside a hot loop.
 async fn read_one_udp_response(
     recv: &mut quinn::RecvStream,
-) -> anyhow::Result<Vec<u8>> {
+    buf: &mut Vec<u8>,
+) -> anyhow::Result<()> {
     // Discard the per-response address — the session already knows the target
     tokio::time::timeout(
         consts::DEFAULT_NAT_TIMEOUT,
@@ -437,10 +446,10 @@ async fn read_one_udp_response(
     let mut len_buf = [0u8; 2];
     tokio::time::timeout(consts::DEFAULT_NAT_TIMEOUT, recv.read_exact(&mut len_buf)).await??;
     let pkt_len = u16::from_be_bytes(len_buf) as usize;
-    let mut payload = vec![0u8; pkt_len];
-    tokio::time::timeout(consts::DEFAULT_NAT_TIMEOUT, recv.read_exact(&mut payload)).await??;
+    buf.resize(pkt_len, 0);
+    tokio::time::timeout(consts::DEFAULT_NAT_TIMEOUT, recv.read_exact(&mut buf[..pkt_len])).await??;
 
-    Ok(payload)
+    Ok(())
 }
 
 /// Parse a "host:port" target string into (host, port).
