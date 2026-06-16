@@ -138,30 +138,41 @@ async fn main() -> anyhow::Result<()> {
             let do_link = do_link || default_mode;
 
             if do_link || qrcode || qrcode_png.is_some() {
-                // Step 1: Resolve host (from --interface or interactive selection)
-                let host_override = resolve_export_host(interface.as_deref())?;
+                // Step 1: Resolve hosts (from --interface or interactive multi-selection)
+                let hosts = resolve_export_hosts(interface.as_deref())?;
 
-                // Step 2: Resolve SNI (from --domain, certificate parsing, or interactive prompt)
-                let sni_override =
-                    resolve_export_sni(&config, domain.as_deref())?;
+                // Step 2: Resolve SNI once (same for all hosts)
+                let sni_override = resolve_export_sni(&config, domain.as_deref())?;
 
-                // Step 3: Generate share link
-                let share_link = link::generate_share_link(
-                    &config,
-                    host_override.as_deref(),
-                    sni_override.as_deref(),
-                )
-                .map_err(|e| anyhow::anyhow!("Failed to generate share link: {}", e))?;
+                // Step 3: Generate one share link per host
+                for host in &hosts {
+                    let share_link = link::generate_share_link(
+                        &config,
+                        Some(host.as_str()),
+                        sni_override.as_deref(),
+                    )
+                    .map_err(|e| anyhow::anyhow!("Failed to generate share link: {}", e))?;
 
-                // Step 4: Output
-                if do_link {
-                    println!("{}", share_link);
-                }
-                if qrcode {
-                    link::print_qrcode(&share_link)?;
-                }
-                if let Some(path) = qrcode_png {
-                    link::save_qrcode_png(&share_link, &path)?;
+                    // Step 4: Output
+                    if do_link {
+                        println!("{}", share_link);
+                    }
+                    if qrcode {
+                        link::print_qrcode(&share_link)?;
+                    }
+                    if let Some(ref base_path) = qrcode_png {
+                        // When multiple hosts are selected, disambiguate file names.
+                        let out_path = if hosts.len() > 1 {
+                            let safe = host.replace(['[', ']', ':'], "_");
+                            match base_path.rsplit_once('.') {
+                                Some((stem, ext)) => format!("{}-{}.{}", stem, safe, ext),
+                                None => format!("{}-{}", base_path, safe),
+                            }
+                        } else {
+                            base_path.clone()
+                        };
+                        link::save_qrcode_png(&share_link, &out_path)?;
+                    }
                 }
             }
 
@@ -180,62 +191,69 @@ async fn main() -> anyhow::Result<()> {
 
 // ── Host Resolution ──
 
-/// Resolve the host to use in the share link.
+/// Resolve the list of hosts to use in share links.
 ///
 /// Priority:
-/// 1. If `--interface` is specified, read that interface's IP.
-/// 2. Otherwise, interactively list available interfaces and let the user pick.
-fn resolve_export_host(interface: Option<&str>) -> anyhow::Result<Option<String>> {
+/// 1. If `--interface` is specified, collect all IPs of that interface.
+/// 2. Otherwise, interactively list every non-loopback address and let the
+///    user pick one or more (multi-select).
+fn resolve_export_hosts(interface: Option<&str>) -> anyhow::Result<Vec<String>> {
     match interface {
-        Some(iface) => Ok(Some(get_interface_ip(iface)?)),
-        None => Ok(Some(interactive_select_interface()?)),
+        Some(iface) => get_interface_ips(iface),
+        None => interactive_select_interfaces(),
     }
 }
 
-/// Get the IP address of a specific network interface by name.
+/// Collect all IP addresses of a specific network interface.
 ///
-/// Prefers IPv4; falls back to IPv6.
-fn get_interface_ip(interface_name: &str) -> anyhow::Result<String> {
+/// IPv4 addresses are returned as-is; IPv6 addresses are wrapped in `[…]`
+/// so they can be embedded directly into a `host:port` URL.
+fn get_interface_ips(interface_name: &str) -> anyhow::Result<Vec<String>> {
     let addrs = if_addrs::get_if_addrs()?;
     let mut found = false;
+    let mut ips: Vec<String> = Vec::new();
 
-    // Prefer IPv4
     for addr in addrs.iter().filter(|a| a.name == interface_name) {
         found = true;
-        if let if_addrs::IfAddr::V4(ref v4) = addr.addr {
-            return Ok(v4.ip.to_string());
-        }
-    }
-    // Fallback to IPv6
-    for addr in addrs.iter().filter(|a| a.name == interface_name) {
-        if let if_addrs::IfAddr::V6(ref v6) = addr.addr {
-            return Ok(v6.ip.to_string());
+        match &addr.addr {
+            if_addrs::IfAddr::V4(v4) => ips.push(v4.ip.to_string()),
+            if_addrs::IfAddr::V6(v6) => ips.push(format!("[{}]", v6.ip)),
         }
     }
 
-    if found {
-        anyhow::bail!("Interface '{}' has no IP address", interface_name)
-    } else {
-        anyhow::bail!("Interface '{}' not found", interface_name)
+    if !found {
+        anyhow::bail!("Interface '{}' not found", interface_name);
     }
+    if ips.is_empty() {
+        anyhow::bail!("Interface '{}' has no IP address", interface_name);
+    }
+    Ok(ips)
 }
 
-/// Interactively select a network interface by listing all available ones.
-fn interactive_select_interface() -> anyhow::Result<String> {
-    use dialoguer::Select;
+/// Interactively multi-select addresses from all non-loopback interfaces.
+///
+/// Lists every (interface, address) pair — both IPv4 and IPv6 — and lets
+/// the user toggle any number of them.  At least one must be chosen.
+fn interactive_select_interfaces() -> anyhow::Result<Vec<String>> {
+    use dialoguer::MultiSelect;
 
     let addrs = if_addrs::get_if_addrs()?;
-    let mut seen = std::collections::HashSet::new();
-    let mut candidates: Vec<(String, String)> = Vec::new(); // (name, ip)
+    // (display label, url-ready ip string)
+    let mut candidates: Vec<(String, String)> = Vec::new();
 
     for addr in &addrs {
         if addr.is_loopback() {
             continue;
         }
-        if let if_addrs::IfAddr::V4(ref v4) = addr.addr {
-            if seen.insert(addr.name.clone()) {
-                candidates.push((addr.name.clone(), v4.ip.to_string()));
-            }
+        match &addr.addr {
+            if_addrs::IfAddr::V4(v4) => candidates.push((
+                format!("{} ({})", addr.name, v4.ip),
+                v4.ip.to_string(),
+            )),
+            if_addrs::IfAddr::V6(v6) => candidates.push((
+                format!("{} ([{}])", addr.name, v6.ip),
+                format!("[{}]", v6.ip),
+            )),
         }
     }
 
@@ -243,18 +261,18 @@ fn interactive_select_interface() -> anyhow::Result<String> {
         anyhow::bail!("No network interfaces with IP addresses found");
     }
 
-    let items: Vec<String> = candidates
-        .iter()
-        .map(|(name, ip)| format!("{} ({})", name, ip))
-        .collect();
+    let items: Vec<&str> = candidates.iter().map(|(label, _)| label.as_str()).collect();
 
-    let selection = Select::new()
-        .with_prompt("Select network interface for share link host")
+    let selections = MultiSelect::new()
+        .with_prompt("Select addresses for share link (space to toggle, enter to confirm)")
         .items(&items)
-        .default(0)
         .interact()?;
 
-    Ok(candidates[selection].1.clone())
+    if selections.is_empty() {
+        anyhow::bail!("No address selected");
+    }
+
+    Ok(selections.iter().map(|&i| candidates[i].1.clone()).collect())
 }
 
 // ── SNI Resolution ──
