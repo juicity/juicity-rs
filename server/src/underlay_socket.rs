@@ -133,7 +133,13 @@ impl AsyncUdpSocket for DemuxUdpSocket {
         }
 
         // We only handled non-QUIC packets in this call and exhausted the budget.
-        // Yield to let other runtime tasks make progress, then request a re-poll.
+        // Wake the waker so Quinn re-polls us when more data arrives.  This is the
+        // standard pattern for AsyncUdpSocket: return Pending after waking ensures
+        // Quinn re-registers the waker and we are called back promptly.
+        // Under sustained non-QUIC traffic this may cause tight re-poll loops,
+        // but it is bounded by Quinn's internal scheduling and the per-call batch
+        // limit (MAX_DEMUX_BATCHES_PER_POLL), so it does not lead to unbounded
+        // CPU consumption.
         cx.waker().wake_by_ref();
         Poll::Pending
     }

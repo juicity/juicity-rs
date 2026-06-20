@@ -71,9 +71,22 @@ impl InFlightUnderlayKey {
             }
         }
         inner.entries.insert(key, InFlightEntry { auth, inserted_at: Instant::now() });
-        // notify_one() wakes exactly one waiter, preventing the thundering-herd
-        // problem that notify_waiters() would cause under concurrent evict() callers.
-        self.notify.notify_one();
+        // Use notify_waiters() instead of notify_one() to prevent notification loss.
+        //
+        // notify_one() has a subtle semantic: if the notification is sent between the
+        // waiter's first direct check and its registration via notified(), the
+        // notification is lost and the waiter must fall back to the 100ms timeout.
+        // Under high underlay connection concurrency this can cause cumulative delays.
+        //
+        // notify_waiters() wakes every task that has already called notified(), and any
+        // task that calls notified() afterwards will see a "permit" (tokio's internal
+        // state) immediately.  The thundering-herd concern is mitigated because:
+        //   1. evict() callers are bounded by MAX_UNDERLAY_HANDLER_CONCURRENCY (1024).
+        //   2. Each woken waiter immediately checks whether *its* key arrived, and if
+        //      not, goes back to waiting — so most wakeups are no-ops.
+        // The timeout fallback is retained as a safety net for the unlikely case where
+        // the waiter misses both the direct check and the notification.
+        self.notify.notify_waiters();
     }
 
     /// Evict and retrieve an authentication using Notify for zero-latency wakeup.

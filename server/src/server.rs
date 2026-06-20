@@ -80,6 +80,14 @@ impl JuicityServer {
             consts::MAX_OPEN_INCOMING_STREAMS as u32,
         ));
         transport_config.keep_alive_interval(Some(consts::KEEP_ALIVE_PERIOD));
+        // Set an explicit idle timeout for defense-in-depth.
+        // Even with keep-alive enabled, if the peer stops responding or never opens
+        // a stream after authentication, this timeout ensures the connection and its
+        // associated resources (auth reader task, Arc references) are eventually released.
+        transport_config.max_idle_timeout(Some(
+            quinn::IdleTimeout::try_from(consts::MAX_QUIC_IDLE_TIMEOUT)
+                .map_err(|e| anyhow::anyhow!("invalid idle timeout: {:?}", e))?,
+        ));
         transport_config.stream_receive_window(VarInt::from_u32(
             consts::QUIC_STREAM_RECEIVE_WINDOW,
         ));
@@ -247,6 +255,17 @@ async fn run_underlay_packet_loop(
     server_socket: Arc<tokio::net::UdpSocket>,
     disable_udp_443: bool,
 ) {
+    // ══ std::sync::Mutex usage note ════════════════════════════════════════
+    // We intentionally use std::sync::Mutex (not tokio::sync::Mutex) for the
+    // sessions HashMap.  All critical sections are extremely short (HashMap
+    // insert/remove/get, ~ns level) and no .await point is held while the
+    // lock is acquired.  Using tokio::sync::Mutex would add unnecessary
+    // overhead for these micro-operations.
+    //
+    // The only caveat: on a multi-threaded tokio runtime, if the thread
+    // holding this lock is preempted by the OS scheduler, it may briefly
+    // block other worker threads.  Given the microsecond-scale hold times,
+    // this is negligible in practice.
     let sessions: Arc<std::sync::Mutex<HashMap<SocketAddr, UnderlaySession>>> =
         Arc::new(std::sync::Mutex::new(HashMap::new()));
 
@@ -450,6 +469,45 @@ async fn handle_non_quic_underlay_packet(
         let session_cipher = cipher.clone();
         let sessions_for_task = sessions.clone();
         let udp_pool_for_task = udp_pool.clone();
+
+        // ── SessionGuard ──────────────────────────────────────────────────
+        // A Drop guard that ensures the session entry is removed from the
+        // sessions map when the relay-back task exits, *even if the task is
+        // externally aborted via AbortHandle*.
+        //
+        // When abort() is called on a running task, tokio drops the future
+        // at the next await point — local variables go through Drop, but code
+        // after the loop (the manual cleanup below) never executes.
+        // SessionGuard's Drop impl runs regardless of how the task terminates:
+        //   - Normal exit (loop breaks) → guard is dropped → session removed.
+        //   - External abort             → guard is dropped → session removed.
+        //   - Panic                      → guard is dropped → session removed.
+        //
+        // This eliminates the window where an aborted relay task leaves a stale
+        // session entry until the periodic cleanup (30s) removes it.
+        //
+        // Pool cleanup requires async (udp_pool.remove().await), so it cannot
+        // live in a Drop guard.  It stays as explicit code after the loop.
+        // If the task is aborted before reaching that code, the pool entry
+        // will be cleaned up by:
+        //   1. The external eviction/abort path (lines 520-522), or
+        //   2. The periodic pool cleanup (every 30s).
+        struct SessionGuard {
+            source: SocketAddr,
+            sessions: Arc<std::sync::Mutex<HashMap<SocketAddr, UnderlaySession>>>,
+        }
+        impl Drop for SessionGuard {
+            fn drop(&mut self) {
+                let mut guard = self.sessions.lock().unwrap();
+                guard.remove(&self.source);
+            }
+        }
+
+        let _guard = SessionGuard {
+            source,
+            sessions: sessions_for_task.clone(),
+        };
+
         let relay_handle = tokio::spawn(async move {
             // Pre-allocate full-capacity output buffer to avoid repeated Vec resizing.
             // Max payload: ETHERNET_MTU * 4, plus 32-byte salt prefix + 16-byte AEAD tag.
@@ -479,11 +537,13 @@ async fn handle_non_quic_underlay_packet(
                 }
             }
 
-            // Drop the MutexGuard before the await to satisfy Send.
-            {
-                let mut guard = sessions_for_task.lock().unwrap();
-                guard.remove(&source);
-            }
+            // Drop the SessionGuard explicitly before the pool remove so the
+            // session map is cleaned up synchronously.  The guard is otherwise
+            // dropped by the compiler at the end of the scope, which is fine too.
+            drop(_guard);
+
+            // Async pool cleanup — may not run on external abort, but the
+            // periodic pool cleanup (every 30s) will handle stale entries.
             udp_pool_for_task.remove(&source).await;
         });
         Some(relay_handle.abort_handle())
@@ -603,12 +663,19 @@ async fn handle_connection(
     // aborts any still-running streams, releasing their Arc<Dialer> and network
     // resources promptly instead of waiting for remote-side idle timeouts.
     let mut stream_tasks: tokio::task::JoinSet<()> = tokio::task::JoinSet::new();
+    // ── Stream acceptance with idle guard ──
+    // If a client authenticates but never opens a bidirectional stream, accept_bi()
+    // would block forever, leaking the auth task and Arc references.  We wrap it in
+    // a 120-second timeout so that even if the peer keeps the QUIC connection alive
+    // (e.g. via keep-alive PINGs) without opening streams, we eventually tear down
+    // the connection and release its resources.
+    const STREAM_ACCEPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
     loop {
         // Drain completed tasks each iteration to free their resources without blocking.
         while stream_tasks.try_join_next().is_some() {}
 
-        match connection.accept_bi().await {
-            Ok((send_stream, recv_stream)) => {
+        match tokio::time::timeout(STREAM_ACCEPT_TIMEOUT, connection.accept_bi()).await {
+            Ok(Ok((send_stream, recv_stream))) => {
                 let s_dialer = dialer.clone();
                 let s_user_uuid = user_uuid;
                 let s_disable_443 = disable_udp_443;
@@ -627,12 +694,26 @@ async fn handle_connection(
                     }
                 });
             }
-            Err(quinn::ConnectionError::ApplicationClosed { .. }) => {
+            Ok(Err(quinn::ConnectionError::ApplicationClosed { .. })) => {
                 tracing::debug!("Connection closed by peer: {}", remote_addr);
                 break;
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 tracing::debug!("Accept stream error: {:?}", e);
+                break;
+            }
+            Err(_) => {
+                // No stream opened within the timeout window — close the connection
+                // to release auth task, Arc references, and QUIC connection memory.
+                tracing::debug!(
+                    "No stream accepted from {} within {}s timeout",
+                    remote_addr,
+                    STREAM_ACCEPT_TIMEOUT.as_secs()
+                );
+                connection.close(
+                    VarInt::from_u32(0xfffffff3),
+                    b"stream accept timeout",
+                );
                 break;
             }
         }

@@ -155,6 +155,12 @@ async fn handle_socks5(mut stream: TcpStream, local_addr: SocketAddr, client: Ju
                     }
                 }
             }
+            // Gracefully finish the send direction so quinn can clean up the stream
+            // state immediately instead of holding it until a timeout or stream reset.
+            // Without this, quinn keeps stream resources alive until the connection
+            // idle timeout (~3 min), causing gradual resource accumulation under high
+            // connection turnover.
+            let _ = quic_send.finish();
         }
         0x03 => {
             // UDP ASSOCIATE
@@ -191,6 +197,32 @@ async fn handle_socks5(mut stream: TcpStream, local_addr: SocketAddr, client: Ju
             // are cancelled promptly via drop_guard instead of waiting for NAT timeout.
             let session_cancel = CancellationToken::new();
             let cancel_guard = session_cancel.clone().drop_guard();
+
+            // Periodic cleanup: remove UDP ASSOCIATE sessions whose writer channel has
+            // been closed (e.g., supervisor task paniced without removing its entry).
+            // This mirrors the cleanup task in forwarder.rs:249 to keep local.rs and
+            // forwarder.rs consistent.
+            let sessions_cleanup = sessions.clone();
+            let ctrl_cancel_cleanup = ctrl_cancel_clone.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => {
+                            let before = sessions_cleanup.lock().await.len();
+                            sessions_cleanup.lock().await.retain(|_, s| !s.tx.is_closed());
+                            let after = sessions_cleanup.lock().await.len();
+                            if before != after {
+                                tracing::debug!(
+                                    "UDP ASSOCIATE cleanup: removed {} orphaned session(s)",
+                                    before - after
+                                );
+                            }
+                        }
+                        _ = ctrl_cancel_cleanup.cancelled() => break,
+                    }
+                }
+            });
 
             // Spawn UDP forwarder. Per Juicity spec, datagrams from the same source
             // address triplet SHOULD share one stream and be recycled by NAT timeout.
@@ -569,6 +601,9 @@ async fn handle_http_proxy(mut stream: TcpStream, client: JuicityClient) -> anyh
                     }
                 }
             }
+            // Gracefully finish the send direction so quinn can clean up the stream
+            // state immediately instead of holding it until a timeout or stream reset.
+            let _ = quic_send.finish();
         }
         _ => {
             writer
