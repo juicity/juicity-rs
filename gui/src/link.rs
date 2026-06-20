@@ -70,8 +70,9 @@ fn export_juicity_link(profile: &ProxyProfile) -> anyhow::Result<String> {
         url::form_urlencoded::byte_serialize(profile.password.as_bytes()).collect::<String>(),
     );
     let mut s = format!(
-        "juicity://{}@{}:{}",
-        userinfo, profile.server, profile.server_port
+        "juicity://{}@{}",
+        userinfo,
+        crate::util::format_host_port(&profile.server, profile.server_port),
     );
     let mut params = Vec::new();
     if let Some(sni) = &profile.sni {
@@ -100,7 +101,7 @@ fn export_ss_link(profile: &ProxyProfile) -> anyhow::Result<String> {
     // SIP002 format: ss://method:password@host:port[#remarks]
     let userinfo = format!("{}:{}", profile.method, profile.password);
     let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(userinfo.as_bytes());
-    let mut s = format!("ss://{}@{}:{}", b64, profile.server, profile.server_port);
+    let mut s = format!("ss://{}@{}", b64, crate::util::format_host_port(&profile.server, profile.server_port));
     if let Some(plugin) = &profile.plugin {
         if !plugin.is_empty() {
             let mut plugin_str = plugin.clone();

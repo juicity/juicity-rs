@@ -561,15 +561,10 @@ async fn handle_http_proxy(mut stream: TcpStream, client: JuicityClient) -> anyh
 
     match method {
         "CONNECT" => {
-            // Parse host:port from the CONNECT target.
-            // Use rsplitn(2, ':') to correctly handle IPv6 addresses like [::1]:443.
-            let (host, port) = match target.rsplitn(2, ':').collect::<Vec<&str>>() {
-                parts if parts.len() == 2 => {
-                    let port = parts[0].parse::<u16>().unwrap_or(443);
-                    let host = parts[1].to_string();
-                    (host, port)
-                }
-                _ => (target.to_string(), 443u16),
+            // Parse host:port from the CONNECT target, properly handling IPv6 addresses like [::1]:443.
+            let (host, port) = match juicity_common::link::parse_host_port(target) {
+                Ok((host, port)) => (host, port),
+                Err(_) => (target.to_string(), 443u16),
             };
 
             tracing::debug!("HTTP CONNECT: {}:{}", host, port);

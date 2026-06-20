@@ -177,7 +177,7 @@ pub fn save_qrcode_png(link: &str, path: &str) -> Result<(), anyhow::Error> {
 // ── Helpers ──
 
 /// Parse a `host:port` string into `(host, port)`.
-fn parse_host_port(addr: &str) -> Result<(String, u16), String> {
+pub fn parse_host_port(addr: &str) -> Result<(String, u16), String> {
     // Handle IPv6 addresses like [::1]:443
     if addr.starts_with('[') {
         if let Some(close_bracket) = addr.find(']') {

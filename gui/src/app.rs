@@ -861,7 +861,7 @@ fn build_ui(app: &adw::Application) -> anyhow::Result<()> {
             }
         };
         let (addr, _) = crate::util::split_host_port(&s.config.socks_listen);
-        s.config.socks_listen = format!("{}:{}", addr, port);
+        s.config.socks_listen = crate::util::format_host_port(&addr, port);
         s.runtime.close_to_tray = w.close_to_tray_check.is_active();
     }
 

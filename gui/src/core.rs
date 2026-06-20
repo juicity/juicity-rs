@@ -146,7 +146,7 @@ fn build_juicity_command(config: &AppConfig, profile: &ProxyProfile) -> anyhow::
             .unwrap_or(&profile.server);
         let json = serde_json::json!({
             "listen": config.socks_listen,
-            "server": format!("{}:{}", profile.server, profile.server_port),
+            "server": crate::util::format_host_port(&profile.server, profile.server_port),
             "uuid": profile.uuid,
             "password": profile.password,
             "sni": sni,

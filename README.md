@@ -49,7 +49,7 @@ Both binaries share the same JSON config format. Unknown fields are ignored; mis
 
 ```json
 {
-  "listen": "0.0.0.0:443",
+  "listen": ":443",
   "users": {
     "00000000-0000-0000-0000-000000000000": "your-password"
   },
@@ -64,9 +64,14 @@ Both binaries share the same JSON config format. Unknown fields are ignored; mis
 }
 ```
 
+> **IPv6 支持：** `listen` 字段支持 IPv6 地址和 dual-stack 简写。
+> - IPv6 字面量：`"[::1]:443"`（仅监听 IPv6）
+> - Dual-stack 简写：`":443"` 等价于 `"[::]:443"` 并设置 `IPV6_V6ONLY=false`，同时监听 IPv4 和 IPv6
+> - 标准 IPv4：`"0.0.0.0:443"`（仅监听 IPv4）
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `listen` | string | — | Listen address (`host:port` or `:port` for dual-stack) |
+| `listen` | string | — | Listen address (`host:port`, `[host]:port` for IPv6, or `:port` for dual-stack) |
 | `users` | object | — | `{ uuid: password }` map |
 | `certificate` | string | — | PEM certificate file path |
 | `private_key` | string | — | PEM private key file path |
@@ -94,12 +99,18 @@ Both binaries share the same JSON config format. Unknown fields are ignored; mis
 }
 ```
 
+> **IPv6 支持：** `server` 和 `listen` 字段均支持 IPv6 地址。
+> - Server：`"server": "[::1]:443"` 或 `"server": "2001:db8::1:443"`
+> - Listen (IPv6 only)：`"listen": "[::1]:1080"`
+> - Listen (dual-stack)：`"listen": "[::]:1080"` 或简写 `":1080"`
+> - 本地监听：`"listen": "127.0.0.1:1080"`（仅 IPv4，默认推荐）
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `server` | string | — | Server address (`host:port`) |
+| `server` | string | — | Server address (`host:port` or `[host]:port` for IPv6) |
 | `uuid` | string | — | User UUID |
 | `password` | string | — | User password (zeroed from memory on exit) |
-| `listen` | string | `""` | Local proxy listen address; required unless `forward` is set |
+| `listen` | string | `""` | Local proxy listen address (`host:port`, `[host]:port` for IPv6, or `:port` for dual-stack); required unless `forward` is set |
 | `sni` | string | server IP | TLS SNI override |
 | `allow_insecure` | bool | `false` | Skip TLS cert verification (**insecure**, logs a warning) |
 | `pinned_certchain_sha256` | string | `""` | Expected SHA-256 of the server cert chain (base64 or hex) |

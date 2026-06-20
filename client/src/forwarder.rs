@@ -452,16 +452,8 @@ async fn read_one_udp_response(
     Ok(())
 }
 
-/// Parse a "host:port" target string into (host, port).
+/// Parse a "host:port" target string into (host, port), properly handling IPv6 addresses like [::1]:443.
 fn parse_target(target: &str) -> anyhow::Result<(String, u16)> {
-    // Use rsplitn to handle IPv6 addresses like [::1]:443
-    let parts: Vec<&str> = target.rsplitn(2, ':').collect();
-    if parts.len() != 2 {
-        anyhow::bail!("invalid target address '{}', expected host:port", target);
-    }
-    let port: u16 = parts[0]
-        .parse()
-        .map_err(|e| anyhow::anyhow!("invalid port in target '{}': {}", target, e))?;
-    let host = parts[1].to_string();
-    Ok((host, port))
+    juicity_common::link::parse_host_port(target)
+        .map_err(|e| anyhow::anyhow!("{}", e))
 }

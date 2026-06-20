@@ -190,7 +190,10 @@ impl Config {
     ///
     /// The first entry in `users` is used as `uuid`/`password`.
     /// `server` is set to the server's `listen` address.
-    /// `listen` is set to `0.0.0.0:<socks_port>` (default 1080).
+    /// `listen` is set to `[::]:<socks_port>` (default 1080).
+    ///
+    /// `[::]` 是 IPv6 通配地址。在 Linux 上默认禁用 `IPV6_V6ONLY`，
+    /// 因此 `[::]` 启用双栈（dual-stack），可同时接受 IPv4 和 IPv6 连接。
     pub fn to_client_json_from_server(&self, socks_port: u16) -> anyhow::Result<String> {
         let (uuid, password) = self
             .users
@@ -212,7 +215,9 @@ impl Config {
             map.insert("pinned_certchain_sha256".into(), serde_json::Value::String(self.pinned_certchain_sha256.clone()));
         }
         map.insert("congestion_control".into(), serde_json::Value::String(self.congestion_control.clone()));
-        map.insert("listen".into(), serde_json::Value::String(format!("0.0.0.0:{}", socks_port)));
+        // 使用 [::]（IPv6 通配地址）；Linux 上默认禁用 IPV6_V6ONLY，
+        // 因此 [::] 启用双栈，可同时接受 IPv4 和 IPv6 连接。
+        map.insert("listen".into(), serde_json::Value::String(format!("[::]:{}", socks_port)));
         if let Some(fwmark) = self.fwmark {
             map.insert("fwmark".into(), serde_json::Value::Number(fwmark.into()));
         }

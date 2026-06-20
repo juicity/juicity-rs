@@ -23,7 +23,10 @@ impl UdpEndpoint {
     /// Create a new UDP endpoint bound to a random port.
     /// Uses tokio::net::UdpSocket for async bind to avoid blocking the runtime.
     pub async fn new(options: UdpEndpointOptions) -> anyhow::Result<Self> {
-        let tokio_socket = tokio::net::UdpSocket::bind("0.0.0.0:0").await?;
+        // Use "[::]:0" (IPv6 any) for dual-stack binding.
+        // On Linux, binding to "[::]" by default has IPV6_V6ONLY=false,
+        // accepting both IPv4 and IPv6 connections.
+        let tokio_socket = tokio::net::UdpSocket::bind("[::]:0").await?;
         let socket = tokio_socket.into_std()?;
         socket.set_nonblocking(true)?;
 

@@ -28,6 +28,20 @@ pub fn split_host_port(addr: &str) -> (&str, u16) {
     }
 }
 
+/// Format host and port into a "host:port" string, adding brackets for IPv6 addresses.
+///
+/// For example:
+/// - `("::1", 1080)` → `"[::1]:1080"`
+/// - `("127.0.0.1", 1080)` → `"127.0.0.1:1080"`
+/// - `("example.com", 443)` → `"example.com:443"`
+pub fn format_host_port(host: &str, port: u16) -> String {
+    if host.contains(':') {
+        format!("[{}]:{}", host, port) // IPv6
+    } else {
+        format!("{}:{}", host, port) // IPv4 or hostname
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

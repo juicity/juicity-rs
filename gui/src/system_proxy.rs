@@ -159,6 +159,17 @@ fn apply_linux_kde(mode: SystemProxyMode, pac_url: &str, http_listen: &str, sock
             let (http_host, http_port) = crate::util::split_host_port(http_listen);
             let (socks_host, socks_port) = crate::util::split_host_port(socks_listen);
 
+            let http_host = if http_host.contains(':') {
+                format!("[{}]", http_host)
+            } else {
+                http_host.to_string()
+            };
+            let socks_host = if socks_host.contains(':') {
+                format!("[{}]", socks_host)
+            } else {
+                socks_host.to_string()
+            };
+
             ok |= run_if_available(
                 "kwriteconfig5",
                 &["--file", "kioslaverc", "--group", "Proxy Settings", "--key", "ProxyType", "1"],
