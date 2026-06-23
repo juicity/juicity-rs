@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
-use std::sync::Mutex;
 
 use indexmap::IndexMap;
 use lru::LruCache;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
+use std::time::Instant;
 
 use juicity_common::consts;
 
@@ -28,41 +28,11 @@ use uuid::Uuid;
 #[derive(Clone)]
 struct UnderlaySession {
     target: String,
-    cipher: UnderlayCipher,
+    cipher: Arc<UnderlayCipher>,
     /// Last time a packet was handled for this session (updated under the sessions lock).
     last_used: std::time::Instant,
     /// Abort handle for the relay-back task; `None` until the task is spawned.
     relay_abort: Option<tokio::task::AbortHandle>,
-}
-
-/// PSK→subkey cache to avoid redundant HKDF-SHA1 derivation.
-/// Capacity 1024, as each user's PSK is usually fixed.
-/// Note: salt comes from UDP packet payload (random),
-/// so subkey caching only helps in rare duplicate PSK+salt scenarios.
-struct PskCache {
-    inner: Mutex<LruCache<Vec<u8>, [u8; 32]>>,
-}
-
-impl PskCache {
-    fn new() -> Self {
-        Self {
-            inner: Mutex::new(LruCache::new(NonZeroUsize::new(1024).unwrap())),
-        }
-    }
-
-    fn get_or_insert_with<F>(&self, psk: &[u8], f: F) -> [u8; 32]
-    where
-        F: FnOnce() -> [u8; 32],
-    {
-        let mut cache = self.inner.lock().unwrap();
-        // LruCache::get() auto-promotes to most recently used
-        if let Some(subkey) = cache.get(psk) {
-            return *subkey;
-        }
-        let subkey = f();
-        cache.put(psk.to_vec(), subkey);
-        subkey
-    }
 }
 
 /// Juicity proxy server
@@ -73,7 +43,6 @@ pub struct JuicityServer {
     in_flight: Arc<crate::inflight::InFlightUnderlayKey>,
     udp_endpoint_pool: Arc<crate::udp::UdpEndpointPool>,
     disable_outbound_udp443: bool,
-    psk_cache: Arc<PskCache>,
 }
 
 impl JuicityServer {
@@ -206,7 +175,6 @@ impl JuicityServer {
             )),
             udp_endpoint_pool: Arc::new(crate::udp::UdpEndpointPool::new(consts::MAX_UDP_ENDPOINTS)),
             disable_outbound_udp443: config.disable_outbound_udp443,
-            psk_cache: Arc::new(PskCache::new()),
         })
     }
 
@@ -295,7 +263,6 @@ impl JuicityServer {
         let underlay_udp_pool = self.udp_endpoint_pool.clone();
         let underlay_disable_443 = self.disable_outbound_udp443;
         let underlay_socket = server_underlay_socket.clone();
-        let underlay_psk_cache = self.psk_cache.clone();
         // The underlay loop self-terminates when underlay_rx closes (endpoint drop),
         // but AbortOnDrop ensures it is also cancelled on any early serve() exit.
         let _underlay_guard = AbortOnDrop(
@@ -306,7 +273,6 @@ impl JuicityServer {
                     underlay_udp_pool,
                     underlay_socket,
                     underlay_disable_443,
-                    underlay_psk_cache,
                 )
                 .await;
             })
@@ -339,7 +305,6 @@ async fn run_underlay_packet_loop(
     udp_pool: Arc<crate::udp::UdpEndpointPool>,
     server_socket: Arc<tokio::net::UdpSocket>,
     disable_udp_443: bool,
-    psk_cache: Arc<PskCache>,
 ) {
     // ══ std::sync::Mutex usage note ════════════════════════════════════════
     // We intentionally use std::sync::Mutex (not tokio::sync::Mutex) for the
@@ -412,7 +377,6 @@ async fn run_underlay_packet_loop(
         let udp_pool = udp_pool.clone();
         let sessions = sessions.clone();
         let server_socket = server_socket.clone();
-        let psk_cache = psk_cache.clone();
         tokio::spawn(async move {
             if let Err(e) = handle_non_quic_underlay_packet(
                 packet,
@@ -421,7 +385,6 @@ async fn run_underlay_packet_loop(
                 sessions,
                 server_socket,
                 disable_udp_443,
-                psk_cache,
             )
             .await
             {
@@ -441,7 +404,6 @@ async fn handle_non_quic_underlay_packet(
     sessions: Arc<std::sync::Mutex<LruCache<SocketAddr, UnderlaySession>>>,
     server_socket: Arc<tokio::net::UdpSocket>,
     disable_udp_443: bool,
-    psk_cache: Arc<PskCache>,
 ) -> anyhow::Result<()> {
     if packet.payload.len() < consts::UNDERLAY_SALT_LEN {
         return Ok(());
@@ -519,15 +481,12 @@ async fn handle_non_quic_underlay_packet(
         return Ok(());
     }
 
-    // Derive subkey via cache to avoid repeated HKDF-SHA1 derivation.
-    // Note: salt from the UDP packet payload is random per session, so
-    // the same PSK with different salts produces different subkeys.
-    // Cache hit is rare but harmless; the overhead of checking is negligible.
-    let subkey = psk_cache.get_or_insert_with(&auth.psk, || {
-        juicity_underlay::derive_subkey(&auth.psk, &salt)
-            .expect("derive_subkey failed: invalid PSK length")
-    });
-    let cipher = UnderlayCipher::from_subkey(&subkey);
+    // Derive subkey directly via HKDF-SHA1.
+    // Salt is random per UDP packet, so caching (PSK, salt) → subkey would
+    // have near-zero hit rate.  Skip the cache and derive each time.
+    let subkey = juicity_underlay::derive_subkey(&auth.psk, &salt)
+        .expect("derive_subkey failed: invalid PSK length");
+    let cipher = Arc::new(UnderlayCipher::from_subkey(&subkey));
 
     // In-place decrypt (plaintext at &payload[SALT_LEN..])
     if let Err(e) = cipher.decrypt_in_place(&mut payload) {
@@ -938,7 +897,7 @@ async fn handle_udp_relay(
     dialer: Arc<dyn crate::dialer::Dialer>,
     disable_udp_443: bool,
 ) -> anyhow::Result<()> {
-    let mut domain_ip_map: IndexMap<(String, u16), SocketAddr> = IndexMap::new();
+    let mut domain_ip_map: IndexMap<(String, u16), (SocketAddr, Instant)> = IndexMap::new();
 
     // First datagram: [trojanc_addr][len(2)][payload]
     let (first_host, first_port) = protocol::read_trojanc_addr_async(&mut recv_stream).await?;
@@ -1055,15 +1014,20 @@ async fn handle_udp_relay(
 async fn resolve_udp_target(
     host: &str,
     port: u16,
-    domain_ip_map: &mut IndexMap<(String, u16), SocketAddr>,
+    domain_ip_map: &mut IndexMap<(String, u16), (SocketAddr, Instant)>,
 ) -> anyhow::Result<SocketAddr> {
     if let Ok(ip) = host.parse::<std::net::IpAddr>() {
         return Ok(SocketAddr::new(ip, port));
     }
 
     let key = (host.to_string(), port);
-    if let Some(mapped) = domain_ip_map.get(&key) {
-        return Ok(*mapped);
+    // Check cache with TTL expiry
+    if let Some((mapped, timestamp)) = domain_ip_map.get(&key) {
+        if timestamp.elapsed() < consts::UDP_DNS_CACHE_TTL {
+            return Ok(*mapped);
+        }
+        // TTL expired, remove the stale entry
+        domain_ip_map.shift_remove(&key);
     }
 
     let mut addrs = tokio::net::lookup_host((host, port)).await?;
@@ -1078,7 +1042,7 @@ async fn resolve_udp_target(
             domain_ip_map.shift_remove(&oldest_key);
         }
     }
-    domain_ip_map.insert(key, resolved);
+    domain_ip_map.insert(key, (resolved, Instant::now()));
     Ok(resolved)
 }
 

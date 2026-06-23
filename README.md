@@ -64,10 +64,10 @@ Both binaries share the same JSON config format. Unknown fields are ignored; mis
 }
 ```
 
-> **IPv6 支持：** `listen` 字段支持 IPv6 地址和 dual-stack 简写。
-> - IPv6 字面量：`"[::1]:443"`（仅监听 IPv6）
-> - Dual-stack 简写：`":443"` 等价于 `"[::]:443"` 并设置 `IPV6_V6ONLY=false`，同时监听 IPv4 和 IPv6
-> - 标准 IPv4：`"0.0.0.0:443"`（仅监听 IPv4）
+> **IPv6 Support:** The `listen` field supports IPv6 addresses and dual-stack shorthand.
+> - IPv6 literal: `"[::1]:443"` (IPv6 only)
+> - Dual-stack shorthand: `":443"` is equivalent to `"[::]:443"` with `IPV6_V6ONLY=false`, listening on both IPv4 and IPv6
+> - Standard IPv4: `"0.0.0.0:443"` (IPv4 only)
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -99,11 +99,11 @@ Both binaries share the same JSON config format. Unknown fields are ignored; mis
 }
 ```
 
-> **IPv6 支持：** `server` 和 `listen` 字段均支持 IPv6 地址。
-> - Server：`"server": "[::1]:443"` 或 `"server": "2001:db8::1:443"`
-> - Listen (IPv6 only)：`"listen": "[::1]:1080"`
-> - Listen (dual-stack)：`"listen": "[::]:1080"` 或简写 `":1080"`
-> - 本地监听：`"listen": "127.0.0.1:1080"`（仅 IPv4，默认推荐）
+> **IPv6 Support:** Both the `server` and `listen` fields support IPv6 addresses.
+> - Server: `"server": "[::1]:443"` or `"server": "2001:db8::1:443"`
+> - Listen (IPv6 only): `"listen": "[::1]:1080"`
+> - Listen (dual-stack): `"listen": "[::]:1080"` or shorthand `":1080"`
+> - Local listen: `"listen": "127.0.0.1:1080"` (IPv4 only, default recommended)
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|

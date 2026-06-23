@@ -214,9 +214,11 @@ async fn handle_socks5(mut stream: TcpStream, local_addr: SocketAddr, client: Ju
                 loop {
                     tokio::select! {
                         _ = interval.tick() => {
-                            let before = sessions_cleanup.lock().await.len();
-                            sessions_cleanup.lock().await.retain(|_, s| !s.tx.is_closed());
-                            let after = sessions_cleanup.lock().await.len();
+                            let mut guard = sessions_cleanup.lock().await;
+                            let before = guard.len();
+                            guard.retain(|_, s| !s.tx.is_closed());
+                            let after = guard.len();
+                            drop(guard);
                             if before != after {
                                 tracing::debug!(
                                     "UDP ASSOCIATE cleanup: removed {} orphaned session(s)",
@@ -356,6 +358,8 @@ async fn start_udp_assoc_session(
     let bind_socket_for_reader = bind_socket.clone();
 
     tokio::spawn(async move {
+        // Reusable scratch buffer to avoid per-packet heap allocation for address headers.
+        let mut addr_buf = Vec::with_capacity(32);
         let mut writer = tokio::spawn(async move {
             loop {
                 match tokio::time::timeout(consts::DEFAULT_NAT_TIMEOUT, rx.recv()).await {
@@ -365,6 +369,7 @@ async fn start_udp_assoc_session(
                             &datagram.addr,
                             datagram.port,
                             &datagram.payload[..],
+                            &mut addr_buf,
                         )
                         .await
                         .is_err()

@@ -15,8 +15,9 @@ pub struct UnderlayPacket {
 }
 
 /// Maximum number of non-QUIC underlay packets that can be queued before new ones are dropped.
-/// This provides back-pressure and prevents unbounded memory growth under high load.
-pub const UNDERLAY_CHANNEL_CAPACITY: usize = 1024;
+/// Set to 4x MAX_UNDERLAY_HANDLER_CONCURRENCY to provide buffer headroom
+/// for burst traffic, preventing cascading packet loss when the semaphore is exhausted.
+pub const UNDERLAY_CHANNEL_CAPACITY: usize = 4096;
 
 /// Max recv batches processed in one `poll_recv` call before yielding.
 /// Prevents sustained non-QUIC traffic from monopolizing a runtime worker.

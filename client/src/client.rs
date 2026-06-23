@@ -20,6 +20,9 @@ pub struct JuicityClient {
     auth_uni_stream: Arc<tokio::sync::Mutex<Option<SendStream>>>,
     /// Serialises reconnection: only one task may execute the slow reconnect path at a time.
     reconnect_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Tracks the last reconnection failure time to implement backoff.
+    /// Prevents busy-looping when the server is down.
+    last_reconnect_failure: Arc<tokio::sync::Mutex<Option<std::time::Instant>>>,
 }
 
 impl JuicityClient {
@@ -98,6 +101,29 @@ impl JuicityClient {
             .map(std::time::Duration::from_secs)
             .unwrap_or(consts::KEEP_ALIVE_PERIOD);
         transport_config.keep_alive_interval(Some(keep_alive));
+
+        transport_config.max_concurrent_bidi_streams(VarInt::from_u32(
+            consts::MAX_OPEN_INCOMING_STREAMS as u32,
+        ));
+        transport_config.max_concurrent_uni_streams(VarInt::from_u32(
+            consts::MAX_OPEN_INCOMING_STREAMS as u32,
+        ));
+        // Set an explicit idle timeout for defense-in-depth.
+        // Even with keep-alive enabled, if the peer stops responding or never opens
+        // a stream after authentication, this timeout ensures the connection and its
+        // associated resources (auth reader task, Arc references) are eventually released.
+        transport_config.max_idle_timeout(Some(
+            quinn::IdleTimeout::try_from(consts::MAX_QUIC_IDLE_TIMEOUT)
+                .map_err(|e| anyhow::anyhow!("invalid idle timeout: {:?}", e))?,
+        ));
+        transport_config.stream_receive_window(VarInt::from_u32(
+            consts::QUIC_STREAM_RECEIVE_WINDOW,
+        ));
+        transport_config.receive_window(VarInt::from_u32(
+            consts::QUIC_CONNECTION_RECEIVE_WINDOW,
+        ));
+        transport_config.send_window(consts::QUIC_SEND_WINDOW);
+
         // Dynamically adjust window size based on initial_rtt
         if let Some(rtt_ms) = initial_rtt {
             if rtt_ms < 50 {
@@ -127,10 +153,12 @@ impl JuicityClient {
                 Arc::new(quinn::congestion::NewRenoConfig::default()),
             ),
             _ => {
-                // Default BBR config, tuning is done on the server side
-                transport_config.congestion_controller_factory(
-                    Arc::new(quinn::congestion::BbrConfig::default()),
-                )
+                // Tune BBR parameters: set a reasonable initial window to balance latency and throughput
+                let mut bbr_config = quinn::congestion::BbrConfig::default();
+                // Set initial congestion window (in bytes)
+                // Default is min(10*MTU, max(2*MTU, 14720)), here adjusted to 10*MTU
+                bbr_config.initial_window(10 * consts::ETHERNET_MTU as u64);
+                transport_config.congestion_controller_factory(Arc::new(bbr_config))
             }
         };
         quic_config.transport_config(Arc::new(transport_config));
@@ -256,6 +284,7 @@ impl JuicityClient {
             conn: Arc::new(tokio::sync::RwLock::new(None)),
             auth_uni_stream: Arc::new(tokio::sync::Mutex::new(None)),
             reconnect_lock: Arc::new(tokio::sync::Mutex::new(())),
+            last_reconnect_failure: Arc::new(tokio::sync::Mutex::new(None)),
         })
     }
 
@@ -278,6 +307,18 @@ impl JuicityClient {
         // auth_uni_stream state.
         let _reconnect_guard = self.reconnect_lock.lock().await;
 
+        // Exponential backoff: if the last connection attempt failed recently,
+        // wait at least 1 second before retrying to avoid busy-looping.
+        {
+            let last_failure = self.last_reconnect_failure.lock().await;
+            if let Some(last) = *last_failure {
+                let elapsed = last.elapsed();
+                if elapsed < std::time::Duration::from_secs(1) {
+                    tokio::time::sleep(std::time::Duration::from_secs(1) - elapsed).await;
+                }
+            }
+        }
+
         // Double-check: another task may have already reconnected while we waited.
         {
             let guard = self.conn.read().await;
@@ -299,34 +340,50 @@ impl JuicityClient {
 
         tracing::info!("Connecting to Juicity server at {}", self.server_addr);
 
-        let addr = SocketAddr::new(self.server_addr.ip(), self.server_addr.port());
-        let quinn_conn = self
-            .endpoint
-            .connect_with((*self.quic_config).clone(), addr, &self.sni)?
-            .await?;
+        // Wrap the fallible connection + auth logic so we can record failures
+        // before returning the error.
+        let connect_result = (async {
+            let addr = SocketAddr::new(self.server_addr.ip(), self.server_addr.port());
+            let quinn_conn = self
+                .endpoint
+                .connect_with((*self.quic_config).clone(), addr, &self.sni)?
+                .await?;
 
-        // === Authenticate (compatible with upstream) ===
-        // Format: [version=0][cmd_type=Authenticate(0x00)][uuid(16)][token(32)]
-        let mut uni = quinn_conn.open_uni().await?;
+            // === Authenticate (compatible with upstream) ===
+            // Format: [version=0][cmd_type=Authenticate(0x00)][uuid(16)][token(32)]
+            let mut uni = quinn_conn.open_uni().await?;
 
-        // Token using TLS ExportKeyingMaterial(uuid, password, 32) per RFC 5705.
-        // export_keying_material is CPU-bound (HKDF); run it in spawn_blocking to
-        // avoid occupying the async event loop on every connection attempt.
-        let conn_for_token = quinn_conn.clone();
-        let uuid_for_token = self.uuid;
-        let password_for_token = (*self.password).clone();
-        let token = tokio::task::spawn_blocking(move || {
-            protocol::gen_token_via_connection(&conn_for_token, &uuid_for_token, &password_for_token)
+            // Token using TLS ExportKeyingMaterial(uuid, password, 32) per RFC 5705.
+            // export_keying_material is CPU-bound (HKDF); run it in spawn_blocking to
+            // avoid occupying the async event loop on every connection attempt.
+            let conn_for_token = quinn_conn.clone();
+            let uuid_for_token = self.uuid;
+            let password_for_token = (*self.password).clone();
+            let token = tokio::task::spawn_blocking(move || {
+                protocol::gen_token_via_connection(&conn_for_token, &uuid_for_token, &password_for_token)
+            })
+            .await??;
+
+            // Batch all 50 auth bytes into a single write to reduce async round-trips:
+            // [version(1)][cmd_type(1)][uuid(16)][token(32)]
+            let mut auth_buf = Vec::with_capacity(2 + 16 + 32);
+            auth_buf.extend_from_slice(&[protocol::PROTOCOL_VERSION, protocol::AUTHENTICATE_TYPE]);
+            auth_buf.extend_from_slice(self.uuid.as_bytes());
+            auth_buf.extend_from_slice(&token);
+            uni.write_all(&auth_buf).await?;
+
+            anyhow::Ok((quinn_conn, uni))
         })
-        .await??;
+        .await;
 
-        // Batch all 50 auth bytes into a single write to reduce async round-trips:
-        // [version(1)][cmd_type(1)][uuid(16)][token(32)]
-        let mut auth_buf = Vec::with_capacity(2 + 16 + 32);
-        auth_buf.extend_from_slice(&[protocol::PROTOCOL_VERSION, protocol::AUTHENTICATE_TYPE]);
-        auth_buf.extend_from_slice(self.uuid.as_bytes());
-        auth_buf.extend_from_slice(&token);
-        uni.write_all(&auth_buf).await?;
+        let (quinn_conn, uni) = match connect_result {
+            Ok(pair) => pair,
+            Err(e) => {
+                // Record the failure time for exponential backoff on the next retry.
+                *self.last_reconnect_failure.lock().await = Some(std::time::Instant::now());
+                return Err(e);
+            }
+        };
 
         tracing::info!("Authenticated as user {}", self.uuid);
 
@@ -410,14 +467,20 @@ impl JuicityClient {
     ///
     /// Wire format (upstream-compatible): [trojanc_addr][len(2)][payload]
     /// No leading network byte — each datagram carries only its own address.
+    ///
+    /// The `addr_buf` is a reusable scratch buffer to avoid per-packet heap
+    /// allocation. It is cleared before each use.
     pub async fn send_udp_datagram(
         send: &mut SendStream,
         addr: &str,
         port: u16,
         data: &[u8],
+        addr_buf: &mut Vec<u8>,
     ) -> anyhow::Result<()> {
-        let addr_header = protocol::build_trojanc_addr(addr, port)?;
-        send.write_all(&addr_header).await?;
+        let cached = protocol::CachedAddr::from_host_port(addr, port);
+        addr_buf.clear();
+        protocol::build_trojanc_addr_cached(addr_buf, &cached)?;
+        send.write_all(addr_buf).await?;
         let len = (data.len() as u16).to_be_bytes();
         send.write_all(&len).await?;
         send.write_all(data).await?;

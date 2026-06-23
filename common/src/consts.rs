@@ -40,6 +40,9 @@ pub const UNDERLAY_SALT_LEN: usize = 32;
 /// Maximum number of cached (domain, port) -> SocketAddr entries per UDP relay stream.
 /// Prevents domain_ip_map from growing without bound across long-lived UDP sessions.
 pub const MAX_UDP_DNS_CACHE: usize = 256;
+/// TTL for DNS cache entries (5 minutes).
+/// After this duration, a cached DNS result is considered stale and will be re-resolved.
+pub const UDP_DNS_CACHE_TTL: Duration = Duration::from_secs(300);
 
 /// Maximum number of concurrent inbound TCP connections on the local proxy listener.
 /// Matches the UDP concurrency limit in the Forwarder to provide consistent back-pressure.

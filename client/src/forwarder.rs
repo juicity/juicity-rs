@@ -7,7 +7,7 @@ use bytes::Bytes;
 use juicity_common::consts;
 use juicity_common::protocol;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use crate::client::JuicityClient;
@@ -157,12 +157,21 @@ async fn start_tcp_forward(entry: ForwardEntry, client: JuicityClient) -> anyhow
         entry.target
     );
 
+    // Limit concurrent inbound TCP connections to avoid unbounded memory growth
+    // during connection bursts, matching the UDP Semaphore(256) below and the
+    // local proxy in local.rs.
+    let sem = Arc::new(Semaphore::new(consts::MAX_CONCURRENT_TCP_CONNECTIONS));
+
     loop {
+        // Acquire a permit before accepting; this blocks new accepts when the
+        // limit is reached, providing back-pressure at the OS TCP accept queue.
+        let permit = sem.clone().acquire_owned().await?;
         let (stream, peer_addr) = listener.accept().await?;
         let client = client.clone();
         let target = entry.target.clone();
 
         tokio::spawn(async move {
+            let _permit = permit; // held for the lifetime of the connection
             tracing::debug!(
                 "TCP forward: accepted from {}, forwarding to {}",
                 peer_addr,
@@ -362,10 +371,12 @@ async fn handle_udp_datagram(
 
     // Spawn writer task: reads from channel and sends via QUIC
     let writer_handle = tokio::spawn(async move {
+        // Reusable scratch buffer to avoid per-packet heap allocation for address headers.
+        let mut addr_buf = Vec::with_capacity(32);
         loop {
             match tokio::time::timeout(consts::DEFAULT_NAT_TIMEOUT, rx.recv()).await {
                 Ok(Some(datagram)) => {
-                    if JuicityClient::send_udp_datagram(&mut send, &host, port, &datagram[..])
+                    if JuicityClient::send_udp_datagram(&mut send, &host, port, &datagram[..], &mut addr_buf)
                         .await
                         .is_err()
                     {

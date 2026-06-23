@@ -50,12 +50,16 @@ impl UdpEndpoint {
 /// Pool of UDP endpoints for full-cone NAT
 pub struct UdpEndpointPool {
     inner: Mutex<LruCache<SocketAddr, UdpEndpoint>>,
+    /// Serializes UdpEndpoint::new calls to prevent TOCTOU race and
+    /// mitigate temporary port exhaustion under high concurrency.
+    create_lock: Mutex<()>,
 }
 
 impl UdpEndpointPool {
     pub fn new(max_size: usize) -> Self {
         Self {
             inner: Mutex::new(LruCache::new(NonZeroUsize::new(max_size).unwrap())),
+            create_lock: Mutex::new(()),
         }
     }
 
@@ -64,15 +68,11 @@ impl UdpEndpointPool {
         addr: SocketAddr,
         options: UdpEndpointOptions,
     ) -> anyhow::Result<((std::net::UdpSocket, String), bool)> {
-        // Fast path: check if already exists without creating a new endpoint.
-        // We hold the lock only briefly to check and clone.
-        // LruCache::get_mut() automatically promotes the entry to most-recently-used.
+        // Fast path: check if already exists without acquiring the create lock.
         {
             let mut inner = self.inner.lock().await;
-            if let Some(endpoint) = inner.get_mut(&addr) {
+            if let Some(endpoint) = inner.get(&addr) {
                 if !endpoint.is_expired() {
-                    endpoint.touch();
-                    // Clone socket and dial_target only when needed (existing session)
                     let socket = endpoint.socket.try_clone()?;
                     let dial_target = endpoint.dial_target.clone();
                     return Ok(((socket, dial_target), false));
@@ -80,28 +80,28 @@ impl UdpEndpointPool {
             }
         }
 
-        // Slow path: create a new endpoint outside the lock to avoid holding
-        // the mutex across an async bind (which would block other tasks).
-        let endpoint = UdpEndpoint::new(options).await?;
+        // Acquire the create lock to serialize UdpEndpoint::new calls,
+        // so that at most one task creates a socket for a given addr.
+        let _create_guard = self.create_lock.lock().await;
 
-        let mut inner = self.inner.lock().await;
-        // Re-check: a concurrent task may have raced through the slow path and
-        // already inserted a fresh entry while we were binding. Prefer the existing
-        // entry to avoid leaking the socket we just created.
-        if let Some(existing) = inner.get_mut(&addr) {
-            if !existing.is_expired() {
-                existing.touch();
-                let socket = existing.socket.try_clone()?;
-                let dial_target = existing.dial_target.clone();
-                // Explicitly drop the unused endpoint to release its kernel port binding
-                // immediately, preventing port exhaustion under high concurrency.
-                drop(endpoint);
-                return Ok(((socket, dial_target), false));
+        // Double-check: while we waited for the create lock, another task
+        // may have already inserted a fresh endpoint.
+        {
+            let mut inner = self.inner.lock().await;
+            if let Some(endpoint) = inner.get_mut(&addr) {
+                if !endpoint.is_expired() {
+                    endpoint.touch();
+                    let socket = endpoint.socket.try_clone()?;
+                    let dial_target = endpoint.dial_target.clone();
+                    return Ok(((socket, dial_target), false));
+                }
             }
         }
 
-        // LruCache::put() automatically evicts the least recently used entry
-        // when the cache is at capacity — O(1) amortized, no manual scanning.
+        // Confirmed: no valid endpoint exists, safely create one.
+        let endpoint = UdpEndpoint::new(options).await?;
+
+        let mut inner = self.inner.lock().await;
         let dial_target = endpoint.dial_target.clone();
         let socket = endpoint.socket.try_clone()?;
         inner.put(addr, endpoint);
