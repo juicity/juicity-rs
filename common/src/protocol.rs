@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use uuid::Uuid;
 
 /// Error types for the Juicity protocol
@@ -100,6 +101,73 @@ const TROJAN_METADATA_TYPE_MSG: u8 = 2;
 const TROJAN_METADATA_TYPE_DOMAIN: u8 = ADDR_TYPE_DOMAIN;
 const TROJAN_METADATA_TYPE_IPV6: u8 = ADDR_TYPE_IPV6;
 const UNDERLAY_PSK_LEN: usize = 32;
+
+/// Pre-parsed address type, avoiding repeated string parsing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AddrType {
+    V4,
+    V6,
+    Domain,
+}
+
+impl AddrType {
+    /// Determine the address type from a host string.
+    /// Uses the same detection logic as the original `build_trojanc_addr`.
+    fn from_host(host: &str) -> Self {
+        if host.contains(':') {
+            AddrType::V6
+        } else if host.parse::<std::net::Ipv4Addr>().is_ok() {
+            AddrType::V4
+        } else {
+            AddrType::Domain
+        }
+    }
+
+    /// Convert to the wire-format byte (trojanc-compatible).
+    fn to_wire_byte(self) -> u8 {
+        match self {
+            AddrType::V4 => ADDR_TYPE_IPV4,
+            AddrType::V6 => ADDR_TYPE_IPV6,
+            AddrType::Domain => ADDR_TYPE_DOMAIN,
+        }
+    }
+}
+
+/// Cached target address with pre-parsed address type.
+///
+/// Avoids re-parsing the address type on every UDP datagram within the same
+/// session. Create once (e.g. at session start) and reuse across packets.
+#[derive(Debug, Clone)]
+pub struct CachedAddr {
+    pub addr_type: AddrType,
+    pub host: String,
+    pub port: u16,
+}
+
+impl CachedAddr {
+    /// Parse from a `"host:port"`-style string pair.
+    pub fn from_host_port(host: &str, port: u16) -> Self {
+        let addr_type = AddrType::from_host(host);
+        Self {
+            addr_type,
+            host: host.to_string(),
+            port,
+        }
+    }
+
+    /// Create from a [`std::net::SocketAddr`].
+    pub fn from_socket_addr(addr: SocketAddr) -> Self {
+        let addr_type = match addr {
+            SocketAddr::V4(_) => AddrType::V4,
+            SocketAddr::V6(_) => AddrType::V6,
+        };
+        Self {
+            addr_type,
+            host: addr.ip().to_string(),
+            port: addr.port(),
+        }
+    }
+}
 
 // ============================================================
 // Protocol version
@@ -409,42 +477,56 @@ pub fn gen_token_via_connection(
     Ok(token)
 }
 
-/// Build a trojanc-format address header: [addr_type][addr][port]
-/// Used for UDP per-datagram headers — **no** leading network byte.
-/// Compatible with upstream Go: trojanc.Metadata.PackTo / SealUDP.
-pub fn build_trojanc_addr(addr: &str, port: u16) -> anyhow::Result<Vec<u8>> {
-    let mut buf = Vec::with_capacity(32);
+/// Build a trojanc-format address header into a pre-allocated buffer,
+/// using a pre-cached [`CachedAddr`] to avoid re-parsing the address type.
+///
+/// Writes: [addr_type][addr][port]
+///
+/// This is the zero-allocation variant for hot paths (e.g. per-packet UDP relay).
+/// The caller is responsible for clearing the buffer if needed.
+pub fn build_trojanc_addr_cached(
+    buf: &mut Vec<u8>,
+    cached: &CachedAddr,
+) -> anyhow::Result<()> {
+    buf.push(cached.addr_type.to_wire_byte());
 
-    let addr_type = if addr.contains(':') {
-        ADDR_TYPE_IPV6
-    } else if addr.parse::<std::net::Ipv4Addr>().is_ok() {
-        ADDR_TYPE_IPV4
-    } else {
-        ADDR_TYPE_DOMAIN
-    };
-
-    buf.push(addr_type);
-
-    match addr_type {
-        ADDR_TYPE_IPV4 => {
-            let ip: std::net::Ipv4Addr = addr.parse()?;
+    match cached.addr_type {
+        AddrType::V4 => {
+            let ip: std::net::Ipv4Addr = cached.host.parse().map_err(|e| {
+                anyhow::anyhow!("invalid IPv4 address '{}': {}", cached.host, e)
+            })?;
             buf.extend_from_slice(&ip.octets());
         }
-        ADDR_TYPE_IPV6 => {
-            let ip: std::net::Ipv6Addr = addr.parse()?;
+        AddrType::V6 => {
+            let ip: std::net::Ipv6Addr = cached.host.parse().map_err(|e| {
+                anyhow::anyhow!("invalid IPv6 address '{}': {}", cached.host, e)
+            })?;
             buf.extend_from_slice(&ip.octets());
         }
-        ADDR_TYPE_DOMAIN => {
-            let domain_bytes = addr.as_bytes();
+        AddrType::Domain => {
+            let domain_bytes = cached.host.as_bytes();
             let domain_len = u8::try_from(domain_bytes.len())
                 .map_err(|_| anyhow::anyhow!("domain too long: {}", domain_bytes.len()))?;
             buf.push(domain_len);
             buf.extend_from_slice(domain_bytes);
         }
-        _ => anyhow::bail!("unexpected address type"),
     }
 
-    buf.extend_from_slice(&port.to_be_bytes());
+    buf.extend_from_slice(&cached.port.to_be_bytes());
+    Ok(())
+}
+
+/// Build a trojanc-format address header: [addr_type][addr][port]
+/// Used for UDP per-datagram headers — **no** leading network byte.
+/// Compatible with upstream Go: trojanc.Metadata.PackTo / SealUDP.
+///
+/// This function parses the address type on every call. For hot paths
+/// (e.g. per-packet UDP relay) consider [`CachedAddr`] +
+/// [`build_trojanc_addr_cached`] instead.
+pub fn build_trojanc_addr(addr: &str, port: u16) -> anyhow::Result<Vec<u8>> {
+    let cached = CachedAddr::from_host_port(addr, port);
+    let mut buf = Vec::with_capacity(32);
+    build_trojanc_addr_cached(&mut buf, &cached)?;
     Ok(buf)
 }
 

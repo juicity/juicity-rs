@@ -1,7 +1,7 @@
 //! Startup Settings dialog — lets the user configure:
-//!   - 启动时不显示界面 (Hide window on startup)
-//!   - 启动时的连接状态 (Connection state on startup: Off / On / LastState)
-//!   - 是否开机启动 (Auto-start on boot)
+//!   - Hide window on startup
+//!   - Connection state on startup: Off / On / LastState
+//!   - Auto-start on boot
 
 use adw::prelude::*;
 use gtk::prelude::*;
@@ -41,7 +41,7 @@ pub fn open(
         .margin_end(18)
         .build();
 
-    // ── "启动时不显示界面" group ─────────────────────────────────────────
+    // ── "Hide window on startup" group ─────────────────────────────────────────
     let hide_group = adw::PreferencesGroup::builder()
         .title(&*t!("startup_dialog.group_hide_window"))
         .description(&*t!("startup_dialog.hide_window_desc"))
@@ -80,7 +80,7 @@ pub fn open(
     hide_group.add(&hide_row);
     content.append(&hide_group);
 
-    // ── "启动时的连接状态" group ─────────────────────────────────────────
+    // ── "Connection state on startup" group ─────────────────────────────────────────
     let conn_group = adw::PreferencesGroup::builder()
         .title(&*t!("startup_dialog.group_connection"))
         .description(&*t!("startup_dialog.connection_desc"))
@@ -124,7 +124,7 @@ pub fn open(
     conn_group.add(&conn_row);
     content.append(&conn_group);
 
-    // ── "是否开机启动" group ─────────────────────────────────────────────
+    // ── "Auto-start on boot" group ─────────────────────────────────────────────
     let autostart_group = adw::PreferencesGroup::builder()
         .title(&*t!("startup_dialog.group_autostart"))
         .description(&*t!("startup_dialog.autostart_desc"))

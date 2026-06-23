@@ -12,6 +12,10 @@ pub const ETHERNET_MTU: usize = 1500;
 pub const AUTHENTICATE_TIMEOUT: Duration = Duration::from_secs(10);
 /// In-flight underlay TTL
 pub const IN_FLIGHT_UNDERLAY_TTL: Duration = Duration::from_secs(10);
+/// In-flight underlay evict timeout (100ms)
+/// Controls how long evict() waits for an underlay auth to arrive
+/// before giving up on the corresponding UDP packet.
+pub const IN_FLIGHT_UNDERLAY_EVICT_TIMEOUT: Duration = Duration::from_millis(100);
 /// Default congestion control window
 pub const DEFAULT_CWND: u64 = 10;
 /// Max open incoming streams

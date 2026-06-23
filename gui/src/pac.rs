@@ -150,7 +150,7 @@ fn download_file(url: &str, dest: &Path) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to download {}: {}", url, e))?;
 
     let mut reader = response.into_reader();
-    // 先下载到临时文件，然后原子重命名
+    // Download to a temp file first, then perform atomic rename
     let tmp_path = dest.with_extension(".tmp");
     {
         let mut file = std::fs::File::create(&tmp_path)?;

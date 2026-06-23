@@ -1224,7 +1224,7 @@ fn build_ui(app: &adw::Application) -> anyhow::Result<()> {
                                 sl_s.set_text(&t!("status.save_failed", err = err.to_string()));
                                 return;
                             }
-                            // Apply auto-start (开机启动) setting.
+                            // Apply auto-start setting.
                             if let Err(err) = apply_autostart(&s.runtime) {
                                 tracing::warn!("failed to apply auto-start setting: {err}");
                             }
@@ -1449,7 +1449,7 @@ fn build_ui(app: &adw::Application) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Apply or remove system auto-start (开机启动) for the application.
+/// Apply or remove system auto-start for the application.
 ///
 /// On Linux, this creates or removes a `.desktop` file in `~/.config/autostart/`.
 /// On Windows, this would modify the registry Run key.

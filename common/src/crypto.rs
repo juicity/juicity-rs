@@ -115,53 +115,70 @@ impl UnderlayCipher {
         }
     }
 
-    /// Decrypt a packet in-place.
-    /// `packet` should be [salt(32)][ciphertext+tag].
-    /// On success, the buffer is shrunk to contain only the plaintext (no allocation).
+    /// Decrypt a packet in-place without O(n) memory movement.
+    ///
+    /// Input layout:  `[salt(32)][ciphertext][tag(16)]`
+    /// Output layout: `[salt(32)][plaintext]`
+    ///
+    /// Callers access the plaintext via `&packet[SALT_LEN..]`.
+    /// The salt prefix is left in place so no data is shifted — O(1) truncation only.
     pub fn decrypt_in_place(&self, packet: &mut Vec<u8>) -> anyhow::Result<()> {
         use chacha20poly1305::aead::AeadInPlace;
-        use crate::crypto::juicity_underlay::SALT_LEN;
+        use crate::crypto::juicity_underlay::{SALT_LEN, TAG_LEN};
 
-        if packet.len() <= SALT_LEN {
-            anyhow::bail!("underlay packet too short to contain salt");
+        if packet.len() <= SALT_LEN + TAG_LEN {
+            anyhow::bail!("underlay packet too short to contain salt and tag");
         }
 
         let nonce = chacha20poly1305::Nonce::from_slice(&[0u8; 12]);
-        // drain(..SALT_LEN) removes the salt prefix by shifting bytes left in-place —
-        // no heap allocation, unlike split_off which creates a second Vec.
-        packet.drain(..SALT_LEN);
+
+        // Packet layout: [salt(32)][ciphertext][tag(16)]
+        // Copy tag bytes first to avoid overlapping borrows with the mutable slice below.
+        let ct_tag_end = packet.len();
+        let ct_end = ct_tag_end - TAG_LEN;
+        let tag_bytes: [u8; TAG_LEN] = packet[ct_end..].try_into().unwrap();
+        let tag = chacha20poly1305::Tag::from_slice(&tag_bytes);
+
+        // Decrypt ciphertext in-place using detached mode (works on &mut [u8],
+        // no Buffer trait needed — avoids the O(n) drain of the salt prefix).
         self.cipher
-            .decrypt_in_place(nonce, b"", packet)
+            .decrypt_in_place_detached(nonce, b"", &mut packet[SALT_LEN..ct_end], tag)
             .map_err(|e| anyhow::anyhow!("underlay decrypt failed: {:?}", e))?;
-        // AeadInPlace removes the tag: packet now contains only plaintext.
+
+        // Truncate away the tag only — keep salt at front (O(1)).
+        // packet is now [salt(32)][plaintext].
+        packet.truncate(ct_end);
         Ok(())
     }
 
-    /// Encrypt a packet in-place, prepending salt.
-    /// `plaintext` contains the data to encrypt; on return it holds [salt(32)][ciphertext+tag].
+    /// Encrypt a packet in-place without O(n) memory movement.
     ///
-    /// Optimized to pre-allocate the full capacity upfront, avoiding multiple Vec resizes:
-    /// - `encrypt_in_place` appends a 16-byte AEAD tag
-    /// - Then we prepend a 32-byte salt
-    /// By reserving `plaintext.len() + SALT_LEN + TAG_LEN` upfront, we ensure a single allocation.
+    /// Input layout:  `[reserved(32)][plaintext]`  — caller MUST reserve `SALT_LEN` bytes at front.
+    /// Output layout: `[salt(32)][ciphertext][tag(16)]`
+    ///
+    /// No data is shifted during encryption. The plaintext is encrypted at its
+    /// existing offset (`SALT_LEN`), the AEAD tag is appended, and the salt is
+    /// written into the reserved front bytes.
     pub fn encrypt_in_place(&self, plaintext: &mut Vec<u8>, salt: &[u8; 32]) -> anyhow::Result<()> {
         use chacha20poly1305::aead::AeadInPlace;
         use crate::crypto::juicity_underlay::{SALT_LEN, TAG_LEN};
 
         let nonce = chacha20poly1305::Nonce::from_slice(&[0u8; 12]);
 
-        // Pre-allocate full capacity: plaintext + salt + AEAD tag — single allocation.
-        plaintext.reserve(SALT_LEN + TAG_LEN);
+        // Reserve space for the AEAD tag (will be appended via extend_from_slice).
+        plaintext.reserve(TAG_LEN);
 
-        // Step 1: encrypt plaintext in-place (appends 16-byte tag).
-        self.cipher
-            .encrypt_in_place(nonce, b"", plaintext)
+        // Encrypt the plaintext portion (offset SALT_LEN) using detached mode.
+        // This works on &mut [u8] so no Buffer trait is needed.
+        let tag = self
+            .cipher
+            .encrypt_in_place_detached(nonce, b"", &mut plaintext[SALT_LEN..])
             .map_err(|e| anyhow::anyhow!("underlay encrypt failed: {:?}", e))?;
 
-        // Step 2: prepend salt by shifting ciphertext right by SALT_LEN.
-        let ct_len = plaintext.len();
-        plaintext.resize(ct_len + SALT_LEN, 0);
-        plaintext.copy_within(..ct_len, SALT_LEN);
+        // Append the 16-byte AEAD tag after the ciphertext.
+        plaintext.extend_from_slice(&tag);
+
+        // Write salt into the reserved front bytes.
         plaintext[..SALT_LEN].copy_from_slice(salt);
         Ok(())
     }

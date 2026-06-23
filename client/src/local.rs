@@ -140,16 +140,21 @@ async fn handle_socks5(mut stream: TcpStream, local_addr: SocketAddr, client: Ju
             let response = build_socks5_response(0x00, &host, port);
             stream.write_all(&response).await?;
 
-            let (mut quic_send, mut quic_recv) = client.open_tcp_stream(&host, port).await?;
+            let (mut quic_send, quic_recv) = client.open_tcp_stream(&host, port).await?;
 
-            let (mut local_rx, mut local_tx) = stream.split();
+            let (local_rx, mut local_tx) = stream.split();
+
+            // Use 64KB buffered readers for high-throughput bidirectional copy
+            let mut local_rx = tokio::io::BufReader::with_capacity(64 * 1024, local_rx);
+            let mut quic_recv = tokio::io::BufReader::with_capacity(64 * 1024, quic_recv);
+
             tokio::select! {
-                r = tokio::io::copy(&mut local_rx, &mut quic_send) => {
+                r = tokio::io::copy_buf(&mut local_rx, &mut quic_send) => {
                     if let Err(e) = r {
                         tracing::debug!("SOCKS5 local->quic: {:?}", e);
                     }
                 }
-                r = tokio::io::copy(&mut quic_recv, &mut local_tx) => {
+                r = tokio::io::copy_buf(&mut quic_recv, &mut local_tx) => {
                     if let Err(e) = r {
                         tracing::debug!("SOCKS5 quic->local: {:?}", e);
                     }
@@ -581,16 +586,18 @@ async fn handle_http_proxy(mut stream: TcpStream, client: JuicityClient) -> anyh
                 .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
                 .await?;
 
-            let mut stream = buf_reader.into_inner();
-            let (mut quic_send, mut quic_recv) = client.open_tcp_stream(&host, port).await?;
+            let mut stream = tokio::io::BufReader::with_capacity(64 * 1024, buf_reader.into_inner());
+            let (mut quic_send, quic_recv) = client.open_tcp_stream(&host, port).await?;
+
+            let mut quic_recv = tokio::io::BufReader::with_capacity(64 * 1024, quic_recv);
 
             tokio::select! {
-                r = tokio::io::copy(&mut stream, &mut quic_send) => {
+                r = tokio::io::copy_buf(&mut stream, &mut quic_send) => {
                     if let Err(e) = r {
                         tracing::debug!("HTTP CONNECT local->quic: {:?}", e);
                     }
                 }
-                r = tokio::io::copy(&mut quic_recv, &mut writer) => {
+                r = tokio::io::copy_buf(&mut quic_recv, &mut writer) => {
                     if let Err(e) = r {
                         tracing::debug!("HTTP CONNECT quic->local: {:?}", e);
                     }

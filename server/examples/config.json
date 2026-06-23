@@ -17,6 +17,10 @@
   "pinned_certchain_sha256": "",
   "protect_path": "",
   "forward": {},
+  "underlay_evict_timeout": 200,
+  "initial_rtt": 100,
+  "keep_alive_interval": 3,
+  "enable_0rtt": true,
   "congestion_control": "bbr",
   "log_level": "info"
 }

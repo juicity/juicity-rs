@@ -2,7 +2,7 @@ use std::io::IoSliceMut;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 
 use quinn::udp::{RecvMeta, Transmit};
@@ -22,6 +22,12 @@ pub const UNDERLAY_CHANNEL_CAPACITY: usize = 1024;
 /// Prevents sustained non-QUIC traffic from monopolizing a runtime worker.
 const MAX_DEMUX_BATCHES_PER_POLL: usize = 8;
 
+/// Max consecutive polls with zero QUIC packets before yielding the runtime worker.
+/// Combined with [`MAX_DEMUX_BATCHES_PER_POLL`], this caps worst-case busy spins at
+/// `MAX_DEMUX_BATCHES_PER_POLL × MAX_IDLE_POLL_BEFORE_YIELD` (32) non-QUIC recv
+/// batches before yielding.
+const MAX_IDLE_POLL_BEFORE_YIELD: usize = 4;
+
 /// Counts dropped non-QUIC packets when underlay channel is full.
 /// Used to rate-limit warning logs under burst traffic.
 static UNDERLAY_DROPPED_PACKETS: AtomicU64 = AtomicU64::new(0);
@@ -31,6 +37,10 @@ static UNDERLAY_DROPPED_PACKETS: AtomicU64 = AtomicU64::new(0);
 pub struct DemuxUdpSocket {
     inner: Arc<dyn AsyncUdpSocket>,
     underlay_tx: tokio::sync::mpsc::Sender<UnderlayPacket>,
+    /// Tracks consecutive polls that yielded zero QUIC packets.
+    /// Reset to 0 whenever at least one QUIC packet is returned.
+    /// Used to back off and yield the runtime worker under non-QUIC flood.
+    idle_poll_count: AtomicUsize,
 }
 
 impl DemuxUdpSocket {
@@ -38,7 +48,11 @@ impl DemuxUdpSocket {
         inner: Arc<dyn AsyncUdpSocket>,
         underlay_tx: tokio::sync::mpsc::Sender<UnderlayPacket>,
     ) -> Self {
-        Self { inner, underlay_tx }
+        Self {
+            inner,
+            underlay_tx,
+            idle_poll_count: AtomicUsize::new(0),
+        }
     }
 
     #[inline]
@@ -82,7 +96,13 @@ impl AsyncUdpSocket for DemuxUdpSocket {
     ) -> Poll<std::io::Result<usize>> {
         for _ in 0..MAX_DEMUX_BATCHES_PER_POLL {
             let msgs = match self.inner.poll_recv(cx, bufs, meta) {
-                Poll::Pending => return Poll::Pending,
+                Poll::Pending => {
+                    // Inner socket has no more data; reset idle counter since
+                    // we will not be re-polled until new data arrives via the
+                    // waker that was registered by the inner socket.
+                    self.idle_poll_count.store(0, Ordering::Relaxed);
+                    return Poll::Pending;
+                }
                 Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
                 Poll::Ready(Ok(msgs)) => msgs,
             };
@@ -128,18 +148,32 @@ impl AsyncUdpSocket for DemuxUdpSocket {
             }
 
             if keep > 0 {
+                // Found QUIC packets — reset idle counter and hand them to Quinn.
+                self.idle_poll_count.store(0, Ordering::Relaxed);
                 return Poll::Ready(Ok(keep));
             }
         }
 
-        // We only handled non-QUIC packets in this call and exhausted the budget.
-        // Wake the waker so Quinn re-polls us when more data arrives.  This is the
-        // standard pattern for AsyncUdpSocket: return Pending after waking ensures
-        // Quinn re-registers the waker and we are called back promptly.
-        // Under sustained non-QUIC traffic this may cause tight re-poll loops,
-        // but it is bounded by Quinn's internal scheduling and the per-call batch
-        // limit (MAX_DEMUX_BATCHES_PER_POLL), so it does not lead to unbounded
-        // CPU consumption.
+        // Exhausted the per-call batch budget without finding any QUIC packet.
+        //
+        // Under non-QUIC traffic flood the inner socket always has data ready,
+        // so every Quinn re-poll will burn through another 8 batches of non-QUIC
+        // packets and immediately wake itself again, causing a busy loop.
+        //
+        // We use an idle-poll counter to detect this situation and eventually
+        // yield the runtime worker without re-waking, allowing other tasks to
+        // make progress.
+        let idle_count = self.idle_poll_count.fetch_add(1, Ordering::Relaxed);
+        if idle_count >= MAX_IDLE_POLL_BEFORE_YIELD {
+            // Too many consecutive idle polls — yield control.  The inner socket
+            // still has data, but we deliberately *do not* wake Quinn so that
+            // this task sleeps until the runtime re-schedules it (or until new
+            // I/O events trigger the waker registered by the inner socket).
+            self.idle_poll_count.store(0, Ordering::Relaxed);
+            return Poll::Pending;
+        }
+
+        // Under the threshold: wake Quinn so it re-polls us (standard pattern).
         cx.waker().wake_by_ref();
         Poll::Pending
     }

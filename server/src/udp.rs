@@ -1,8 +1,8 @@
-use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
-use juicity_common::consts;
+use lru::LruCache;
 use tokio::sync::Mutex;
 
 /// Options for creating a UDP endpoint
@@ -49,13 +49,13 @@ impl UdpEndpoint {
 
 /// Pool of UDP endpoints for full-cone NAT
 pub struct UdpEndpointPool {
-    inner: Mutex<HashMap<SocketAddr, UdpEndpoint>>,
+    inner: Mutex<LruCache<SocketAddr, UdpEndpoint>>,
 }
 
 impl UdpEndpointPool {
-    pub fn new() -> Self {
+    pub fn new(max_size: usize) -> Self {
         Self {
-            inner: Mutex::new(HashMap::new()),
+            inner: Mutex::new(LruCache::new(NonZeroUsize::new(max_size).unwrap())),
         }
     }
 
@@ -66,6 +66,7 @@ impl UdpEndpointPool {
     ) -> anyhow::Result<((std::net::UdpSocket, String), bool)> {
         // Fast path: check if already exists without creating a new endpoint.
         // We hold the lock only briefly to check and clone.
+        // LruCache::get_mut() automatically promotes the entry to most-recently-used.
         {
             let mut inner = self.inner.lock().await;
             if let Some(endpoint) = inner.get_mut(&addr) {
@@ -99,33 +100,32 @@ impl UdpEndpointPool {
             }
         }
 
-        // Keep the pool bounded under high source-address cardinality.
-        // Evict the least recently used endpoint before inserting a new one.
-        if inner.len() >= consts::MAX_UDP_ENDPOINTS {
-            if let Some(oldest_addr) = inner
-                .iter()
-                .min_by_key(|(_, endpoint)| endpoint.last_used)
-                .map(|(addr, _)| *addr)
-            {
-                inner.remove(&oldest_addr);
-            }
-        }
+        // LruCache::put() automatically evicts the least recently used entry
+        // when the cache is at capacity — O(1) amortized, no manual scanning.
         let dial_target = endpoint.dial_target.clone();
         let socket = endpoint.socket.try_clone()?;
-        inner.insert(addr, endpoint);
+        inner.put(addr, endpoint);
 
         Ok(((socket, dial_target), true))
     }
 
     pub async fn remove(&self, addr: &SocketAddr) {
         let mut inner = self.inner.lock().await;
-        inner.remove(addr);
+        inner.pop(addr);
     }
 
     /// Clean up expired endpoints. Called from a periodic async task.
     /// Uses the async mutex directly since it runs in an async context.
     pub async fn cleanup_async(&self) {
         let mut inner = self.inner.lock().await;
-        inner.retain(|_, endpoint| !endpoint.is_expired());
+        // LruCache does not have retain(), so collect expired keys first.
+        let expired: Vec<SocketAddr> = inner
+            .iter()
+            .filter(|(_, endpoint)| endpoint.is_expired())
+            .map(|(addr, _)| *addr)
+            .collect();
+        for addr in expired {
+            inner.pop(&addr);
+        }
     }
 }

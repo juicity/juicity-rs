@@ -186,18 +186,22 @@ async fn forward_tcp_connection(
     let (host, port) = parse_target(target)?;
 
     // Open a TCP stream through the Juicity QUIC connection
-    let (mut quic_send, mut quic_recv) = client.open_tcp_stream(&host, port).await?;
+    let (mut quic_send, quic_recv) = client.open_tcp_stream(&host, port).await?;
 
     // Bidirectional copy between local TCP and QUIC stream
-    let (mut local_rx, mut local_tx) = local_stream.split();
+    let (local_rx, mut local_tx) = local_stream.split();
+
+    // Use 64KB buffered readers for high-throughput bidirectional copy
+    let mut local_rx = tokio::io::BufReader::with_capacity(64 * 1024, local_rx);
+    let mut quic_recv = tokio::io::BufReader::with_capacity(64 * 1024, quic_recv);
 
     tokio::select! {
-        r = tokio::io::copy(&mut local_rx, &mut quic_send) => {
+        r = tokio::io::copy_buf(&mut local_rx, &mut quic_send) => {
             if let Err(e) = r {
                 tracing::debug!("TCP forward local->quic: {:?}", e);
             }
         }
-        r = tokio::io::copy(&mut quic_recv, &mut local_tx) => {
+        r = tokio::io::copy_buf(&mut quic_recv, &mut local_tx) => {
             if let Err(e) = r {
                 tracing::debug!("TCP forward quic->local: {:?}", e);
             }

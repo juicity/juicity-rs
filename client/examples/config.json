@@ -17,6 +17,9 @@
   "send_through": "",
   "dialer_link": "",
   "disable_outbound_udp443": false,
+  "initial_rtt": 100,
+  "keep_alive_interval": 3,
+  "enable_0rtt": true,
   "congestion_control": "bbr",
   "log_level": "info"
 }

@@ -1,6 +1,9 @@
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
+use std::sync::Mutex;
 
 use indexmap::IndexMap;
+use lru::LruCache;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -32,6 +35,36 @@ struct UnderlaySession {
     relay_abort: Option<tokio::task::AbortHandle>,
 }
 
+/// PSK→subkey cache to avoid redundant HKDF-SHA1 derivation.
+/// Capacity 1024, as each user's PSK is usually fixed.
+/// Note: salt comes from UDP packet payload (random),
+/// so subkey caching only helps in rare duplicate PSK+salt scenarios.
+struct PskCache {
+    inner: Mutex<LruCache<Vec<u8>, [u8; 32]>>,
+}
+
+impl PskCache {
+    fn new() -> Self {
+        Self {
+            inner: Mutex::new(LruCache::new(NonZeroUsize::new(1024).unwrap())),
+        }
+    }
+
+    fn get_or_insert_with<F>(&self, psk: &[u8], f: F) -> [u8; 32]
+    where
+        F: FnOnce() -> [u8; 32],
+    {
+        let mut cache = self.inner.lock().unwrap();
+        // LruCache::get() auto-promotes to most recently used
+        if let Some(subkey) = cache.get(psk) {
+            return *subkey;
+        }
+        let subkey = f();
+        cache.put(psk.to_vec(), subkey);
+        subkey
+    }
+}
+
 /// Juicity proxy server
 pub struct JuicityServer {
     users: Arc<HashMap<Uuid, String>>,
@@ -40,6 +73,7 @@ pub struct JuicityServer {
     in_flight: Arc<crate::inflight::InFlightUnderlayKey>,
     udp_endpoint_pool: Arc<crate::udp::UdpEndpointPool>,
     disable_outbound_udp443: bool,
+    psk_cache: Arc<PskCache>,
 }
 
 impl JuicityServer {
@@ -68,18 +102,35 @@ impl JuicityServer {
         // Juicity spec requires ALPN to be h3.
         tls_server_config.alpn_protocols = vec![b"h3".to_vec()];
 
+        // Enable 0-RTT (Early Data), allowing the client to send early data on reconnection
+        if config.enable_0rtt.unwrap_or(true) {
+            tls_server_config.max_early_data_size = u32::MAX;
+        }
+
         let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(
             quinn::crypto::rustls::QuicServerConfig::try_from(tls_server_config)?,
         ));
 
         let mut transport_config = quinn::TransportConfig::default();
+
+        // Set initial_rtt if configured
+        if let Some(initial_rtt_ms) = config.initial_rtt {
+            transport_config.initial_rtt(std::time::Duration::from_millis(initial_rtt_ms));
+        }
+
+        // Set keep_alive_interval if configured; otherwise use default
+        let keep_alive = config
+            .keep_alive_interval
+            .map(std::time::Duration::from_secs)
+            .unwrap_or(consts::KEEP_ALIVE_PERIOD);
+        transport_config.keep_alive_interval(Some(keep_alive));
+
         transport_config.max_concurrent_bidi_streams(VarInt::from_u32(
             consts::MAX_OPEN_INCOMING_STREAMS as u32,
         ));
         transport_config.max_concurrent_uni_streams(VarInt::from_u32(
             consts::MAX_OPEN_INCOMING_STREAMS as u32,
         ));
-        transport_config.keep_alive_interval(Some(consts::KEEP_ALIVE_PERIOD));
         // Set an explicit idle timeout for defense-in-depth.
         // Even with keep-alive enabled, if the peer stops responding or never opens
         // a stream after authentication, this timeout ensures the connection and its
@@ -95,6 +146,28 @@ impl JuicityServer {
             consts::QUIC_CONNECTION_RECEIVE_WINDOW,
         ));
         transport_config.send_window(consts::QUIC_SEND_WINDOW);
+
+        // Dynamically adjust window size based on initial_rtt
+        if let Some(rtt_ms) = config.initial_rtt {
+            if rtt_ms < 50 {
+                // Low latency: reduce window to save memory
+                transport_config.stream_receive_window(VarInt::from_u32(
+                    consts::QUIC_STREAM_RECEIVE_WINDOW / 2,
+                ));
+                transport_config.receive_window(VarInt::from_u32(
+                    consts::QUIC_CONNECTION_RECEIVE_WINDOW / 2,
+                ));
+            } else if rtt_ms > 200 {
+                // High latency: increase window to improve throughput
+                transport_config.stream_receive_window(VarInt::from_u32(
+                    consts::QUIC_STREAM_RECEIVE_WINDOW * 2,
+                ));
+                transport_config.receive_window(VarInt::from_u32(
+                    consts::QUIC_CONNECTION_RECEIVE_WINDOW * 2,
+                ));
+            }
+        }
+
         match config.congestion_control.to_lowercase().as_str() {
             "cubic" => transport_config.congestion_controller_factory(
                 Arc::new(quinn::congestion::CubicConfig::default()),
@@ -102,9 +175,14 @@ impl JuicityServer {
             "newreno" | "new_reno" => transport_config.congestion_controller_factory(
                 Arc::new(quinn::congestion::NewRenoConfig::default()),
             ),
-            _ => transport_config.congestion_controller_factory(
-                Arc::new(quinn::congestion::BbrConfig::default()),
-            ),
+            _ => {
+                // Tune BBR parameters: set a reasonable initial window to balance latency and throughput
+                let mut bbr_config = quinn::congestion::BbrConfig::default();
+                // Set initial congestion window (in bytes)
+                // Default is min(10*MTU, max(2*MTU, 14720)), here adjusted to 10*MTU
+                bbr_config.initial_window(10 * consts::ETHERNET_MTU as u64);
+                transport_config.congestion_controller_factory(Arc::new(bbr_config))
+            }
         };
         server_config.transport_config(Arc::new(transport_config));
 
@@ -121,9 +199,14 @@ impl JuicityServer {
             dialer,
             in_flight: Arc::new(crate::inflight::InFlightUnderlayKey::new(
                 consts::IN_FLIGHT_UNDERLAY_TTL,
+                config
+                    .underlay_evict_timeout
+                    .map(std::time::Duration::from_millis)
+                    .unwrap_or(consts::IN_FLIGHT_UNDERLAY_EVICT_TIMEOUT),
             )),
-            udp_endpoint_pool: Arc::new(crate::udp::UdpEndpointPool::new()),
+            udp_endpoint_pool: Arc::new(crate::udp::UdpEndpointPool::new(consts::MAX_UDP_ENDPOINTS)),
             disable_outbound_udp443: config.disable_outbound_udp443,
+            psk_cache: Arc::new(PskCache::new()),
         })
     }
 
@@ -212,6 +295,7 @@ impl JuicityServer {
         let underlay_udp_pool = self.udp_endpoint_pool.clone();
         let underlay_disable_443 = self.disable_outbound_udp443;
         let underlay_socket = server_underlay_socket.clone();
+        let underlay_psk_cache = self.psk_cache.clone();
         // The underlay loop self-terminates when underlay_rx closes (endpoint drop),
         // but AbortOnDrop ensures it is also cancelled on any early serve() exit.
         let _underlay_guard = AbortOnDrop(
@@ -222,6 +306,7 @@ impl JuicityServer {
                     underlay_udp_pool,
                     underlay_socket,
                     underlay_disable_443,
+                    underlay_psk_cache,
                 )
                 .await;
             })
@@ -254,6 +339,7 @@ async fn run_underlay_packet_loop(
     udp_pool: Arc<crate::udp::UdpEndpointPool>,
     server_socket: Arc<tokio::net::UdpSocket>,
     disable_udp_443: bool,
+    psk_cache: Arc<PskCache>,
 ) {
     // ══ std::sync::Mutex usage note ════════════════════════════════════════
     // We intentionally use std::sync::Mutex (not tokio::sync::Mutex) for the
@@ -266,8 +352,10 @@ async fn run_underlay_packet_loop(
     // holding this lock is preempted by the OS scheduler, it may briefly
     // block other worker threads.  Given the microsecond-scale hold times,
     // this is negligible in practice.
-    let sessions: Arc<std::sync::Mutex<HashMap<SocketAddr, UnderlaySession>>> =
-        Arc::new(std::sync::Mutex::new(HashMap::new()));
+    let sessions: Arc<std::sync::Mutex<LruCache<SocketAddr, UnderlaySession>>> =
+        Arc::new(std::sync::Mutex::new(LruCache::new(
+            NonZeroUsize::new(consts::MAX_UNDERLAY_SESSIONS).unwrap(),
+        )));
 
     // Periodic cleanup: remove sessions that have been idle for longer than the NAT
     // timeout and abort their relay-back tasks so they don't run indefinitely.
@@ -283,16 +371,19 @@ async fn run_underlay_packet_loop(
                 let to_abort: Vec<tokio::task::AbortHandle> = {
                     let mut guard = sessions_cleanup.lock().unwrap();
                     let mut handles = Vec::new();
-                    guard.retain(|_, s| {
-                        if s.last_used.elapsed() >= consts::DEFAULT_NAT_TIMEOUT {
-                            if let Some(h) = s.relay_abort.take() {
+                    // Collect expired keys first (LruCache does not have retain())
+                    let expired: Vec<SocketAddr> = guard
+                        .iter()
+                        .filter(|(_, s)| s.last_used.elapsed() >= consts::DEFAULT_NAT_TIMEOUT)
+                        .map(|(addr, _)| *addr)
+                        .collect();
+                    for addr in expired {
+                        if let Some(s) = guard.pop(&addr) {
+                            if let Some(h) = s.relay_abort {
                                 handles.push(h);
                             }
-                            false
-                        } else {
-                            true
                         }
-                    });
+                    }
                     handles
                 };
                 for h in to_abort {
@@ -321,6 +412,7 @@ async fn run_underlay_packet_loop(
         let udp_pool = udp_pool.clone();
         let sessions = sessions.clone();
         let server_socket = server_socket.clone();
+        let psk_cache = psk_cache.clone();
         tokio::spawn(async move {
             if let Err(e) = handle_non_quic_underlay_packet(
                 packet,
@@ -329,6 +421,7 @@ async fn run_underlay_packet_loop(
                 sessions,
                 server_socket,
                 disable_udp_443,
+                psk_cache,
             )
             .await
             {
@@ -345,9 +438,10 @@ async fn handle_non_quic_underlay_packet(
     packet: crate::underlay_socket::UnderlayPacket,
     in_flight: Arc<crate::inflight::InFlightUnderlayKey>,
     udp_pool: Arc<crate::udp::UdpEndpointPool>,
-    sessions: Arc<std::sync::Mutex<HashMap<SocketAddr, UnderlaySession>>>,
+    sessions: Arc<std::sync::Mutex<LruCache<SocketAddr, UnderlaySession>>>,
     server_socket: Arc<tokio::net::UdpSocket>,
     disable_udp_443: bool,
+    psk_cache: Arc<PskCache>,
 ) -> anyhow::Result<()> {
     if packet.payload.len() < consts::UNDERLAY_SALT_LEN {
         return Ok(());
@@ -369,7 +463,7 @@ async fn handle_non_quic_underlay_packet(
 
     // ── Existing session: decrypt + forward immediately ──
     if let Some(existing) = existing_session {
-        // In-place decrypt using cached cipher
+        // In-place decrypt using cached cipher (plaintext at &payload[SALT_LEN..])
         if let Err(e) = existing.cipher.decrypt_in_place(&mut payload) {
             tracing::debug!(
                 "drop invalid underlay packet from {} for target {}: {:?}",
@@ -392,10 +486,10 @@ async fn handle_non_quic_underlay_packet(
             .await?;
 
         let send_socket = tokio::net::UdpSocket::from_std(udp_socket)?;
-        if let Err(e) = send_socket.send_to(&payload, &dial_target).await {
+        if let Err(e) = send_socket.send_to(&payload[juicity_underlay::SALT_LEN..], &dial_target).await {
             udp_pool.remove(&source).await;
             // Remove the session; the relay task will be aborted by cleanup.
-            let removed = sessions.lock().unwrap().remove(&source);
+            let removed = sessions.lock().unwrap().pop(&source);
             if let Some(s) = removed {
                 if let Some(h) = s.relay_abort {
                     h.abort();
@@ -425,11 +519,17 @@ async fn handle_non_quic_underlay_packet(
         return Ok(());
     }
 
-    // Derive subkey once and cache it in UnderlayCipher
-    let subkey = juicity_underlay::derive_subkey(&auth.psk, &salt)?;
+    // Derive subkey via cache to avoid repeated HKDF-SHA1 derivation.
+    // Note: salt from the UDP packet payload is random per session, so
+    // the same PSK with different salts produces different subkeys.
+    // Cache hit is rare but harmless; the overhead of checking is negligible.
+    let subkey = psk_cache.get_or_insert_with(&auth.psk, || {
+        juicity_underlay::derive_subkey(&auth.psk, &salt)
+            .expect("derive_subkey failed: invalid PSK length")
+    });
     let cipher = UnderlayCipher::from_subkey(&subkey);
 
-    // In-place decrypt
+    // In-place decrypt (plaintext at &payload[SALT_LEN..])
     if let Err(e) = cipher.decrypt_in_place(&mut payload) {
         tracing::debug!(
             "drop first underlay packet from {} for target {}: {:?}",
@@ -439,7 +539,6 @@ async fn handle_non_quic_underlay_packet(
         );
         return Ok(());
     }
-    let pt_len = payload.len();
     let target = auth.metadata.target_addr();
 
     // ── Create UDP endpoint and spawn relay-back task BEFORE inserting session ──
@@ -494,12 +593,12 @@ async fn handle_non_quic_underlay_packet(
         //   2. The periodic pool cleanup (every 30s).
         struct SessionGuard {
             source: SocketAddr,
-            sessions: Arc<std::sync::Mutex<HashMap<SocketAddr, UnderlaySession>>>,
+            sessions: Arc<std::sync::Mutex<LruCache<SocketAddr, UnderlaySession>>>,
         }
         impl Drop for SessionGuard {
             fn drop(&mut self) {
                 let mut guard = self.sessions.lock().unwrap();
-                guard.remove(&self.source);
+                guard.pop(&self.source);
             }
         }
 
@@ -518,9 +617,10 @@ async fn handle_non_quic_underlay_packet(
                 match recv_socket.recv_from(&mut buf).await {
                     Ok((n, _)) => {
                         let salt = juicity_underlay::generate_underlay_salt();
-                        // Pre-allocate exact capacity to avoid resize during encrypt_in_place
+                        // Pre-allocate with SALT_LEN headroom at front — avoids O(n) shift in encrypt_in_place
                         outbuf.clear();
-                        outbuf.reserve(n + 48);
+                        outbuf.reserve(n + juicity_underlay::SALT_LEN + juicity_underlay::TAG_LEN);
+                        outbuf.resize(juicity_underlay::SALT_LEN, 0);
                         outbuf.extend_from_slice(&buf[..n]);
                         if session_cipher.encrypt_in_place(&mut outbuf, &salt).is_err() {
                             break;
@@ -558,23 +658,24 @@ async fn handle_non_quic_underlay_packet(
         relay_abort,
     };
 
-    // Now insert the session atomically — abort handle is already set, no race possible.
-    let mut evicted_session: Option<(SocketAddr, Option<tokio::task::AbortHandle>)> = None;
-    {
+    // Insert session atomically — LruCache auto-evicts the least recently used
+    // entry when at capacity (O(1) amortized). No manual scanning needed.
+    let evicted_session: Option<(SocketAddr, Option<tokio::task::AbortHandle>)> = {
         let mut guard = sessions.lock().unwrap();
-        if guard.len() >= consts::MAX_UNDERLAY_SESSIONS {
-            if let Some(oldest_addr) = guard
-                .iter()
-                .min_by_key(|(_, s)| s.last_used)
-                .map(|(addr, _)| *addr)
-            {
-                if let Some(old) = guard.remove(&oldest_addr) {
-                    evicted_session = Some((oldest_addr, old.relay_abort));
-                }
-            }
-        }
-        guard.insert(source, session.clone());
-    }
+        // Check if eviction is needed and pop the LRU entry before inserting,
+        // so we can retrieve both the key (for udp_pool.remove()) and the abort handle.
+        let evicted = if guard.len() >= consts::MAX_UNDERLAY_SESSIONS {
+            // peek_lru() returns the least recently used entry without promoting it
+            guard.peek_lru().map(|(addr, _)| *addr).and_then(|addr| {
+                guard.pop(&addr).map(|s| (addr, s.relay_abort))
+            })
+        } else {
+            None
+        };
+        // put() will not evict since we already made room if needed
+        guard.put(source, session.clone());
+        evicted
+    };
     if let Some((oldest_addr, relay_abort)) = evicted_session {
         if let Some(h) = relay_abort {
             h.abort()
@@ -584,9 +685,10 @@ async fn handle_non_quic_underlay_packet(
     tracing::debug!("new underlay session {} -> {}", source, session.target);
 
     // Send first packet immediately — relay task is already running.
-    if let Err(e) = send_socket.send_to(&payload[..pt_len], &dial_target).await {
+    // Plaintext is at &payload[SALT_LEN..] (salt prefix kept in place).
+    if let Err(e) = send_socket.send_to(&payload[juicity_underlay::SALT_LEN..], &dial_target).await {
         udp_pool.remove(&source).await;
-        let removed = sessions.lock().unwrap().remove(&source);
+        let removed = sessions.lock().unwrap().pop(&source);
         if let Some(s) = removed {
             if let Some(h) = s.relay_abort {
                 h.abort();
@@ -801,14 +903,18 @@ async fn handle_tcp_relay(
     target: &str,
 ) -> anyhow::Result<()> {
     let remote = dialer.dial_tcp(target).await?;
-    let (mut remote_rx, mut remote_tx) = tokio::io::split(remote);
-    let (mut quic_tx, mut quic_rx) = (send_stream, recv_stream);
+    let (remote_rx, mut remote_tx) = tokio::io::split(remote);
+    let (mut quic_tx, quic_rx) = (send_stream, recv_stream);
+
+    // Use 64KB buffered readers for high-throughput bidirectional copy
+    let mut remote_rx = tokio::io::BufReader::with_capacity(64 * 1024, remote_rx);
+    let mut quic_rx = tokio::io::BufReader::with_capacity(64 * 1024, quic_rx);
 
     tokio::select! {
-        r = tokio::io::copy(&mut remote_rx, &mut quic_tx) => {
+        r = tokio::io::copy_buf(&mut remote_rx, &mut quic_tx) => {
             if let Err(e) = r { tracing::debug!("TCP relay remote->quic: {:?}", e); }
         }
-        r = tokio::io::copy(&mut quic_rx, &mut remote_tx) => {
+        r = tokio::io::copy_buf(&mut quic_rx, &mut remote_tx) => {
             if let Err(e) = r { tracing::debug!("TCP relay quic->remote: {:?}", e); }
         }
     }
@@ -901,20 +1007,26 @@ async fn handle_udp_relay(
             // Pre-allocate frame buffer for reuse across all response datagrams.
             // Max: trojanc_addr header (up to ~261 bytes) + 2-byte length + payload.
             let mut frame = Vec::with_capacity(264 + consts::ETHERNET_MTU);
+            // Cache the first response address; subsequent responses come from
+            // the same outbound target so we avoid re-parsing every datagram.
+            let mut cached_addr: Option<protocol::CachedAddr> = None;
             loop {
                 match remote.recv_from(&mut buf).await {
                     Ok((n, addr)) => {
-                        // Response: [trojanc_addr][len(2)][payload] (no network byte)
-                        let addr_str = addr.ip().to_string();
-                        let addr_port = addr.port();
-                        let hdr = match protocol::build_trojanc_addr(&addr_str, addr_port) {
-                            Ok(h) => h,
-                            Err(_) => break,
-                        };
-                        // Reuse frame buffer: clear then fill to avoid per-packet allocation.
+                        // Cache the address on first packet to avoid re-parsing
+                        // the address type (string → IPv4/IPv6/Domain) on every
+                        // subsequent datagram in this session.
+                        let cached = cached_addr.get_or_insert_with(|| {
+                            protocol::CachedAddr::from_socket_addr(addr)
+                        });
+                        // Build header directly into the reusable frame buffer,
+                        // eliminating the intermediate Vec allocation.
                         let pkt_len = (n as u16).to_be_bytes();
                         frame.clear();
-                        frame.extend_from_slice(&hdr);
+                        if let Err(e) = protocol::build_trojanc_addr_cached(&mut frame, cached) {
+                            tracing::debug!("build_trojanc_addr_cached error: {:?}", e);
+                            break;
+                        }
                         frame.extend_from_slice(&pkt_len);
                         frame.extend_from_slice(&buf[..n]);
                         if send_stream.write_all(&frame).await.is_err() {

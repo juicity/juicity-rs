@@ -4,7 +4,7 @@ use std::sync::Arc;
 use juicity_common::consts;
 use juicity_common::protocol;
 use juicity_common::Config;
-use quinn::{ClientConfig, Connection, Endpoint, EndpointConfig, RecvStream, SendStream};
+use quinn::{ClientConfig, Connection, Endpoint, EndpointConfig, RecvStream, SendStream, VarInt};
 use uuid::Uuid;
 
 /// A Juicity client that connects to a remote Juicity server
@@ -28,6 +28,7 @@ impl JuicityClient {
         allow_insecure: bool,
         pinned_hash: &[u8],
         provider: &rustls::crypto::CryptoProvider,
+        enable_early_data: bool,
     ) -> anyhow::Result<rustls::ClientConfig> {
         let mut tls_config: rustls::ClientConfig = if allow_insecure {
             rustls::ClientConfig::builder_with_provider(provider.clone().into())
@@ -60,6 +61,9 @@ impl JuicityClient {
         // Juicity spec requires ALPN to be h3.
         tls_config.alpn_protocols = vec![b"h3".to_vec()];
 
+        // Enable 0-RTT (Early Data) to reduce reconnection latency
+        tls_config.enable_early_data = enable_early_data;
+
         Ok(tls_config)
     }
 
@@ -69,18 +73,52 @@ impl JuicityClient {
         pinned_hash: &[u8],
         provider: &rustls::crypto::CryptoProvider,
         congestion_control: &str,
+        initial_rtt: Option<u64>,
+        keep_alive_interval: Option<u64>,
+        enable_0rtt: bool,
     ) -> anyhow::Result<ClientConfig> {
         if allow_insecure {
             tracing::warn!("TLS certificate verification is DISABLED (allow_insecure=true). This is insecure and should only be used for testing.");
         }
-        let tls_config = Self::build_tls_config(allow_insecure, pinned_hash, provider)?;
+        let tls_config = Self::build_tls_config(allow_insecure, pinned_hash, provider, enable_0rtt)?;
 
         let mut quic_config = ClientConfig::new(Arc::new(
             quinn::crypto::rustls::QuicClientConfig::try_from(tls_config)?,
         ));
 
         let mut transport_config = quinn::TransportConfig::default();
-        transport_config.keep_alive_interval(Some(consts::KEEP_ALIVE_PERIOD));
+
+        // Set initial_rtt if configured
+        if let Some(initial_rtt_ms) = initial_rtt {
+            transport_config.initial_rtt(std::time::Duration::from_millis(initial_rtt_ms));
+        }
+
+        // Set keep_alive_interval if configured; otherwise use default
+        let keep_alive = keep_alive_interval
+            .map(std::time::Duration::from_secs)
+            .unwrap_or(consts::KEEP_ALIVE_PERIOD);
+        transport_config.keep_alive_interval(Some(keep_alive));
+        // Dynamically adjust window size based on initial_rtt
+        if let Some(rtt_ms) = initial_rtt {
+            if rtt_ms < 50 {
+                // Low latency: reduce window to save memory
+                transport_config.stream_receive_window(VarInt::from_u32(
+                    consts::QUIC_STREAM_RECEIVE_WINDOW / 2,
+                ));
+                transport_config.receive_window(VarInt::from_u32(
+                    consts::QUIC_CONNECTION_RECEIVE_WINDOW / 2,
+                ));
+            } else if rtt_ms > 200 {
+                // High latency: increase window to improve throughput
+                transport_config.stream_receive_window(VarInt::from_u32(
+                    consts::QUIC_STREAM_RECEIVE_WINDOW * 2,
+                ));
+                transport_config.receive_window(VarInt::from_u32(
+                    consts::QUIC_CONNECTION_RECEIVE_WINDOW * 2,
+                ));
+            }
+        }
+
         match congestion_control.to_lowercase().as_str() {
             "cubic" => transport_config.congestion_controller_factory(
                 Arc::new(quinn::congestion::CubicConfig::default()),
@@ -88,9 +126,12 @@ impl JuicityClient {
             "newreno" | "new_reno" => transport_config.congestion_controller_factory(
                 Arc::new(quinn::congestion::NewRenoConfig::default()),
             ),
-            _ => transport_config.congestion_controller_factory(
-                Arc::new(quinn::congestion::BbrConfig::default()),
-            ),
+            _ => {
+                // Default BBR config, tuning is done on the server side
+                transport_config.congestion_controller_factory(
+                    Arc::new(quinn::congestion::BbrConfig::default()),
+                )
+            }
         };
         quic_config.transport_config(Arc::new(transport_config));
 
@@ -187,9 +228,20 @@ impl JuicityClient {
         let allow_insecure = config.allow_insecure;
         let pinned_hash_for_config = pinned_hash.clone();
         let cc = config.congestion_control.clone();
+        let initial_rtt = config.initial_rtt;
+        let keep_alive_interval = config.keep_alive_interval;
+        let enable_0rtt = config.enable_0rtt.unwrap_or(true);
         let quic_config = tokio::task::spawn_blocking(move || {
             let provider = rustls::crypto::aws_lc_rs::default_provider();
-            Self::build_quic_config(allow_insecure, &pinned_hash_for_config, &provider, &cc)
+            Self::build_quic_config(
+                allow_insecure,
+                &pinned_hash_for_config,
+                &provider,
+                &cc,
+                initial_rtt,
+                keep_alive_interval,
+                enable_0rtt,
+            )
         })
         .await??;
         let quic_config = Arc::new(quic_config);

@@ -38,6 +38,33 @@ pub struct Config {
     pub listen: String,
     pub congestion_control: String,
     pub log_level: String,
+
+    /// Initial RTT estimate (milliseconds) for QUIC connection parameter tuning.
+    /// Setting a reasonable initial RTT accelerates congestion control convergence.
+    /// Defaults to None (Quinn built-in default 333ms).
+    /// Recommended value: ~1.5x of the actual network RTT.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub initial_rtt: Option<u64>,
+
+    /// QUIC Keep-Alive interval (seconds).
+    /// Used to detect connection liveness, default 10s.
+    /// Lower values detect disconnection faster but slightly increase traffic.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keep_alive_interval: Option<u64>,
+
+    /// UDP Underlay authentication wait timeout (milliseconds).
+    /// Controls the max wait time for UDP packet authentication in inflight.
+    /// Defaults to 100ms, recommended to be slightly higher than network RTT.
+    /// Only effective on the server side.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub underlay_evict_timeout: Option<u64>,
+
+    /// Whether to enable QUIC 0-RTT (Early Data).
+    /// Reduces reconnection RTT from 1-RTT to 0-RTT when enabled.
+    /// Replay attack protection is guaranteed by the QUIC/TLS protocol layer.
+    /// Defaults to true (enabled).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable_0rtt: Option<bool>,
 }
 
 impl Default for Config {
@@ -61,6 +88,10 @@ impl Default for Config {
             listen: String::new(),
             congestion_control: "bbr".to_string(),
             log_level: "info".to_string(),
+            initial_rtt: None,
+            keep_alive_interval: None,
+            underlay_evict_timeout: None,
+            enable_0rtt: None,
         }
     }
 }
@@ -192,8 +223,8 @@ impl Config {
     /// `server` is set to the server's `listen` address.
     /// `listen` is set to `[::]:<socks_port>` (default 1080).
     ///
-    /// `[::]` 是 IPv6 通配地址。在 Linux 上默认禁用 `IPV6_V6ONLY`，
-    /// 因此 `[::]` 启用双栈（dual-stack），可同时接受 IPv4 和 IPv6 连接。
+    /// [::] is the IPv6 wildcard address. On Linux, IPV6_V6ONLY is disabled by default,
+    /// so [::] enables dual-stack, accepting both IPv4 and IPv6 connections.
     pub fn to_client_json_from_server(&self, socks_port: u16) -> anyhow::Result<String> {
         let (uuid, password) = self
             .users
@@ -215,8 +246,8 @@ impl Config {
             map.insert("pinned_certchain_sha256".into(), serde_json::Value::String(self.pinned_certchain_sha256.clone()));
         }
         map.insert("congestion_control".into(), serde_json::Value::String(self.congestion_control.clone()));
-        // 使用 [::]（IPv6 通配地址）；Linux 上默认禁用 IPV6_V6ONLY，
-        // 因此 [::] 启用双栈，可同时接受 IPv4 和 IPv6 连接。
+        // Use [::] (IPv6 wildcard address); on Linux IPV6_V6ONLY is disabled by default,
+        // so [::] enables dual-stack, accepting both IPv4 and IPv6 connections.
         map.insert("listen".into(), serde_json::Value::String(format!("[::]:{}", socks_port)));
         if let Some(fwmark) = self.fwmark {
             map.insert("fwmark".into(), serde_json::Value::Number(fwmark.into()));
