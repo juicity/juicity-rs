@@ -293,6 +293,35 @@ impl JuicityServer {
     }
 }
 
+/// Background task loop that processes non-QUIC underlay packets received
+/// from the demultiplexed channel.
+///
+/// This function is spawned as a long-running async task inside
+/// [`JuicityServer::serve`](JuicityServer::serve).  It reads
+/// [`UnderlayPacket`]s from the channel, applies a concurrency limit via a
+/// [`tokio::sync::Semaphore`], and spawns individual handler tasks via
+/// [`handle_non_quic_underlay_packet`].
+///
+/// It also manages the underlay session map (an
+/// [`std::sync::Mutex`]-protected LRU cache of [`UnderlaySession`]) and
+/// spawns a periodic cleanup subtask that evicts idle sessions.
+///
+/// # Arguments
+///
+/// * `rx` - Receiver end of the underlay channel, fed by
+///   [`DemuxUdpSocket`](crate::underlay_socket::DemuxUdpSocket).
+/// * `in_flight` - Shared in-flight underlay auth table used for salt-based
+///   authentication of new sessions.
+/// * `udp_pool` - Shared UDP endpoint pool for full-cone NAT.
+/// * `server_socket` - The server's main UDP socket, used for relay-back
+///   traffic to clients.
+/// * `disable_udp_443` - When `true`, outbound UDP to port 443 is blocked.
+///
+/// # Lifespan
+///
+/// The loop exits when the channel `rx` is closed (i.e. the [`quinn::Endpoint`]
+/// is dropped), at which point all spawned subtasks are cancelled via
+/// [`AbortOnDrop`] guards.
 async fn run_underlay_packet_loop(
     mut rx: tokio::sync::mpsc::Receiver<crate::underlay_socket::UnderlayPacket>,
     in_flight: Arc<crate::inflight::InFlightUnderlayKey>,
@@ -313,7 +342,8 @@ async fn run_underlay_packet_loop(
     // this is negligible in practice.
     let sessions: Arc<std::sync::Mutex<LruCache<SocketAddr, UnderlaySession>>> =
         Arc::new(std::sync::Mutex::new(LruCache::new(
-            NonZeroUsize::new(consts::MAX_UNDERLAY_SESSIONS).unwrap(),
+            NonZeroUsize::new(consts::MAX_UNDERLAY_SESSIONS)
+                .expect("MAX_UNDERLAY_SESSIONS must be > 0; verify in common/src/consts.rs"),
         )));
 
     // Periodic cleanup: remove sessions that have been idle for longer than the NAT
@@ -328,7 +358,9 @@ async fn run_underlay_packet_loop(
                 // Collect abort handles while holding the lock, then abort them
                 // after releasing it, so abort() is not called under the mutex.
                 let to_abort: Vec<tokio::task::AbortHandle> = {
-                    let mut guard = sessions_cleanup.lock().unwrap();
+                    let mut guard = sessions_cleanup
+                        .lock()
+                        .expect("cleanup: underlay sessions mutex poisoned; this indicates a bug");
                     let mut handles = Vec::new();
                     // Collect expired keys first (LruCache does not have retain())
                     let expired: Vec<SocketAddr> = guard
@@ -391,6 +423,46 @@ async fn run_underlay_packet_loop(
     }
 }
 
+/// Process a single non-QUIC underlay packet from a client.
+///
+/// This is the core handler for all non-QUIC UDP traffic received on the
+/// shared server port.  It performs the following steps:
+///
+/// 1. **Existing session fast path** — If the source address already has a
+///    cached [`UnderlaySession`], decrypt the payload in-place using the
+///    session's cipher and forward it to the cached target via the UDP
+///    endpoint pool.
+/// 2. **New session slow path** — Otherwise, extract the salt from the
+///    payload, look up the corresponding in-flight underlay auth (via
+///    [`InFlightUnderlayKey::evict`]), derive a per-session cipher,
+///    create a UDP endpoint (+ relay-back task), and insert the session
+///    into the LRU cache.
+///
+/// # Arguments
+///
+/// * `packet` - The incoming non-QUIC underlay packet, containing the
+///   source address and raw payload.
+/// * `in_flight` - The shared in-flight auth table used to match salts to
+///   authenticated underlay sessions.
+/// * `udp_pool` - The shared UDP endpoint pool for full-cone NAT.
+/// * `sessions` - The shared LRU cache of active [`UnderlaySession`]s,
+///   protected by [`std::sync::Mutex`].
+/// * `server_socket` - The server's main UDP socket, used for relay-back
+///   traffic.
+/// * `disable_udp_443` - When `true`, outbound UDP to port 443 is blocked.
+///
+/// # Returns
+///
+/// * `Ok(())` — The packet was processed (or silently dropped due to
+///   invalid auth / decryption failure).
+/// * `Err(anyhow::Error)` — A fatal error occurred (e.g. DNS failure,
+///   socket creation failure).
+///
+/// # Errors
+///
+/// Non-fatal errors (decryption failure, missing auth, invalid packet
+/// length) are logged at `debug` level and return `Ok(())`, so a single
+/// malformed packet does not disrupt the overall handler loop.
 async fn handle_non_quic_underlay_packet(
     packet: crate::underlay_socket::UnderlayPacket,
     in_flight: Arc<crate::inflight::InFlightUnderlayKey>,
@@ -408,7 +480,9 @@ async fn handle_non_quic_underlay_packet(
     let mut payload = packet.payload;
 
     let existing_session = {
-        let mut guard = sessions.lock().unwrap();
+        let mut guard = sessions
+            .lock()
+            .expect("handle_non_quic: sessions mutex poisoned; no .await held under lock");
         if let Some(s) = guard.get_mut(&source) {
             s.last_used = std::time::Instant::now();
             Some(s.clone())
@@ -458,7 +532,10 @@ async fn handle_non_quic_underlay_packet(
         {
             udp_pool.remove(&source).await;
             // Remove the session; the relay task will be aborted by cleanup.
-            let removed = sessions.lock().unwrap().pop(&source);
+            let removed = sessions
+                .lock()
+                .expect("handle_non_quic: sessions mutex poisoned")
+                .pop(&source);
             if let Some(s) = removed {
                 if let Some(h) = s.relay_abort {
                     h.abort();
@@ -567,7 +644,10 @@ async fn handle_non_quic_underlay_packet(
         }
         impl Drop for SessionGuard {
             fn drop(&mut self) {
-                let mut guard = self.sessions.lock().unwrap();
+                let mut guard = self
+                    .sessions
+                    .lock()
+                    .expect("SessionGuard::drop: sessions mutex poisoned");
                 guard.pop(&self.source);
             }
         }
@@ -631,7 +711,9 @@ async fn handle_non_quic_underlay_packet(
     // Insert session atomically — LruCache auto-evicts the least recently used
     // entry when at capacity (O(1) amortized). No manual scanning needed.
     let evicted_session: Option<(SocketAddr, Option<tokio::task::AbortHandle>)> = {
-        let mut guard = sessions.lock().unwrap();
+        let mut guard = sessions
+            .lock()
+            .expect("handle_non_quic: sessions mutex poisoned");
         // Check if eviction is needed and pop the LRU entry before inserting,
         // so we can retrieve both the key (for udp_pool.remove()) and the abort handle.
         let evicted = if guard.len() >= consts::MAX_UNDERLAY_SESSIONS {
@@ -662,7 +744,10 @@ async fn handle_non_quic_underlay_packet(
         .await
     {
         udp_pool.remove(&source).await;
-        let removed = sessions.lock().unwrap().pop(&source);
+        let removed = sessions
+            .lock()
+            .expect("handle_non_quic: sessions mutex poisoned")
+            .pop(&source);
         if let Some(s) = removed {
             if let Some(h) = s.relay_abort {
                 h.abort();
@@ -1027,6 +1112,30 @@ async fn handle_udp_relay(
     Ok(())
 }
 
+/// Resolve a UDP target address (hostname or IP) with DNS caching.
+///
+/// If `host` is already a valid [`IpAddr`], it is returned directly
+/// without DNS resolution.  Otherwise, the function performs an async DNS
+/// lookup via [`tokio::net::lookup_host`] and caches the first result in
+/// the provided `domain_ip_map` to avoid repeated queries for the same
+/// host/port pair within the [`consts::UDP_DNS_CACHE_TTL`] window.
+///
+/// # Arguments
+///
+/// * `host` - The target hostname or IP address string.
+/// * `port` - The target UDP port.
+/// * `domain_ip_map` - A mutable reference to an [`IndexMap`] serving as a
+///   bounded DNS cache with TTL-based expiry.  When the cache reaches
+///   [`consts::MAX_UDP_DNS_CACHE`] entries, the oldest entry is evicted.
+///
+/// # Returns
+///
+/// A resolved [`SocketAddr`] suitable for use with `send_to`.
+///
+/// # Errors
+///
+/// Returns an error if DNS resolution fails (e.g. NXDOMAIN) or returns
+/// zero addresses.
 async fn resolve_udp_target(
     host: &str,
     port: u16,

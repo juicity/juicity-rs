@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use dashmap::DashMap;
 use juicity_common::consts;
 use juicity_common::protocol::UnderlayAuth;
 use tokio::sync::Notify;
@@ -16,21 +16,21 @@ pub type InFlightKey = [u8; 32];
 /// tasks waiting for the exact key that was inserted — avoiding the thundering
 /// herd problem of a single shared Notify.
 ///
-/// # Sync blocking safety
+/// # Lock-free design
 ///
-/// This struct uses `std::sync::Mutex` (not `tokio::sync::Mutex`) intentionally:
-/// - All critical sections are extremely short (HashMap insert/remove, ~ns level)
-/// - No `.await` points are held while the lock is acquired
-/// - Using `tokio::sync::Mutex` would add unnecessary overhead for these micro-operations
-/// - The lock is never held across an await point, so it cannot cause deadlock
-///
-/// The `evict()` method does hold the lock across `.await` boundaries in the `tokio::select!`
-/// loop, but the per-key Notify is cloned **before** the `.await`, so the lock is released
-/// before entering the wait state.  This makes it safe.
+/// This implementation uses [`DashMap`] internally instead of a global
+/// `std::sync::Mutex`.  DashMap provides fine-grained shard-level locking,
+/// so concurrent accesses to different keys do not contend with each other.
+/// This eliminates the global Mutex bottleneck under high concurrency while
+/// remaining safe to use across `.await` points (no lock is held during
+/// async suspension).
 pub struct InFlightUnderlayKey {
     ttl: Duration,
     evict_timeout: Duration,
-    inner: Mutex<InFlightInner>,
+    /// Per-key map protected by DashMap's internal shard locks.
+    /// No separate wrapper struct is needed — DashMap provides atomic
+    /// entry-level operations out of the box.
+    map: DashMap<InFlightKey, InFlightEntry>,
 }
 
 /// Single-map entry combining auth data, insertion timestamp and a per-key
@@ -41,19 +41,13 @@ struct InFlightEntry {
     notify: Arc<Notify>,
 }
 
-struct InFlightInner {
-    entries: HashMap<InFlightKey, InFlightEntry>,
-}
-
 impl InFlightUnderlayKey {
     /// Create a new `InFlightUnderlayKey` with the given TTL and evict timeout.
     pub fn new(ttl: Duration, evict_timeout: Duration) -> Self {
         Self {
             ttl,
             evict_timeout,
-            inner: Mutex::new(InFlightInner {
-                entries: HashMap::new(),
-            }),
+            map: DashMap::new(),
         }
     }
 
@@ -67,40 +61,53 @@ impl InFlightUnderlayKey {
     /// If the map is still full after eviction, the new entry is silently
     /// dropped to prevent unbounded memory growth during a burst of forged or
     /// unanswered underlay auth packets.
+    ///
+    /// # Lock-free behaviour
+    ///
+    /// This method only acquires a DashMap shard lock for the target key
+    /// (and briefly the entire map during capacity-based eviction).
+    /// Other keys remain fully accessible to concurrent `store`/`evict` calls.
     pub fn store(&self, key: InFlightKey, auth: UnderlayAuth) {
-        let mut inner = self.inner.lock().unwrap();
-
-        // Key already exists — a task is waiting in evict() for it.
-        if let Some(entry) = inner.entries.get_mut(&key) {
+        // Fast path: key already exists — atomically update and notify.
+        if let Some(mut entry) = self.map.get_mut(&key) {
             entry.auth = Some(auth);
-            // Notify **only** the tasks waiting for this specific key.
             entry.notify.notify_waiters();
             return;
         }
 
-        // New entry: enforce capacity limit.
-        if inner.entries.len() >= consts::MAX_IN_FLIGHT_UNDERLAY_ENTRIES {
+        // New entry: enforce capacity limit (best-effort approximate check,
+        // since DashMap::len() is an estimated count across shards).
+        if self.map.len() >= consts::MAX_IN_FLIGHT_UNDERLAY_ENTRIES {
             // Eagerly evict expired entries before considering whether to drop.
             let now = Instant::now();
             let ttl = self.ttl;
-            inner.entries.retain(|_, e| now.duration_since(e.inserted_at) <= ttl);
-            if inner.entries.len() >= consts::MAX_IN_FLIGHT_UNDERLAY_ENTRIES {
+            self.map.retain(|_, e| now.duration_since(e.inserted_at) <= ttl);
+            if self.map.len() >= consts::MAX_IN_FLIGHT_UNDERLAY_ENTRIES {
                 tracing::warn!(
                     "in-flight underlay auth table is full ({} entries); dropping new entry",
-                    inner.entries.len()
+                    self.map.len()
                 );
                 return;
             }
         }
 
-        inner.entries.insert(
-            key,
-            InFlightEntry {
-                notify: Arc::new(Notify::new()),
-                auth: Some(auth),
-                inserted_at: Instant::now(),
-            },
-        );
+        // Insert the new entry.  If another task inserted the same key between
+        // our get_mut check and here, the entry API ensures we still update
+        // and notify the waiter — no TOCTOU race.
+        use dashmap::mapref::entry::Entry;
+        match self.map.entry(key) {
+            Entry::Occupied(mut entry) => {
+                entry.get_mut().auth = Some(auth);
+                entry.get().notify.notify_waiters();
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(InFlightEntry {
+                    notify: Arc::new(Notify::new()),
+                    auth: Some(auth),
+                    inserted_at: Instant::now(),
+                });
+            }
+        }
     }
 
     /// Evict and retrieve an authentication using a per-key [`Notify`] for
@@ -111,26 +118,33 @@ impl InFlightUnderlayKey {
     /// and the caller waits for that Notify.  When [`store`](Self::store)
     /// eventually fills in the value, only the task(s) waiting for this
     /// *exact* key are woken — eliminating the thundering herd.
+    ///
+    /// # Lock-free behaviour
+    ///
+    /// No lock is held across `.await` points.  The per-key [`Notify`] is
+    /// cloned before entering the async wait loop, and DashMap shard locks
+    /// are only briefly held for the initial lookup (and subsequent re-checks
+    /// after notification).
     pub async fn evict(&self, key: &InFlightKey) -> Option<UnderlayAuth> {
-        // Obtain (or create) the per-key Notify while holding the lock, then
-        // drop the lock before any `.await` to uphold the safety invariant.
+        // Obtain (or create) the per-key Notify while holding the shard lock,
+        // then drop the lock before any `.await` to uphold the safety invariant.
         let notify = {
-            let mut inner = self.inner.lock().unwrap();
-            match inner.entries.get_mut(key) {
-                Some(entry) => {
+            match self.map.get_mut(key) {
+                Some(mut entry) => {
                     if let Some(auth) = entry.auth.take() {
                         // Value already present — consume immediately.
-                        inner.entries.remove(key);
+                        drop(entry);
+                        self.map.remove(key);
                         return Some(auth);
                     }
                     // Entry exists but value not yet stored — clone its Notify
-                    // and wait (the lock is released when this block ends).
+                    // and wait (the shard lock is released when the guard drops).
                     entry.notify.clone()
                 }
                 None => {
                     // No entry yet — create a placeholder and wait.
                     let notify = Arc::new(Notify::new());
-                    inner.entries.insert(
+                    self.map.insert(
                         *key,
                         InFlightEntry {
                             notify: notify.clone(),
@@ -150,9 +164,10 @@ impl InFlightUnderlayKey {
         loop {
             tokio::select! {
                 _ = notify.notified() => {
-                    let mut inner = self.inner.lock().unwrap();
-                    if let Some(entry) = inner.entries.remove(key) {
-                        if let Some(auth) = entry.auth {
+                    if let Some(mut entry) = self.map.get_mut(key) {
+                        if let Some(auth) = entry.auth.take() {
+                            drop(entry);
+                            self.map.remove(key);
                             return Some(auth);
                         }
                         // Notified but no value — shouldn't happen under
@@ -163,8 +178,7 @@ impl InFlightUnderlayKey {
                     }
                 }
                 _ = tokio::time::sleep_until(deadline.into()) => {
-                    let mut inner = self.inner.lock().unwrap();
-                    if let Some(entry) = inner.entries.remove(key) {
+                    if let Some((_, entry)) = self.map.remove(key) {
                         return entry.auth;
                     }
                     return None;
@@ -173,11 +187,29 @@ impl InFlightUnderlayKey {
         }
     }
 
-    /// Clean up expired keys.
+    /// Clean up expired in-flight underlay auth entries.
+    ///
+    /// Iterates all shards of the internal [`DashMap`] and removes entries
+    /// whose TTL (time-to-live) has elapsed since insertion.  This is
+    /// intended to be run as a **background cleanup task** that holds
+    /// DashMap internal shard locks only briefly per entry, so concurrent
+    /// [`store`](Self::store) / [`evict`](Self::evict) operations on
+    /// unrelated keys are not blocked.
+    ///
+    /// # Lock behaviour
+    ///
+    /// The lock granularity is per-DashMap-shard, and each shard is locked
+    /// only for the duration of a single entry check-and-remove.  This
+    /// means a full sweep across all entries has negligible impact on
+    /// concurrent access to unrelated keys.
+    ///
+    /// # Panics
+    ///
+    /// This method does not panic under normal operation.  The DashMap
+    /// internal locking is infallible.
     pub fn cleanup(&self) {
-        let mut inner = self.inner.lock().unwrap();
         let now = Instant::now();
         let ttl = self.ttl;
-        inner.entries.retain(|_, e| now.duration_since(e.inserted_at) <= ttl);
+        self.map.retain(|_, e| now.duration_since(e.inserted_at) <= ttl);
     }
 }

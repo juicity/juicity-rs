@@ -3,8 +3,10 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use dashmap::{DashMap, DashSet};
 use lru::LruCache;
 use tokio::sync::Mutex;
+use tokio::sync::Notify;
 
 /// Options for creating a UDP endpoint
 pub struct UdpEndpointOptions {
@@ -51,18 +53,37 @@ impl UdpEndpoint {
 }
 
 /// Pool of UDP endpoints for full-cone NAT
+///
+/// # Per-entry creation locking
+///
+/// Instead of a single global `create_lock` (which serialises all
+/// `get_or_create` calls regardless of target address), this implementation
+/// uses a [`DashSet<SocketAddr>`] to track **per-address** creation state.
+/// Concurrent calls for different addresses proceed in parallel, eliminating
+/// the global bottleneck while still preventing duplicate `UdpEndpoint::new`
+/// calls for the same address (which would waste system resources on ephemeral
+/// port exhaustion).
 pub struct UdpEndpointPool {
     inner: Mutex<LruCache<SocketAddr, UdpEndpoint>>,
-    /// Serializes UdpEndpoint::new calls to prevent TOCTOU race and
-    /// mitigate temporary port exhaustion under high concurrency.
-    create_lock: Mutex<()>,
+    /// Tracks which addresses currently have an in-flight `UdpEndpoint::new`.
+    /// Insertion returns `true` iff the caller is the designated creator;
+    /// other callers wait on the per-address [`Notify`] stored in
+    /// [`notify_map`](Self::notify_map).
+    creating: DashSet<SocketAddr>,
+    /// Maps addresses being created to a [`Notify`] that will be signalled
+    /// when creation completes (successfully or otherwise).
+    notify_map: DashMap<SocketAddr, Arc<Notify>>,
 }
 
 impl UdpEndpointPool {
     pub fn new(max_size: usize) -> Self {
         Self {
-            inner: Mutex::new(LruCache::new(NonZeroUsize::new(max_size).unwrap())),
-            create_lock: Mutex::new(()),
+            inner: Mutex::new(LruCache::new(
+                NonZeroUsize::new(max_size)
+                    .expect("UdpEndpointPool max_size must be > 0; verify MAX_UDP_ENDPOINTS in consts"),
+            )),
+            creating: DashSet::new(),
+            notify_map: DashMap::new(),
         }
     }
 
@@ -86,30 +107,131 @@ impl UdpEndpointPool {
     ///
     /// Returns `(socket, dial_target, is_new)` where `dial_target` is an
     /// `Arc<str>` (cloning it is just a refcount increment).
+    ///
+    /// # Concurrency design
+    ///
+    /// 1. **Fast path**: check the cache (`inner` lock, released immediately).
+    /// 2. **Per-addr creation lock**: attempt to insert `addr` into the
+    ///    [`creating`](Self::creating) set.  If another task is already
+    ///    creating for this address, we register a per-addr [`Notify`] and
+    ///    wait — without blocking creation for *other* addresses.
+    /// 3. **Creation**: the designated creator calls `UdpEndpoint::new`,
+    ///    inserts the result into the cache, removes the address from
+    ///    `creating`, and notifies any waiters.
+    /// 4. **Post-wakeup**: waiters retry the cache lookup.
     pub async fn get_or_create(
         &self,
         addr: SocketAddr,
         options: UdpEndpointOptions,
     ) -> anyhow::Result<((std::net::UdpSocket, Arc<str>), bool)> {
-        // Fast path: check if already exists without acquiring the create lock.
-        {
-            let mut inner = self.inner.lock().await;
-            if let Some(endpoint) = inner.get(&addr) {
-                if !endpoint.is_expired() {
-                    let socket = endpoint.socket.try_clone()?;
-                    let dial_target = endpoint.dial_target.clone();
-                    return Ok(((socket, dial_target), false));
+        // Use a loop instead of recursion to avoid infinitely sized futures
+        // (Rust does not allow recursive async fn calls without boxing).
+        loop {
+            // ── Fast path: check cache without any creation lock. ──
+            {
+                let mut inner = self.inner.lock().await;
+                if let Some(endpoint) = inner.get(&addr) {
+                    if !endpoint.is_expired() {
+                        let socket = endpoint.socket.try_clone()?;
+                        let dial_target = endpoint.dial_target.clone();
+                        return Ok(((socket, dial_target), false));
+                    }
                 }
             }
-        }
 
-        // Acquire the create lock to serialize UdpEndpoint::new calls,
-        // so that at most one task creates a socket for a given addr.
-        let _create_guard = self.create_lock.lock().await;
+            // ── Per-addr creation arbitration via DashSet ──
+            // Try to become the designated creator for this address.
+            // We pre-allocate the Notify so that waiters can always find one.
+            let notify = Arc::new(Notify::new());
 
-        // Double-check: while we waited for the create lock, another task
-        // may have already inserted a fresh endpoint.
-        {
+            if self.creating.insert(addr) {
+                // ── We are the creator ──
+                // Register our Notify so that concurrent waiters can subscribe.
+                self.notify_map.insert(addr, notify.clone());
+
+                // Double-check: while we waited for the DashSet insert, another
+                // task may have inserted a fresh endpoint into the cache.
+                {
+                    let mut inner = self.inner.lock().await;
+                    if let Some(endpoint) = inner.get_mut(&addr) {
+                        if !endpoint.is_expired() {
+                            endpoint.touch();
+                            let socket = endpoint.socket.try_clone()?;
+                            let dial_target = endpoint.dial_target.clone();
+                            // Clean up creation tracking before returning.
+                            self.creating.remove(&addr);
+                            self.notify_map.remove(&addr);
+                            // Notify any concurrent waiters so they find the
+                            // cached entry immediately.
+                            notify.notify_waiters();
+                            return Ok(((socket, dial_target), false));
+                        }
+                    }
+                }
+
+                // Confirmed: no valid endpoint exists, safely create one.
+                let result = UdpEndpoint::new(options).await;
+
+                match result {
+                    Ok(endpoint) => {
+                        let dial_target = endpoint.dial_target.clone();
+                        let socket = endpoint.socket.try_clone()?;
+
+                        let mut inner = self.inner.lock().await;
+                        inner.put(addr, endpoint);
+
+                        // Clean up creation tracking and notify waiters.
+                        self.creating.remove(&addr);
+                        self.notify_map.remove(&addr);
+                        notify.notify_waiters();
+
+                        return Ok(((socket, dial_target), true));
+                    }
+                    Err(e) => {
+                        // Creation failed — clean up and notify waiters so they
+                        // can retry or propagate the error.
+                        self.creating.remove(&addr);
+                        self.notify_map.remove(&addr);
+                        notify.notify_waiters();
+                        return Err(e);
+                    }
+                }
+            }
+
+            // ── Someone else is creating this endpoint — wait for them. ──
+            // Register our interest in the notification map.
+            // If the creator has already finished (unlikely but possible in a
+            // race), the Notify will have been signalled and `notified().await`
+            // will return immediately.
+            let wait_notify = self
+                .notify_map
+                .entry(addr)
+                .or_insert_with(|| Arc::new(Notify::new()))
+                .value()
+                .clone();
+
+            // Double-check: the creator might have completed between our
+            // `creating.insert` returning false and registering above.
+            if !self.creating.contains(&addr) {
+                // Creator finished — check the cache directly and retry
+                // from the top of the loop.
+                let mut inner = self.inner.lock().await;
+                if let Some(endpoint) = inner.get_mut(&addr) {
+                    if !endpoint.is_expired() {
+                        endpoint.touch();
+                        let socket = endpoint.socket.try_clone()?;
+                        let dial_target = endpoint.dial_target.clone();
+                        return Ok(((socket, dial_target), false));
+                    }
+                }
+                // Cache miss (e.g. creation failed) — loop back to retry.
+                continue;
+            }
+
+            // Wait for the creator to finish.
+            wait_notify.notified().await;
+
+            // Re-check the cache after wakeup.
             let mut inner = self.inner.lock().await;
             if let Some(endpoint) = inner.get_mut(&addr) {
                 if !endpoint.is_expired() {
@@ -119,26 +241,50 @@ impl UdpEndpointPool {
                     return Ok(((socket, dial_target), false));
                 }
             }
+
+            // Something unexpected happened (creation failed and the Notify
+            // was still signalled).  Loop back to retry from the top.
+            continue;
         }
-
-        // Confirmed: no valid endpoint exists, safely create one.
-        let endpoint = UdpEndpoint::new(options).await?;
-
-        let mut inner = self.inner.lock().await;
-        let dial_target = endpoint.dial_target.clone();
-        let socket = endpoint.socket.try_clone()?;
-        inner.put(addr, endpoint);
-
-        Ok(((socket, dial_target), true))
     }
 
+    /// Remove a UDP endpoint from the cache by address.
+    ///
+    /// Typically called when a connection is closed or a send error is
+    /// detected, ensuring stale endpoints do not linger in the pool.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The remote peer address whose endpoint should be removed.
+    ///
+    /// # Lock behaviour
+    ///
+    /// Acquires the inner [`tokio::sync::Mutex`] protecting the LRU cache
+    /// briefly while performing the `pop` operation.  Other concurrent
+    /// cache operations (`get_socket`, `get_or_create`) will wait for this
+    /// lock to be released.
     pub async fn remove(&self, addr: &SocketAddr) {
         let mut inner = self.inner.lock().await;
         inner.pop(addr);
     }
 
-    /// Clean up expired endpoints. Called from a periodic async task.
-    /// Uses the async mutex directly since it runs in an async context.
+    /// Clean up expired UDP endpoints from the pool.
+    ///
+    /// Iterates all entries in the internal LRU cache, collects expired
+    /// endpoints (those whose idle time exceeds `nat_timeout`), and removes
+    /// them.  Intended to be invoked periodically from a background async
+    /// task (e.g. via `tokio::time::interval`).
+    ///
+    /// # Lock behaviour
+    ///
+    /// Acquires the inner [`tokio::sync::Mutex`] for the full duration of
+    /// the sweep.  While this blocks concurrent `get_socket` / `get_or_create`
+    /// / `remove` calls, the sweep is designed to complete quickly
+    /// (O(n) in the number of cached endpoints, typically a few hundred).
+    ///
+    /// # Arguments
+    ///
+    /// * `self` - Shared reference to the pool.
     pub async fn cleanup_async(&self) {
         let mut inner = self.inner.lock().await;
         // LruCache does not have retain(), so collect expired keys first.

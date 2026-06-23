@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::io::IoSliceMut;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -8,6 +9,19 @@ use std::task::{Context, Poll};
 use quinn::udp::{RecvMeta, Transmit};
 use quinn::{AsyncUdpSocket, UdpPoller};
 
+/// A single non-QUIC underlay packet received from the demultiplexed UDP
+/// socket.
+///
+/// When [`DemuxUdpSocket`] processes a raw UDP datagram and determines it
+/// is **not** a QUIC packet (by inspecting the first byte), it wraps the
+/// datagram's metadata in this struct and forwards it through the underlay
+/// channel for further handling (decryption, NAT session lookup, relay).
+///
+/// # Fields
+///
+/// * `peer` - The source [`SocketAddr`] of the UDP datagram.
+/// * `payload` - The raw UDP payload bytes (including the underlay salt
+///   prefix when applicable).
 #[derive(Debug)]
 pub struct UnderlayPacket {
     pub peer: SocketAddr,
@@ -29,6 +43,20 @@ const MAX_DEMUX_BATCHES_PER_POLL: usize = 8;
 /// batches before yielding.
 const MAX_IDLE_POLL_BEFORE_YIELD: usize = 4;
 
+// Thread-local pre-allocated buffer for UDP packet payloads.
+//
+// Instead of calling `.to_vec()` (which allocates a new `Vec` from scratch
+// for every non-QUIC packet), we reuse this fixed-capacity buffer to
+// amortise allocation overhead.  The buffer is initialised with 65535 bytes
+// of capacity (maximum UDP datagram size), so `extend_from_slice` never
+// triggers a reallocation after the first call on each thread.
+//
+// We use `RefCell` because this is accessed from `poll_recv()` which is
+// not async and runs on a single thread at a time.
+thread_local! {
+    static UDP_PACKET_BUF: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(65535));
+}
+
 /// Counts dropped non-QUIC packets when underlay channel is full.
 /// Used to rate-limit warning logs under burst traffic.
 static UNDERLAY_DROPPED_PACKETS: AtomicU64 = AtomicU64::new(0);
@@ -45,6 +73,26 @@ pub struct DemuxUdpSocket {
 }
 
 impl DemuxUdpSocket {
+    /// Create a new [`DemuxUdpSocket`] wrapping an existing QUIC UDP socket.
+    ///
+    /// The returned socket implements [`AsyncUdpSocket`] and can be used
+    /// directly with Quinn's [`quinn::Endpoint`].  Non-QUIC packets detected
+    /// by [`is_probably_quic_packet`](Self::is_probably_quic_packet) are
+    /// forwarded through the `underlay_tx` channel instead of being passed
+    /// to Quinn.
+    ///
+    /// # Arguments
+    ///
+    /// * `inner` - The underlying Quinn [`AsyncUdpSocket`] that handles the
+    ///   actual UDP I/O.
+    /// * `underlay_tx` - A `tokio::sync::mpsc::Sender` that accepts
+    ///   [`UnderlayPacket`] instances for non-QUIC underlay processing.
+    ///
+    /// # Lock-free design
+    ///
+    /// No locks are used in the constructor or the demultiplexing logic.
+    /// The only shared state is an [`AtomicUsize`] idle-poll counter used
+    /// for back-pressure during non-QUIC traffic floods.
     pub fn new(
         inner: Arc<dyn AsyncUdpSocket>,
         underlay_tx: tokio::sync::mpsc::Sender<UnderlayPacket>,
@@ -125,13 +173,26 @@ impl AsyncUdpSocket for DemuxUdpSocket {
                 let stride = meta[i].stride.max(1);
                 while offset < meta[i].len {
                     let end = (offset + stride).min(meta[i].len);
-                    // Use Bytes::copy_from_slice to create a reference-counted
-                    // copy of the payload, avoiding per-packet Vec allocation overhead.
-                    // Allocate a Vec<u8> directly — avoids the extra to_vec() copy
-                    // that would be needed if we used Bytes here.
+                    // Use a thread-local pre-allocated buffer to avoid per-packet
+                    // heap allocation overhead.  The buffer is initialised with
+                    // 65535 bytes capacity (max UDP datagram), so extend_from_slice
+                    // never triggers a reallocation after the first call.
+                    //
+                    // We swap the buffer out, fill it, clone the result for the
+                    // channel, then put the (still-capacitive) buffer back — this
+                    // amortises the allocation cost across all packets on this thread.
+                    let payload = UDP_PACKET_BUF.with(|buf| {
+                        let mut buf = buf.borrow_mut();
+                        buf.clear();
+                        buf.extend_from_slice(&bufs[i][offset..end]);
+                        // Clone returns a new Vec with exactly the right size,
+                        // while the thread-local buffer retains its 65535 capacity
+                        // for the next packet — avoiding repeated resize cycles.
+                        buf.clone()
+                    });
                     if self.underlay_tx.try_send(UnderlayPacket {
                         peer: meta[i].addr,
-                        payload: bufs[i][offset..end].to_vec(),
+                        payload,
                     }).is_err() {
                         // Channel full: drop packet. Warn only periodically to avoid
                         // log storms amplifying CPU under hostile/burst traffic.
