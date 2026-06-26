@@ -19,7 +19,6 @@ pub struct LocalServer {
     client: JuicityClient,
 }
 
-
 #[derive(Clone)]
 struct UdpOutboundDatagram {
     addr: String,
@@ -78,13 +77,19 @@ async fn handle_connection(
 }
 
 /// Handle a SOCKS5 proxy connection
-async fn handle_socks5(mut stream: TcpStream, local_addr: SocketAddr, client: JuicityClient) -> anyhow::Result<()> {
+async fn handle_socks5(
+    mut stream: TcpStream,
+    local_addr: SocketAddr,
+    client: JuicityClient,
+) -> anyhow::Result<()> {
     // Handshake: read methods
     let mut buf = [0u8; 2];
     stream.read_exact(&mut buf).await?;
     let n_methods = buf[1] as usize;
-    let mut methods = vec![0u8; n_methods];
-    stream.read_exact(&mut methods).await?;
+    // Stack-allocate the methods buffer (max 255 bytes per SOCKS5 spec)
+    // instead of a Vec heap allocation for each connection.
+    let mut methods = [0u8; 255];
+    stream.read_exact(&mut methods[..n_methods]).await?;
     // Accept no-auth
     stream.write_all(&[0x05, 0x00]).await?;
 
@@ -111,12 +116,14 @@ async fn handle_socks5(mut stream: TcpStream, local_addr: SocketAddr, client: Ju
             let mut len_buf = [0u8; 1];
             stream.read_exact(&mut len_buf).await?;
             let len = len_buf[0] as usize;
-            let mut domain = vec![0u8; len];
-            stream.read_exact(&mut domain).await?;
+            // Stack-allocate the domain buffer (max 255 bytes per SOCKS5 spec)
+            // instead of a Vec heap allocation for each domain lookup.
+            let mut domain = [0u8; 255];
+            stream.read_exact(&mut domain[..len]).await?;
             let mut port_buf = [0u8; 2];
             stream.read_exact(&mut port_buf).await?;
             (
-                String::from_utf8(domain)?,
+                String::from_utf8(domain[..len].to_vec())?,
                 u16::from_be_bytes(port_buf),
             )
         }
@@ -144,9 +151,10 @@ async fn handle_socks5(mut stream: TcpStream, local_addr: SocketAddr, client: Ju
 
             let (local_rx, mut local_tx) = stream.split();
 
-            // Use 64KB buffered readers for high-throughput bidirectional copy
-            let mut local_rx = tokio::io::BufReader::with_capacity(64 * 1024, local_rx);
-            let mut quic_recv = tokio::io::BufReader::with_capacity(64 * 1024, quic_recv);
+            // Use 16KB buffered readers (reduced from 64KB) for high-throughput bidirectional copy.
+            // 64KB × 2 × 256 concurrent connections = 32MB; 16KB × 2 × 256 = 8MB — saves 24MB.
+            let mut local_rx = tokio::io::BufReader::with_capacity(16 * 1024, local_rx);
+            let mut quic_recv = tokio::io::BufReader::with_capacity(16 * 1024, quic_recv);
 
             tokio::select! {
                 r = tokio::io::copy_buf(&mut local_rx, &mut quic_send) => {
@@ -162,9 +170,6 @@ async fn handle_socks5(mut stream: TcpStream, local_addr: SocketAddr, client: Ju
             }
             // Gracefully finish the send direction so quinn can clean up the stream
             // state immediately instead of holding it until a timeout or stream reset.
-            // Without this, quinn keeps stream resources alive until the connection
-            // idle timeout (~3 min), causing gradual resource accumulation under high
-            // connection turnover.
             let _ = quic_send.finish();
         }
         0x03 => {
@@ -205,12 +210,11 @@ async fn handle_socks5(mut stream: TcpStream, local_addr: SocketAddr, client: Ju
 
             // Periodic cleanup: remove UDP ASSOCIATE sessions whose writer channel has
             // been closed (e.g., supervisor task paniced without removing its entry).
-            // This mirrors the cleanup task in forwarder.rs:249 to keep local.rs and
-            // forwarder.rs consistent.
+            // This mirrors the cleanup task in forwarder.rs to keep them consistent.
             let sessions_cleanup = sessions.clone();
             let ctrl_cancel_cleanup = ctrl_cancel_clone.clone();
             tokio::spawn(async move {
-                let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
                 loop {
                     tokio::select! {
                         _ = interval.tick() => {
@@ -389,10 +393,11 @@ async fn start_udp_assoc_session(
             // per-packet heap allocation inside the hot loop.
             let mut recv_buf = Vec::with_capacity(65535);
             loop {
-                let (resp_addr, resp_port) = match read_one_udp_response(&mut recv, &mut recv_buf).await {
-                    Ok(v) => v,
-                    Err(_) => break,
-                };
+                let (resp_addr, resp_port) =
+                    match read_one_udp_response(&mut recv, &mut recv_buf).await {
+                        Ok(v) => v,
+                        Err(_) => break,
+                    };
 
                 let socks5_packet = build_socks5_udp_packet(&resp_addr, resp_port, &recv_buf);
                 if bind_socket_for_reader
@@ -443,8 +448,11 @@ async fn read_one_udp_response(
     tokio::time::timeout(consts::DEFAULT_NAT_TIMEOUT, recv.read_exact(&mut len_buf)).await??;
     let pkt_len = u16::from_be_bytes(len_buf) as usize;
     buf.resize(pkt_len, 0);
-    tokio::time::timeout(consts::DEFAULT_NAT_TIMEOUT, recv.read_exact(&mut buf[..pkt_len]))
-        .await??;
+    tokio::time::timeout(
+        consts::DEFAULT_NAT_TIMEOUT,
+        recv.read_exact(&mut buf[..pkt_len]),
+    )
+    .await??;
 
     Ok((resp_addr, resp_port))
 }
@@ -591,10 +599,11 @@ async fn handle_http_proxy(mut stream: TcpStream, client: JuicityClient) -> anyh
                 .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
                 .await?;
 
-            let mut stream = tokio::io::BufReader::with_capacity(64 * 1024, buf_reader.into_inner());
+            let mut stream =
+                tokio::io::BufReader::with_capacity(16 * 1024, buf_reader.into_inner());
             let (mut quic_send, quic_recv) = client.open_tcp_stream(&host, port).await?;
 
-            let mut quic_recv = tokio::io::BufReader::with_capacity(64 * 1024, quic_recv);
+            let mut quic_recv = tokio::io::BufReader::with_capacity(16 * 1024, quic_recv);
 
             tokio::select! {
                 r = tokio::io::copy_buf(&mut stream, &mut quic_send) => {
@@ -624,7 +633,8 @@ async fn handle_http_proxy(mut stream: TcpStream, client: JuicityClient) -> anyh
 
 /// Build a SOCKS5 response, automatically detecting the address type from the host string.
 fn build_socks5_response(reply: u8, host: &str, port: u16) -> Vec<u8> {
-    let (addr_type, addr_bytes): (u8, Vec<u8>) = if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+    let (addr_type, addr_bytes): (u8, Vec<u8>) = if let Ok(ip) = host.parse::<std::net::Ipv4Addr>()
+    {
         (0x01, ip.octets().to_vec())
     } else if let Ok(ip) = host.parse::<std::net::Ipv6Addr>() {
         (0x04, ip.octets().to_vec())

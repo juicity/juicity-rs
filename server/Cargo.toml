@@ -25,7 +25,8 @@ hex.workspace = true
 rand.workspace = true
 socket2.workspace = true
 async-trait.workspace = true
-mimalloc = "0.1"
+tikv-jemallocator = { workspace = true }
+mimalloc = { workspace = true }
 indexmap = "2"
 if-addrs = "0.13"
 dialoguer = "0.11"

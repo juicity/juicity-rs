@@ -28,3 +28,5 @@ base64.workspace = true
 tokio-util.workspace = true
 zeroize.workspace = true
 socket2 = "0.6"
+tikv-jemallocator = { workspace = true }
+mimalloc = { workspace = true }

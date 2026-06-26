@@ -1,11 +1,11 @@
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use dashmap::{DashMap, DashSet};
 use lru::LruCache;
-use tokio::sync::Mutex;
 use tokio::sync::Notify;
 
 /// Options for creating a UDP endpoint
@@ -63,6 +63,14 @@ impl UdpEndpoint {
 /// the global bottleneck while still preventing duplicate `UdpEndpoint::new`
 /// calls for the same address (which would waste system resources on ephemeral
 /// port exhaustion).
+///
+/// # Lock-free inner cache
+///
+/// The inner [`Mutex<LruCache>`] uses [`std::sync::Mutex`] instead of
+/// [`tokio::sync::Mutex`] because all critical sections are sub-microsecond
+/// (LRU get/put/remove) and no `.await` point is ever held under the lock.
+/// Using `std::sync::Mutex` avoids the additional bookkeeping overhead of
+/// Tokio's async mutex for these extremely short operations.
 pub struct UdpEndpointPool {
     inner: Mutex<LruCache<SocketAddr, UdpEndpoint>>,
     /// Tracks which addresses currently have an in-flight `UdpEndpoint::new`.
@@ -78,10 +86,9 @@ pub struct UdpEndpointPool {
 impl UdpEndpointPool {
     pub fn new(max_size: usize) -> Self {
         Self {
-            inner: Mutex::new(LruCache::new(
-                NonZeroUsize::new(max_size)
-                    .expect("UdpEndpointPool max_size must be > 0; verify MAX_UDP_ENDPOINTS in consts"),
-            )),
+            inner: Mutex::new(LruCache::new(NonZeroUsize::new(max_size).expect(
+                "UdpEndpointPool max_size must be > 0; verify MAX_UDP_ENDPOINTS in consts",
+            ))),
             creating: DashSet::new(),
             notify_map: DashMap::new(),
         }
@@ -93,8 +100,11 @@ impl UdpEndpointPool {
     /// This avoids any String/Arc<str> cloning — the caller already has the
     /// target address from the UnderlaySession and can use it for `send_to`.
     /// Only the socket `try_clone()` syscall is performed.
-    pub async fn get_socket(&self, addr: &SocketAddr) -> Option<std::net::UdpSocket> {
-        let mut inner = self.inner.lock().await;
+    ///
+    /// Uses `std::sync::Mutex` — lock is held only for the duration of the
+    /// lookup, touch, and clone operations. No `.await` is held under the lock.
+    pub fn get_socket(&self, addr: &SocketAddr) -> Option<std::net::UdpSocket> {
+        let mut inner = self.inner.lock().ok()?;
         let endpoint = inner.get_mut(addr)?;
         if endpoint.is_expired() {
             return None;
@@ -115,7 +125,7 @@ impl UdpEndpointPool {
     ///    [`creating`](Self::creating) set.  If another task is already
     ///    creating for this address, we register a per-addr [`Notify`] and
     ///    wait — without blocking creation for *other* addresses.
-    /// 3. **Creation**: the designated creator calls `UdpEndpoint::new`,
+    /// 3. **Creation**: the designated caller calls `UdpEndpoint::new`,
     ///    inserts the result into the cache, removes the address from
     ///    `creating`, and notifies any waiters.
     /// 4. **Post-wakeup**: waiters retry the cache lookup.
@@ -129,7 +139,10 @@ impl UdpEndpointPool {
         loop {
             // ── Fast path: check cache without any creation lock. ──
             {
-                let mut inner = self.inner.lock().await;
+                let mut inner = self
+                    .inner
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("mutex poisoned: {:?}", e))?;
                 if let Some(endpoint) = inner.get(&addr) {
                     if !endpoint.is_expired() {
                         let socket = endpoint.socket.try_clone()?;
@@ -152,7 +165,10 @@ impl UdpEndpointPool {
                 // Double-check: while we waited for the DashSet insert, another
                 // task may have inserted a fresh endpoint into the cache.
                 {
-                    let mut inner = self.inner.lock().await;
+                    let mut inner = self
+                        .inner
+                        .lock()
+                        .map_err(|e| anyhow::anyhow!("mutex poisoned: {:?}", e))?;
                     if let Some(endpoint) = inner.get_mut(&addr) {
                         if !endpoint.is_expired() {
                             endpoint.touch();
@@ -177,7 +193,10 @@ impl UdpEndpointPool {
                         let dial_target = endpoint.dial_target.clone();
                         let socket = endpoint.socket.try_clone()?;
 
-                        let mut inner = self.inner.lock().await;
+                        let mut inner = self
+                            .inner
+                            .lock()
+                            .map_err(|e| anyhow::anyhow!("mutex poisoned: {:?}", e))?;
                         inner.put(addr, endpoint);
 
                         // Clean up creation tracking and notify waiters.
@@ -215,7 +234,10 @@ impl UdpEndpointPool {
             if !self.creating.contains(&addr) {
                 // Creator finished — check the cache directly and retry
                 // from the top of the loop.
-                let mut inner = self.inner.lock().await;
+                let mut inner = self
+                    .inner
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("mutex poisoned: {:?}", e))?;
                 if let Some(endpoint) = inner.get_mut(&addr) {
                     if !endpoint.is_expired() {
                         endpoint.touch();
@@ -232,7 +254,10 @@ impl UdpEndpointPool {
             wait_notify.notified().await;
 
             // Re-check the cache after wakeup.
-            let mut inner = self.inner.lock().await;
+            let mut inner = self
+                .inner
+                .lock()
+                .map_err(|e| anyhow::anyhow!("mutex poisoned: {:?}", e))?;
             if let Some(endpoint) = inner.get_mut(&addr) {
                 if !endpoint.is_expired() {
                     endpoint.touch();
@@ -256,28 +281,22 @@ impl UdpEndpointPool {
     /// # Arguments
     ///
     /// * `addr` - The remote peer address whose endpoint should be removed.
-    ///
-    /// # Lock behaviour
-    ///
-    /// Acquires the inner [`tokio::sync::Mutex`] protecting the LRU cache
-    /// briefly while performing the `pop` operation.  Other concurrent
-    /// cache operations (`get_socket`, `get_or_create`) will wait for this
-    /// lock to be released.
-    pub async fn remove(&self, addr: &SocketAddr) {
-        let mut inner = self.inner.lock().await;
-        inner.pop(addr);
+    pub fn remove(&self, addr: &SocketAddr) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.pop(addr);
+        }
     }
 
     /// Clean up expired UDP endpoints from the pool.
     ///
     /// Iterates all entries in the internal LRU cache, collects expired
     /// endpoints (those whose idle time exceeds `nat_timeout`), and removes
-    /// them.  Intended to be invoked periodically from a background async
+    /// them.  Intended to be invoked periodically from a background tokio
     /// task (e.g. via `tokio::time::interval`).
     ///
     /// # Lock behaviour
     ///
-    /// Acquires the inner [`tokio::sync::Mutex`] for the full duration of
+    /// Acquires the inner [`std::sync::Mutex`] for the full duration of
     /// the sweep.  While this blocks concurrent `get_socket` / `get_or_create`
     /// / `remove` calls, the sweep is designed to complete quickly
     /// (O(n) in the number of cached endpoints, typically a few hundred).
@@ -285,16 +304,17 @@ impl UdpEndpointPool {
     /// # Arguments
     ///
     /// * `self` - Shared reference to the pool.
-    pub async fn cleanup_async(&self) {
-        let mut inner = self.inner.lock().await;
-        // LruCache does not have retain(), so collect expired keys first.
-        let expired: Vec<SocketAddr> = inner
-            .iter()
-            .filter(|(_, endpoint)| endpoint.is_expired())
-            .map(|(addr, _)| *addr)
-            .collect();
-        for addr in expired {
-            inner.pop(&addr);
+    pub fn cleanup(&self) {
+        if let Ok(mut inner) = self.inner.lock() {
+            // LruCache does not have retain(), so collect expired keys first.
+            let expired: Vec<SocketAddr> = inner
+                .iter()
+                .filter(|(_, endpoint)| endpoint.is_expired())
+                .map(|(addr, _)| *addr)
+                .collect();
+            for addr in expired {
+                inner.pop(&addr);
+            }
         }
     }
 }

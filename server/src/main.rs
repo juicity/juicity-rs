@@ -1,3 +1,13 @@
+// Use Jemalloc for glibc/macOS; fall back to mimalloc for musl targets where
+// jemalloc has known compatibility issues with musl's TLS and libc internals.
+#[cfg(all(not(target_env = "musl"), not(target_os = "windows")))]
+#[global_allocator]
+static GLOBAL_ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
+#[cfg(target_env = "musl")]
+#[global_allocator]
+static GLOBAL_ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use clap::{Parser, Subcommand};
 use juicity_common::cert;
 use juicity_common::config::Config;
@@ -6,14 +16,11 @@ use juicity_common::BuildInfo;
 use sha2::{Digest, Sha256};
 use tracing_subscriber::EnvFilter;
 
-#[global_allocator]
-static GLOBAL_ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 #[derive(Parser, Debug)]
 #[command(
     name = "juicity-server",
     about = "A QUIC-based proxy server",
-    disable_version_flag = true,
+    disable_version_flag = true
 )]
 struct Cli {
     /// Show version information
@@ -141,13 +148,16 @@ async fn main() -> anyhow::Result<()> {
             let config = Config::from_file(&config)?;
 
             // If no output flag is given, default to interactive share-link mode.
-            let default_mode = !do_link && !qrcode && qrcode_png.is_none() && !json_server && !json_client;
+            let default_mode =
+                !do_link && !qrcode && qrcode_png.is_none() && !json_server && !json_client;
             let do_link = do_link || default_mode;
 
             // Compute certificate SHA256 if requested
             let cert_sha256_override = if with_cert_sha256 {
                 if config.certificate.is_empty() {
-                    eprintln!("Warning: --with-cert-sha256 specified but no certificate path in config");
+                    eprintln!(
+                        "Warning: --with-cert-sha256 specified but no certificate path in config"
+                    );
                     None
                 } else {
                     match compute_cert_sha256(&config.certificate) {
@@ -272,10 +282,9 @@ fn interactive_select_interfaces() -> anyhow::Result<Vec<String>> {
             continue;
         }
         match &addr.addr {
-            if_addrs::IfAddr::V4(v4) => candidates.push((
-                format!("{} ({})", addr.name, v4.ip),
-                v4.ip.to_string(),
-            )),
+            if_addrs::IfAddr::V4(v4) => {
+                candidates.push((format!("{} ({})", addr.name, v4.ip), v4.ip.to_string()))
+            }
             if_addrs::IfAddr::V6(v6) => candidates.push((
                 format!("{} ([{}])", addr.name, v6.ip),
                 format!("[{}]", v6.ip),
@@ -298,7 +307,10 @@ fn interactive_select_interfaces() -> anyhow::Result<Vec<String>> {
         anyhow::bail!("No address selected");
     }
 
-    Ok(selections.iter().map(|&i| candidates[i].1.clone()).collect())
+    Ok(selections
+        .iter()
+        .map(|&i| candidates[i].1.clone())
+        .collect())
 }
 
 // ── SNI Resolution ──

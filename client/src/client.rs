@@ -83,7 +83,8 @@ impl JuicityClient {
         if allow_insecure {
             tracing::warn!("TLS certificate verification is DISABLED (allow_insecure=true). This is insecure and should only be used for testing.");
         }
-        let tls_config = Self::build_tls_config(allow_insecure, pinned_hash, provider, enable_0rtt)?;
+        let tls_config =
+            Self::build_tls_config(allow_insecure, pinned_hash, provider, enable_0rtt)?;
 
         let mut quic_config = ClientConfig::new(Arc::new(
             quinn::crypto::rustls::QuicClientConfig::try_from(tls_config)?,
@@ -105,9 +106,8 @@ impl JuicityClient {
         transport_config.max_concurrent_bidi_streams(VarInt::from_u32(
             consts::MAX_OPEN_INCOMING_STREAMS as u32,
         ));
-        transport_config.max_concurrent_uni_streams(VarInt::from_u32(
-            consts::MAX_OPEN_INCOMING_STREAMS as u32,
-        ));
+        transport_config
+            .max_concurrent_uni_streams(VarInt::from_u32(consts::MAX_OPEN_INCOMING_STREAMS as u32));
         // Set an explicit idle timeout for defense-in-depth.
         // Even with keep-alive enabled, if the peer stops responding or never opens
         // a stream after authentication, this timeout ensures the connection and its
@@ -116,12 +116,9 @@ impl JuicityClient {
             quinn::IdleTimeout::try_from(consts::MAX_QUIC_IDLE_TIMEOUT)
                 .map_err(|e| anyhow::anyhow!("invalid idle timeout: {:?}", e))?,
         ));
-        transport_config.stream_receive_window(VarInt::from_u32(
-            consts::QUIC_STREAM_RECEIVE_WINDOW,
-        ));
-        transport_config.receive_window(VarInt::from_u32(
-            consts::QUIC_CONNECTION_RECEIVE_WINDOW,
-        ));
+        transport_config
+            .stream_receive_window(VarInt::from_u32(consts::QUIC_STREAM_RECEIVE_WINDOW));
+        transport_config.receive_window(VarInt::from_u32(consts::QUIC_CONNECTION_RECEIVE_WINDOW));
         transport_config.send_window(consts::QUIC_SEND_WINDOW);
 
         // Dynamically adjust window size based on initial_rtt
@@ -131,27 +128,24 @@ impl JuicityClient {
                 transport_config.stream_receive_window(VarInt::from_u32(
                     consts::QUIC_STREAM_RECEIVE_WINDOW / 2,
                 ));
-                transport_config.receive_window(VarInt::from_u32(
-                    consts::QUIC_CONNECTION_RECEIVE_WINDOW / 2,
-                ));
+                transport_config
+                    .receive_window(VarInt::from_u32(consts::QUIC_CONNECTION_RECEIVE_WINDOW / 2));
             } else if rtt_ms > 200 {
                 // High latency: increase window to improve throughput
                 transport_config.stream_receive_window(VarInt::from_u32(
                     consts::QUIC_STREAM_RECEIVE_WINDOW * 2,
                 ));
-                transport_config.receive_window(VarInt::from_u32(
-                    consts::QUIC_CONNECTION_RECEIVE_WINDOW * 2,
-                ));
+                transport_config
+                    .receive_window(VarInt::from_u32(consts::QUIC_CONNECTION_RECEIVE_WINDOW * 2));
             }
         }
 
         match congestion_control.to_lowercase().as_str() {
-            "cubic" => transport_config.congestion_controller_factory(
-                Arc::new(quinn::congestion::CubicConfig::default()),
-            ),
-            "newreno" | "new_reno" => transport_config.congestion_controller_factory(
-                Arc::new(quinn::congestion::NewRenoConfig::default()),
-            ),
+            "cubic" => transport_config
+                .congestion_controller_factory(Arc::new(quinn::congestion::CubicConfig::default())),
+            "newreno" | "new_reno" => transport_config.congestion_controller_factory(Arc::new(
+                quinn::congestion::NewRenoConfig::default(),
+            )),
             _ => {
                 // Tune BBR parameters: set a reasonable initial window to balance latency and throughput
                 let mut bbr_config = quinn::congestion::BbrConfig::default();
@@ -219,7 +213,10 @@ impl JuicityClient {
 
                 // Non-Linux platforms: fwmark is not supported, warn the user
                 #[cfg(not(target_os = "linux"))]
-                println!("Warning: fwmark is only supported on Linux, ignoring fwmark={}", fwmark);
+                println!(
+                    "Warning: fwmark is only supported on Linux, ignoring fwmark={}",
+                    fwmark
+                );
 
                 // Bind to address
                 sock.bind(&bind_addr.into())?;
@@ -245,8 +242,7 @@ impl JuicityClient {
             .await??
         } else {
             // Original logic: use Endpoint::client directly
-            tokio::task::spawn_blocking(move || Endpoint::client(bind_addr))
-                .await??
+            tokio::task::spawn_blocking(move || Endpoint::client(bind_addr)).await??
         };
         let endpoint = Arc::new(endpoint);
 
@@ -360,16 +356,22 @@ impl JuicityClient {
             let uuid_for_token = self.uuid;
             let password_for_token = (*self.password).clone();
             let token = tokio::task::spawn_blocking(move || {
-                protocol::gen_token_via_connection(&conn_for_token, &uuid_for_token, &password_for_token)
+                protocol::gen_token_via_connection(
+                    &conn_for_token,
+                    &uuid_for_token,
+                    &password_for_token,
+                )
             })
             .await??;
 
-            // Batch all 50 auth bytes into a single write to reduce async round-trips:
+            // Batch all 50 auth bytes into a single write using a fixed-size
+            // stack array to avoid a Vec heap allocation per connection.
             // [version(1)][cmd_type(1)][uuid(16)][token(32)]
-            let mut auth_buf = Vec::with_capacity(2 + 16 + 32);
-            auth_buf.extend_from_slice(&[protocol::PROTOCOL_VERSION, protocol::AUTHENTICATE_TYPE]);
-            auth_buf.extend_from_slice(self.uuid.as_bytes());
-            auth_buf.extend_from_slice(&token);
+            let mut auth_buf = [0u8; 50];
+            auth_buf[0] = protocol::PROTOCOL_VERSION;
+            auth_buf[1] = protocol::AUTHENTICATE_TYPE;
+            auth_buf[2..18].copy_from_slice(self.uuid.as_bytes());
+            auth_buf[18..50].copy_from_slice(&token);
             uni.write_all(&auth_buf).await?;
 
             anyhow::Ok((quinn_conn, uni))
@@ -451,9 +453,8 @@ impl JuicityClient {
         let stream_header = protocol::build_proxy_header(protocol::NETWORK_UDP, addr, port)?;
         let dgram_addr = protocol::build_trojanc_addr(addr, port)?;
         let pkt_len = (first_packet.len() as u16).to_be_bytes();
-        let mut buf = Vec::with_capacity(
-            stream_header.len() + dgram_addr.len() + 2 + first_packet.len(),
-        );
+        let mut buf =
+            Vec::with_capacity(stream_header.len() + dgram_addr.len() + 2 + first_packet.len());
         buf.extend_from_slice(&stream_header);
         buf.extend_from_slice(&dgram_addr);
         buf.extend_from_slice(&pkt_len);

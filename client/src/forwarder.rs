@@ -52,14 +52,17 @@ impl Forwarder {
     /// The config's `forward` field is a `HashMap<String, String>` where:
     /// - key: local address, optionally with protocol suffix (e.g. "0.0.0.0:1080/tcp")
     /// - value: target address (e.g. "1.2.3.4:443")
-    pub fn new(forward_map: &std::collections::HashMap<String, String>, client: JuicityClient) -> anyhow::Result<Self> {
+    pub fn new(
+        forward_map: &std::collections::HashMap<String, String>,
+        client: JuicityClient,
+    ) -> anyhow::Result<Self> {
         let mut entries = Vec::new();
 
         for (local_raw, target) in forward_map {
             let (addr_str, protocol) = parse_local_addr(local_raw)?;
-            let local_addr: SocketAddr = addr_str
-                .parse()
-                .map_err(|e| anyhow::anyhow!("invalid forward local address '{}': {}", addr_str, e))?;
+            let local_addr: SocketAddr = addr_str.parse().map_err(|e| {
+                anyhow::anyhow!("invalid forward local address '{}': {}", addr_str, e)
+            })?;
 
             entries.push(ForwardEntry {
                 local_addr,
@@ -200,9 +203,10 @@ async fn forward_tcp_connection(
     // Bidirectional copy between local TCP and QUIC stream
     let (local_rx, mut local_tx) = local_stream.split();
 
-    // Use 64KB buffered readers for high-throughput bidirectional copy
-    let mut local_rx = tokio::io::BufReader::with_capacity(64 * 1024, local_rx);
-    let mut quic_recv = tokio::io::BufReader::with_capacity(64 * 1024, quic_recv);
+    // Use 16KB buffered readers (reduced from 64KB) for high-throughput bidirectional copy.
+    // 64KB × 2 × 256 concurrent connections = 32MB; 16KB × 2 × 256 = 8MB — saves 24MB.
+    let mut local_rx = tokio::io::BufReader::with_capacity(16 * 1024, local_rx);
+    let mut quic_recv = tokio::io::BufReader::with_capacity(16 * 1024, quic_recv);
 
     tokio::select! {
         r = tokio::io::copy_buf(&mut local_rx, &mut quic_send) => {
@@ -256,10 +260,13 @@ async fn start_udp_forward(entry: ForwardEntry, client: JuicityClient) -> anyhow
     let sessions_cleanup = sessions.clone();
     let _cleanup_guard = AbortOnDrop(
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
             loop {
                 interval.tick().await;
-                sessions_cleanup.lock().await.retain(|_, s| !s.tx.is_closed());
+                sessions_cleanup
+                    .lock()
+                    .await
+                    .retain(|_, s| !s.tx.is_closed());
             }
         })
         .abort_handle(),
@@ -292,7 +299,15 @@ async fn start_udp_forward(entry: ForwardEntry, client: JuicityClient) -> anyhow
 
         tokio::spawn(async move {
             if let Err(e) = handle_udp_datagram(
-                socket, sessions, session_seq, src_addr, data, host, port, &client, cancel,
+                socket,
+                sessions,
+                session_seq,
+                src_addr,
+                data,
+                host,
+                port,
+                &client,
+                cancel,
             )
             .await
             {
@@ -362,7 +377,10 @@ async fn handle_udp_datagram(
         let mut guard = sessions.lock().await;
         guard.insert(
             src_addr,
-            UdpSession { id: session_id, tx: tx.clone() },
+            UdpSession {
+                id: session_id,
+                tx: tx.clone(),
+            },
         );
     }
 
@@ -376,9 +394,15 @@ async fn handle_udp_datagram(
         loop {
             match tokio::time::timeout(consts::DEFAULT_NAT_TIMEOUT, rx.recv()).await {
                 Ok(Some(datagram)) => {
-                    if JuicityClient::send_udp_datagram(&mut send, &host, port, &datagram[..], &mut addr_buf)
-                        .await
-                        .is_err()
+                    if JuicityClient::send_udp_datagram(
+                        &mut send,
+                        &host,
+                        port,
+                        &datagram[..],
+                        &mut addr_buf,
+                    )
+                    .await
+                    .is_err()
                     {
                         break;
                     }
@@ -462,13 +486,16 @@ async fn read_one_udp_response(
     tokio::time::timeout(consts::DEFAULT_NAT_TIMEOUT, recv.read_exact(&mut len_buf)).await??;
     let pkt_len = u16::from_be_bytes(len_buf) as usize;
     buf.resize(pkt_len, 0);
-    tokio::time::timeout(consts::DEFAULT_NAT_TIMEOUT, recv.read_exact(&mut buf[..pkt_len])).await??;
+    tokio::time::timeout(
+        consts::DEFAULT_NAT_TIMEOUT,
+        recv.read_exact(&mut buf[..pkt_len]),
+    )
+    .await??;
 
     Ok(())
 }
 
 /// Parse a "host:port" target string into (host, port), properly handling IPv6 addresses like [::1]:443.
 fn parse_target(target: &str) -> anyhow::Result<(String, u16)> {
-    juicity_common::link::parse_host_port(target)
-        .map_err(|e| anyhow::anyhow!("{}", e))
+    juicity_common::link::parse_host_port(target).map_err(|e| anyhow::anyhow!("{}", e))
 }

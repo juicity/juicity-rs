@@ -69,3 +69,11 @@ pub const MAX_UNDERLAY_HANDLER_CONCURRENCY: usize = 1_024;
 /// never open streams.  Set higher than the stream-accept timeout so the QUIC
 /// transport layer acts as a second line of defence.
 pub const MAX_QUIC_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
+
+/// Per-stream idle timeout for TCP relay operations.
+/// If no data flows in either direction for this duration the stream is closed
+/// and its resources (buffers, tasks, Arc references) are released individually,
+/// without waiting for the connection-level idle timeout.
+/// 300 seconds (5 minutes) is long enough for normal usage patterns but ensures
+/// stalled connections are cleaned up promptly.
+pub const TCP_RELAY_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);

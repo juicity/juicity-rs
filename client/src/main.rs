@@ -2,6 +2,16 @@ pub mod client;
 pub mod forwarder;
 pub mod local;
 
+// Use Jemalloc for glibc/macOS; fall back to mimalloc for musl targets where
+// jemalloc has known compatibility issues with musl's TLS and libc internals.
+#[cfg(all(not(target_env = "musl"), not(target_os = "windows")))]
+#[global_allocator]
+static GLOBAL_ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
+#[cfg(target_env = "musl")]
+#[global_allocator]
+static GLOBAL_ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use clap::{Parser, Subcommand};
 use juicity_common::config::Config;
 use juicity_common::link;
@@ -12,7 +22,7 @@ use tracing_subscriber::EnvFilter;
 #[command(
     name = "juicity-client",
     about = "A QUIC-based proxy client",
-    disable_version_flag = true,
+    disable_version_flag = true
 )]
 struct Cli {
     /// Show version information
