@@ -1,6 +1,7 @@
 // Use Jemalloc for glibc/macOS; fall back to mimalloc for musl targets where
 // jemalloc has known compatibility issues with musl's TLS and libc internals.
-#[cfg(all(not(target_env = "musl"), not(target_os = "windows")))]
+// On Windows, use the system allocator (no custom #[global_allocator]).
+#[cfg(not(any(target_env = "musl", target_os = "windows")))]
 #[global_allocator]
 static GLOBAL_ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 

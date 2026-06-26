@@ -28,5 +28,8 @@ base64.workspace = true
 tokio-util.workspace = true
 zeroize.workspace = true
 socket2 = "0.6"
+[target.'cfg(not(any(target_env = "musl", target_os = "windows")))'.dependencies]
 tikv-jemallocator = { workspace = true }
+
+[target.'cfg(target_env = "musl")'.dependencies]
 mimalloc = { workspace = true }
