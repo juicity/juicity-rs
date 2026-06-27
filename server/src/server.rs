@@ -35,10 +35,14 @@ struct UnderlaySession {
 }
 
 /// Juicity proxy server
-/// Create a UDP socket with SO_REUSEPORT enabled, optionally in dual-stack mode.
+/// Create a UDP socket with SO_REUSEPORT enabled (Unix only), optionally in
+/// dual-stack mode.
 ///
 /// When `dual_stack` is true, an IPv6 socket is created with `IPV6_V6ONLY=false`
 /// so it accepts both IPv4 and IPv6 traffic on the same port.
+///
+/// On non-Unix platforms (e.g. Windows) this creates a regular socket without
+/// SO_REUSEPORT, since the option is not available.
 fn create_reuseport_socket(
     addr: &SocketAddr,
     dual_stack: bool,
@@ -50,6 +54,7 @@ fn create_reuseport_socket(
         Domain::IPV4
     };
     let sock = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))?;
+    #[cfg(unix)]
     sock.set_reuse_port(true)?;
     if dual_stack {
         sock.set_only_v6(false)?;
@@ -209,33 +214,61 @@ impl JuicityServer {
             (sa, addr.to_string(), false)
         };
 
-        // Determine how many sockets to create: one per CPU core for
-        // kernel-level load distribution via SO_REUSEPORT.
-        let num_sockets = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4);
-
-        // Shared underlay channel — multi-producer (one per socket) single-consumer.
-        let (underlay_tx, underlay_rx) =
-            tokio::sync::mpsc::channel(crate::underlay_socket::UNDERLAY_CHANNEL_CAPACITY);
-
+        // ── Socket setup ──
+        // On Unix: create N reuseport sockets (one per core) for kernel-level
+        // load distribution.  On Windows: create a single socket (SO_REUSEPORT
+        // is not available).
         let runtime = quinn::default_runtime()
             .ok_or_else(|| anyhow::anyhow!("no async runtime found for quinn"))?;
 
-        // Create N sockets, each with its own DemuxUdpSocket/Endpoint.
-        let mut first_sidecar: Option<Arc<tokio::net::UdpSocket>> = None;
-        let mut endpoints: Vec<quinn::Endpoint> = Vec::with_capacity(num_sockets);
+        let (underlay_tx, underlay_rx) =
+            tokio::sync::mpsc::channel(crate::underlay_socket::UNDERLAY_CHANNEL_CAPACITY);
 
-        for i in 0..num_sockets {
+        #[cfg(unix)]
+        let (server_underlay_socket, endpoints, num_sockets) = {
+            let num_sockets = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4);
+            let mut first_sidecar: Option<Arc<tokio::net::UdpSocket>> = None;
+            let mut endpoints: Vec<quinn::Endpoint> = Vec::with_capacity(num_sockets);
+
+            for i in 0..num_sockets {
+                let socket = create_reuseport_socket(&socket_addr, dual_stack)?;
+                socket.set_nonblocking(true)?;
+                let sidecar = socket.try_clone()?;
+                sidecar.set_nonblocking(true)?;
+
+                if i == 0 {
+                    first_sidecar = Some(Arc::new(tokio::net::UdpSocket::from_std(sidecar)?));
+                }
+
+                let wrapped = runtime.wrap_udp_socket(socket)?;
+                let demux = Arc::new(crate::underlay_socket::DemuxUdpSocket::new(
+                    wrapped,
+                    underlay_tx.clone(),
+                ));
+                let endpoint = Endpoint::new_with_abstract_socket(
+                    EndpointConfig::default(),
+                    Some(self.server_config.clone()),
+                    demux,
+                    runtime.clone(),
+                )?;
+                endpoints.push(endpoint);
+            }
+
+            let server_underlay_socket =
+                first_sidecar.ok_or_else(|| anyhow::anyhow!("no sockets created"))?;
+            (server_underlay_socket, endpoints, num_sockets)
+        };
+
+        #[cfg(not(unix))]
+        let (server_underlay_socket, endpoints) = {
             let socket = create_reuseport_socket(&socket_addr, dual_stack)?;
             socket.set_nonblocking(true)?;
             let sidecar = socket.try_clone()?;
             sidecar.set_nonblocking(true)?;
-
-            // Keep the first sidecar for the underlay relay-back loop.
-            if i == 0 {
-                first_sidecar = Some(Arc::new(tokio::net::UdpSocket::from_std(sidecar)?));
-            }
+            let server_underlay_socket =
+                Arc::new(tokio::net::UdpSocket::from_std(sidecar)?);
 
             let wrapped = runtime.wrap_udp_socket(socket)?;
             let demux = Arc::new(crate::underlay_socket::DemuxUdpSocket::new(
@@ -248,16 +281,19 @@ impl JuicityServer {
                 demux,
                 runtime.clone(),
             )?;
-            endpoints.push(endpoint);
-        }
+            (server_underlay_socket, vec![endpoint])
+        };
 
-        let server_underlay_socket =
-            first_sidecar.ok_or_else(|| anyhow::anyhow!("no sockets created"))?;
-
+        #[cfg(unix)]
         tracing::info!(
             "Juicity server listening on {} ({} reuseport sockets)",
             log_addr,
             num_sockets,
+        );
+        #[cfg(not(unix))]
+        tracing::info!(
+            "Juicity server listening on {} (single socket)",
+            log_addr,
         );
 
         // Spawn periodic cleanup task for in-flight underlay keys.
