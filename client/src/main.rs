@@ -43,8 +43,8 @@ enum Commands {
         config: String,
 
         /// Log level
-        #[arg(long = "log-level", default_value = "info")]
-        log_level: String,
+        #[arg(long = "log-level")]
+        log_level: Option<String>,
 
         /// Set fwmark on the client socket (Linux only)
         #[arg(long)]
@@ -104,18 +104,20 @@ async fn main() -> anyhow::Result<()> {
             log_level,
             fwmark,
         } => {
+            let mut config = Config::from_file(&config)?;
+            if let Some(fwmark) = fwmark {
+                config.fwmark = Some(fwmark);
+            }
+            config.validate_for_client()?;
+
+            let log_level = log_level.unwrap_or(config.log_level.clone());
+
             tracing_subscriber::fmt()
                 .with_env_filter(
                     EnvFilter::try_from_default_env()
                         .unwrap_or_else(|_| EnvFilter::new(&log_level)),
                 )
                 .init();
-
-            let mut config = Config::from_file(&config)?;
-            if let Some(fwmark) = fwmark {
-                config.fwmark = Some(fwmark);
-            }
-            config.validate_for_client()?;
 
             tracing::info!("Juicity client starting...");
 

@@ -15,10 +15,15 @@ mod util;
 rust_i18n::i18n!("locales", fallback = "en");
 
 fn main() -> anyhow::Result<()> {
+    let log_level = std::env::args()
+        .position(|arg| arg == "--log-level")
+        .and_then(|i| std::env::args().nth(i + 1))
+        .unwrap_or_else(|| "info".to_string());
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&log_level)),
         )
         .init();
 

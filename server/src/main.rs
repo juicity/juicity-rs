@@ -41,8 +41,8 @@ enum Commands {
         config: String,
 
         /// Log level
-        #[arg(long = "log-level", default_value = "info")]
-        log_level: String,
+        #[arg(long = "log-level")]
+        log_level: Option<String>,
     },
 
     /// Export share link, QR code, or JSON config
@@ -118,15 +118,17 @@ async fn main() -> anyhow::Result<()> {
 
     match command {
         Commands::Run { config, log_level } => {
+            let config = Config::from_file(&config)?;
+            config.validate_for_server()?;
+
+            let log_level = log_level.unwrap_or(config.log_level.clone());
+
             tracing_subscriber::fmt()
                 .with_env_filter(
                     EnvFilter::try_from_default_env()
                         .unwrap_or_else(|_| EnvFilter::new(&log_level)),
                 )
                 .init();
-
-            let config = Config::from_file(&config)?;
-            config.validate_for_server()?;
 
             tracing::info!("Juicity server starting...");
 

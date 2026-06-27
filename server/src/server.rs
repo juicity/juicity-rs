@@ -784,7 +784,11 @@ async fn handle_connection(
 ) -> anyhow::Result<()> {
     let connection = incoming.await?;
     let remote_addr = connection.remote_address();
-    tracing::debug!("New QUIC connection from {}", remote_addr);
+    tracing::info!(
+        remote_addr = %remote_addr,
+        event = "new_connection",
+        "New QUIC connection"
+    );
 
     // === Authenticate ===
     let auth_conn = connection.clone();
@@ -797,11 +801,21 @@ async fn handle_connection(
 
     let (user_uuid, mut auth_uni_stream) = match auth_result {
         Ok(Ok((uuid, stream))) => {
-            tracing::debug!("User {} authenticated from {}", uuid, remote_addr);
+            tracing::info!(
+                user = %uuid,
+                remote_addr = %remote_addr,
+                event = "authentication",
+                "User authenticated"
+            );
             (uuid, stream)
         }
         Ok(Err(e)) => {
-            tracing::warn!("Authentication failed from {}: {:?}", remote_addr, e);
+            tracing::warn!(
+                remote_addr = %remote_addr,
+                error = %e,
+                event = "authentication_failed",
+                "Authentication failed"
+            );
             connection.close(VarInt::from_u32(0xfffffff1), b"authentication failed");
             return Err(e);
         }
@@ -866,7 +880,11 @@ async fn handle_connection(
                 });
             }
             Ok(Err(quinn::ConnectionError::ApplicationClosed { .. })) => {
-                tracing::debug!("Connection closed by peer: {}", remote_addr);
+                tracing::info!(
+                    remote_addr = %remote_addr,
+                    event = "connection_closed",
+                    "Connection closed by peer"
+                );
                 break;
             }
             Ok(Err(e)) => {
@@ -876,10 +894,9 @@ async fn handle_connection(
             Err(_) => {
                 // No stream opened within the timeout window — close the connection
                 // to release auth task, Arc references, and QUIC connection memory.
-                tracing::debug!(
-                    "No stream accepted from {} within {}s timeout",
-                    remote_addr,
-                    STREAM_ACCEPT_TIMEOUT.as_secs()
+                tracing::info!(
+                    event = "stream_timeout",
+                    "Stream accept timeout"
                 );
                 connection.close(VarInt::from_u32(0xfffffff3), b"stream accept timeout");
                 break;
@@ -950,11 +967,22 @@ async fn handle_stream(
 
     match network {
         protocol::NETWORK_TCP => {
-            tracing::debug!("TCP relay: {} -> {}", user_uuid, target);
+            tracing::info!(
+                user = %user_uuid,
+                target = %target,
+                protocol = "tcp",
+                event = "relay",
+                "TCP relay"
+            );
             handle_tcp_relay(send_stream, recv_stream, dialer, &target).await
         }
         protocol::NETWORK_UDP => {
-            tracing::debug!("UDP relay: {}", user_uuid);
+            tracing::info!(
+                user = %user_uuid,
+                protocol = "udp",
+                event = "relay",
+                "UDP relay"
+            );
             handle_udp_relay(send_stream, recv_stream, dialer, disable_udp_443).await
         }
         _ => anyhow::bail!("unknown network type: {}", network),

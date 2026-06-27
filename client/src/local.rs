@@ -54,7 +54,7 @@ impl LocalServer {
             tokio::spawn(async move {
                 let _permit = permit; // held for the lifetime of the connection
                 if let Err(e) = handle_connection(stream, addr, client).await {
-                    tracing::debug!("Connection handler error: {:?}", e);
+                    tracing::info!(error = %e, "Connection handler error");
                 }
             });
         }
@@ -63,7 +63,7 @@ impl LocalServer {
 
 async fn handle_connection(
     stream: TcpStream,
-    _addr: SocketAddr,
+    peer_addr: SocketAddr,
     client: JuicityClient,
 ) -> anyhow::Result<()> {
     let local_addr = stream.local_addr()?;
@@ -71,7 +71,7 @@ async fn handle_connection(
     stream.peek(&mut buf).await?;
 
     match buf[0] {
-        0x05 => handle_socks5(stream, local_addr, client).await,
+        0x05 => handle_socks5(stream, local_addr, peer_addr, client).await,
         _ => handle_http_proxy(stream, client).await,
     }
 }
@@ -80,6 +80,7 @@ async fn handle_connection(
 async fn handle_socks5(
     mut stream: TcpStream,
     local_addr: SocketAddr,
+    peer_addr: SocketAddr,
     client: JuicityClient,
 ) -> anyhow::Result<()> {
     // Handshake: read methods
@@ -143,7 +144,18 @@ async fn handle_socks5(
     match cmd {
         0x01 => {
             // TCP CONNECT
-            tracing::debug!("SOCKS5 CONNECT: {}:{}", host, port);
+            tracing::info!(
+                target_addr = %host,
+                target_port = %port,
+                "SOCKS5 CONNECT"
+            );
+            tracing::info!(
+                client_addr = %peer_addr,
+                target_addr = %host,
+                target_port = %port,
+                protocol = "socks5",
+                "New connection"
+            );
             let response = build_socks5_response(0x00, &host, port);
             stream.write_all(&response).await?;
 
@@ -159,12 +171,12 @@ async fn handle_socks5(
             tokio::select! {
                 r = tokio::io::copy_buf(&mut local_rx, &mut quic_send) => {
                     if let Err(e) = r {
-                        tracing::debug!("SOCKS5 local->quic: {:?}", e);
+                        tracing::info!(error = %e, direction = "local->quic", protocol = "socks5", "SOCKS5 copy error");
                     }
                 }
                 r = tokio::io::copy_buf(&mut quic_recv, &mut local_tx) => {
                     if let Err(e) = r {
-                        tracing::debug!("SOCKS5 quic->local: {:?}", e);
+                        tracing::info!(error = %e, direction = "quic->local", protocol = "socks5", "SOCKS5 copy error");
                     }
                 }
             }
@@ -174,7 +186,11 @@ async fn handle_socks5(
         }
         0x03 => {
             // UDP ASSOCIATE
-            tracing::debug!("SOCKS5 UDP ASSOCIATE: {}:{}", host, port);
+            tracing::info!(
+                target_addr = %host,
+                target_port = %port,
+                "SOCKS5 UDP ASSOCIATE"
+            );
 
             // Bind a local UDP port for the SOCKS5 client to send UDP datagrams to.
             // Use the same IP family as the incoming TCP connection so the address
@@ -297,12 +313,12 @@ async fn handle_socks5(
                                             );
                                         }
                                         Err(e) => {
-                                            tracing::debug!("UDP ASSOCIATE session open error: {:?}", e);
+                                            tracing::info!(error = %e, "UDP ASSOCIATE session open error");
                                         }
                                     }
                                 }
                                 Err(e) => {
-                                    tracing::debug!("UDP read error: {:?}", e);
+                                    tracing::info!(error = %e, "UDP read error");
                                     break;
                                 }
                             }
@@ -315,7 +331,7 @@ async fn handle_socks5(
                         }
                         _ = ctrl_cancel_clone.cancelled() => {
                             // TCP control connection dropped — clean up all sessions
-                            tracing::debug!("UDP ASSOCIATE control connection closed, cleaning up sessions");
+                            tracing::info!("UDP ASSOCIATE control connection closed, cleaning up sessions");
                             let mut guard = sessions.lock().await;
                             guard.clear();
                             break;
@@ -585,7 +601,11 @@ async fn handle_http_proxy(mut stream: TcpStream, client: JuicityClient) -> anyh
                 Err(_) => (target.to_string(), 443u16),
             };
 
-            tracing::debug!("HTTP CONNECT: {}:{}", host, port);
+            tracing::info!(
+                target_addr = %host,
+                target_port = %port,
+                "HTTP CONNECT"
+            );
 
             loop {
                 let mut line = String::new();
@@ -608,12 +628,12 @@ async fn handle_http_proxy(mut stream: TcpStream, client: JuicityClient) -> anyh
             tokio::select! {
                 r = tokio::io::copy_buf(&mut stream, &mut quic_send) => {
                     if let Err(e) = r {
-                        tracing::debug!("HTTP CONNECT local->quic: {:?}", e);
+                        tracing::info!(error = %e, direction = "local->quic", protocol = "http", "HTTP CONNECT copy error");
                     }
                 }
                 r = tokio::io::copy_buf(&mut quic_recv, &mut writer) => {
                     if let Err(e) = r {
-                        tracing::debug!("HTTP CONNECT quic->local: {:?}", e);
+                        tracing::info!(error = %e, direction = "quic->local", protocol = "http", "HTTP CONNECT copy error");
                     }
                 }
             }

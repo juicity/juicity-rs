@@ -175,14 +175,20 @@ async fn start_tcp_forward(entry: ForwardEntry, client: JuicityClient) -> anyhow
 
         tokio::spawn(async move {
             let _permit = permit; // held for the lifetime of the connection
-            tracing::debug!(
-                "TCP forward: accepted from {}, forwarding to {}",
-                peer_addr,
-                target
+            tracing::info!(
+                client_addr = %peer_addr,
+                target = %target,
+                protocol = "tcp",
+                "TCP forward accepted"
             );
 
             if let Err(e) = forward_tcp_connection(stream, &target, &client).await {
-                tracing::debug!("TCP forward connection error: {:?}", e);
+                tracing::info!(
+                    error = %e,
+                    direction = "connection",
+                    protocol = "tcp",
+                    "TCP forward connection error"
+                );
             }
         });
     }
@@ -211,12 +217,22 @@ async fn forward_tcp_connection(
     tokio::select! {
         r = tokio::io::copy_buf(&mut local_rx, &mut quic_send) => {
             if let Err(e) = r {
-                tracing::debug!("TCP forward local->quic: {:?}", e);
+                tracing::info!(
+                    error = %e,
+                    direction = "local->quic",
+                    protocol = "tcp",
+                    "TCP forward local->quic error"
+                );
             }
         }
         r = tokio::io::copy_buf(&mut quic_recv, &mut local_tx) => {
             if let Err(e) = r {
-                tracing::debug!("TCP forward quic->local: {:?}", e);
+                tracing::info!(
+                    error = %e,
+                    direction = "quic->local",
+                    protocol = "tcp",
+                    "TCP forward quic->local error"
+                );
             }
         }
     }
@@ -311,7 +327,11 @@ async fn start_udp_forward(entry: ForwardEntry, client: JuicityClient) -> anyhow
             )
             .await
             {
-                tracing::debug!("UDP forward datagram error: {:?}", e);
+                tracing::info!(
+                    error = %e,
+                    protocol = "udp",
+                    "UDP forward datagram error"
+                );
             }
             drop(permit);
         });
