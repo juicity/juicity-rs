@@ -168,17 +168,15 @@ async fn handle_socks5(
             let mut local_rx = tokio::io::BufReader::with_capacity(16 * 1024, local_rx);
             let mut quic_recv = tokio::io::BufReader::with_capacity(16 * 1024, quic_recv);
 
-            tokio::select! {
-                r = tokio::io::copy_buf(&mut local_rx, &mut quic_send) => {
-                    if let Err(e) = r {
-                        tracing::info!(error = %e, direction = "local->quic", protocol = "socks5", "SOCKS5 copy error");
-                    }
-                }
-                r = tokio::io::copy_buf(&mut quic_recv, &mut local_tx) => {
-                    if let Err(e) = r {
-                        tracing::info!(error = %e, direction = "quic->local", protocol = "socks5", "SOCKS5 copy error");
-                    }
-                }
+            let (r1, r2) = tokio::join!(
+                tokio::io::copy_buf(&mut local_rx, &mut quic_send),
+                tokio::io::copy_buf(&mut quic_recv, &mut local_tx),
+            );
+            if let Err(e) = r1 {
+                tracing::info!(error = %e, direction = "local->quic", protocol = "socks5", "SOCKS5 copy error");
+            }
+            if let Err(e) = r2 {
+                tracing::info!(error = %e, direction = "quic->local", protocol = "socks5", "SOCKS5 copy error");
             }
             // Gracefully finish the send direction so quinn can clean up the stream
             // state immediately instead of holding it until a timeout or stream reset.
@@ -625,17 +623,15 @@ async fn handle_http_proxy(mut stream: TcpStream, client: JuicityClient) -> anyh
 
             let mut quic_recv = tokio::io::BufReader::with_capacity(16 * 1024, quic_recv);
 
-            tokio::select! {
-                r = tokio::io::copy_buf(&mut stream, &mut quic_send) => {
-                    if let Err(e) = r {
-                        tracing::info!(error = %e, direction = "local->quic", protocol = "http", "HTTP CONNECT copy error");
-                    }
-                }
-                r = tokio::io::copy_buf(&mut quic_recv, &mut writer) => {
-                    if let Err(e) = r {
-                        tracing::info!(error = %e, direction = "quic->local", protocol = "http", "HTTP CONNECT copy error");
-                    }
-                }
+            let (r1, r2) = tokio::join!(
+                tokio::io::copy_buf(&mut stream, &mut quic_send),
+                tokio::io::copy_buf(&mut quic_recv, &mut writer),
+            );
+            if let Err(e) = r1 {
+                tracing::info!(error = %e, direction = "local->quic", protocol = "http", "HTTP CONNECT copy error");
+            }
+            if let Err(e) = r2 {
+                tracing::info!(error = %e, direction = "quic->local", protocol = "http", "HTTP CONNECT copy error");
             }
             // Gracefully finish the send direction so quinn can clean up the stream
             // state immediately instead of holding it until a timeout or stream reset.

@@ -68,4 +68,4 @@ pub const MAX_UNDERLAY_HANDLER_CONCURRENCY: usize = 1_024;
 /// QUIC idle timeout — defense-in-depth against connections that authenticate but
 /// never open streams.  Set higher than the stream-accept timeout so the QUIC
 /// transport layer acts as a second line of defence.
-pub const MAX_QUIC_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
+pub const MAX_QUIC_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);

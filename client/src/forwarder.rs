@@ -214,27 +214,25 @@ async fn forward_tcp_connection(
     let mut local_rx = tokio::io::BufReader::with_capacity(16 * 1024, local_rx);
     let mut quic_recv = tokio::io::BufReader::with_capacity(16 * 1024, quic_recv);
 
-    tokio::select! {
-        r = tokio::io::copy_buf(&mut local_rx, &mut quic_send) => {
-            if let Err(e) = r {
-                tracing::info!(
-                    error = %e,
-                    direction = "local->quic",
-                    protocol = "tcp",
-                    "TCP forward local->quic error"
-                );
-            }
-        }
-        r = tokio::io::copy_buf(&mut quic_recv, &mut local_tx) => {
-            if let Err(e) = r {
-                tracing::info!(
-                    error = %e,
-                    direction = "quic->local",
-                    protocol = "tcp",
-                    "TCP forward quic->local error"
-                );
-            }
-        }
+    let (r1, r2) = tokio::join!(
+        tokio::io::copy_buf(&mut local_rx, &mut quic_send),
+        tokio::io::copy_buf(&mut quic_recv, &mut local_tx),
+    );
+    if let Err(e) = r1 {
+        tracing::info!(
+            error = %e,
+            direction = "local->quic",
+            protocol = "tcp",
+            "TCP forward local->quic error"
+        );
+    }
+    if let Err(e) = r2 {
+        tracing::info!(
+            error = %e,
+            direction = "quic->local",
+            protocol = "tcp",
+            "TCP forward quic->local error"
+        );
     }
 
     // Gracefully finish the send direction so quinn can clean up the stream

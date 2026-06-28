@@ -919,19 +919,12 @@ async fn handle_connection(
     // aborts any still-running streams, releasing their Arc<Dialer> and network
     // resources promptly instead of waiting for remote-side idle timeouts.
     let mut stream_tasks: tokio::task::JoinSet<()> = tokio::task::JoinSet::new();
-    // ── Stream acceptance with idle guard ──
-    // If a client authenticates but never opens a bidirectional stream, accept_bi()
-    // would block forever, leaking the auth task and Arc references.  We wrap it in
-    // a 30-second timeout so that even if the peer keeps the QUIC connection alive
-    // (e.g. via keep-alive PINGs) without opening streams, we eventually tear down
-    // the connection and release its resources.
-    const STREAM_ACCEPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
     loop {
         // Drain completed tasks each iteration to free their resources without blocking.
         while stream_tasks.try_join_next().is_some() {}
 
-        match tokio::time::timeout(STREAM_ACCEPT_TIMEOUT, connection.accept_bi()).await {
-            Ok(Ok((send_stream, recv_stream))) => {
+        match connection.accept_bi().await {
+            Ok((send_stream, recv_stream)) => {
                 let s_dialer = dialer.clone();
                 let s_user_uuid = user_uuid;
                 let s_disable_443 = disable_udp_443;
@@ -952,7 +945,8 @@ async fn handle_connection(
                     }
                 });
             }
-            Ok(Err(quinn::ConnectionError::ApplicationClosed { .. })) => {
+            Err(quinn::ConnectionError::ApplicationClosed { .. }) => {
+                // QUIC connection closed normally by peer
                 tracing::info!(
                     remote_addr = %remote_addr,
                     event = "connection_closed",
@@ -960,15 +954,8 @@ async fn handle_connection(
                 );
                 break;
             }
-            Ok(Err(e)) => {
+            Err(e) => {
                 tracing::debug!("Accept stream error: {:?}", e);
-                break;
-            }
-            Err(_) => {
-                // No stream opened within the timeout window — close the connection
-                // to release auth task, Arc references, and QUIC connection memory.
-                tracing::info!(event = "stream_timeout", "Stream accept timeout");
-                connection.close(VarInt::from_u32(0xfffffff3), b"stream accept timeout");
                 break;
             }
         }
@@ -1083,14 +1070,12 @@ async fn handle_tcp_relay(
     let mut remote_rx = tokio::io::BufReader::with_capacity(16 * 1024, remote_rx);
     let mut quic_rx = tokio::io::BufReader::with_capacity(16 * 1024, quic_rx);
 
-    tokio::select! {
-        r = tokio::io::copy_buf(&mut remote_rx, &mut quic_tx) => {
-            if let Err(e) = r { tracing::debug!("TCP relay remote->quic: {:?}", e); }
-        }
-        r = tokio::io::copy_buf(&mut quic_rx, &mut remote_tx) => {
-            if let Err(e) = r { tracing::debug!("TCP relay quic->remote: {:?}", e); }
-        }
-    }
+    let (r1, r2) = tokio::join!(
+        tokio::io::copy_buf(&mut remote_rx, &mut quic_tx),
+        tokio::io::copy_buf(&mut quic_rx, &mut remote_tx),
+    );
+    if let Err(e) = r1 { tracing::debug!("TCP relay remote->quic: {:?}", e); }
+    if let Err(e) = r2 { tracing::debug!("TCP relay quic->remote: {:?}", e); }
 
     // Gracefully finish the send direction so quinn can clean up the stream
     // state immediately instead of holding it until a timeout or stream reset.
