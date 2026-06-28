@@ -652,6 +652,7 @@ jobs:
       - windows-gnullvm
       - macos
       - freebsd
+      - gui
     runs-on: ubuntu-latest
     permissions:
       contents: write
