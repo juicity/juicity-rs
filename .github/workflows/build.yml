@@ -117,9 +117,10 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: master
+        shell: bash
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y zig zig-dev
 
       - name: Install cargo-zigbuild
         uses: taiki-e/install-action@v2
