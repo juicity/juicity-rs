@@ -321,13 +321,27 @@ impl UdpEndpointPool {
                 .collect()
         }; // lock is released here
 
-        // Phase 2: remove each expired key with separate, short lock acquisitions.
-        // This avoids holding the lock for the entire sweep and gives
-        // concurrent get_socket / get_or_create calls a chance to proceed
-        // between individual removals.
+        // Phase 2: re-check expiry then remove with separate, short lock acquisitions.
+        // A re-check is necessary because between Phase 1 and Phase 2 a concurrent
+        // get_socket / get_or_create / remove call may have touched, replaced, or
+        // deleted the endpoint for this address.  Removing blindly here could:
+        //   (a) delete a freshly-created endpoint (TOCTOU race), or
+        //   (b) cause a double-remove if another task already removed it.
+        // Both are harmless with the re-check: we only pop if the entry still
+        // exists AND is still expired at this moment.
+        //
+        // We use peek() instead of get() to avoid bumping the LRU order of an
+        // entry we are about to remove.
+        //
+        // This approach preserves the original design goal of releasing the lock
+        // between individual removals, so concurrent access to unrelated addresses
+        // is not blocked during a full sweep.
         for addr in expired {
             if let Ok(mut inner) = self.inner.lock() {
-                inner.pop(&addr);
+                let still_expired = inner.peek(&addr).map_or(false, |e| e.is_expired());
+                if still_expired {
+                    inner.pop(&addr);
+                }
             }
         }
     }
