@@ -1,21 +1,24 @@
 use crate::config::{
-    method_to_index, ProfileStore, ProxyProfile, ProxyProtocol, RuntimeState,
-    StartupConnectionState, Storage, SS_METHODS,
+    method_to_index, ProxyProfile, ProxyProtocol, RuntimeState, StartupConnectionState, SS_METHODS,
 };
-use crate::core::CoreManager;
 use crate::link;
 use crate::pac;
+use crate::state::{extract_port, non_empty_text, restart_pac_server, GuiState};
 use crate::system_proxy;
-use crate::tray::{self, TrayEvent, TraySharedState};
-use crate::widgets::{self, TextField};
+use crate::tray::{TrayEvent, TraySharedState};
+use crate::widgets;
 use gpui::prelude::*;
 use gpui::{
-    actions, div, px, rgb, size, App, Bounds, ClickEvent, Context, Entity, FontWeight, Global,
-    KeyBinding, MouseButton, SharedString, Timer, Window, WindowBounds, WindowHandle,
+    actions, div, px, rgb, size, App, Bounds, ClickEvent, Context, ElementId, Entity, FontWeight,
+    Global, KeyBinding, SharedString, Timer, WeakEntity, Window, WindowBounds, WindowHandle,
     WindowOptions,
 };
+use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::checkbox::Checkbox;
+use gpui_component::input::{Input, InputState};
+use gpui_component::select::{Select, SelectEvent, SelectState};
+use gpui_component::IndexPath;
 use rust_i18n::t;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -25,7 +28,7 @@ actions!(app, [Quit]);
 #[derive(Default)]
 struct AppRoot {
     view: Option<Entity<AppView>>,
-    main_window: Option<WindowHandle<AppView>>,
+    main_window: Option<WindowHandle<gpui_component::Root>>,
     /// Set right before the main window is closed via OK/Cancel so the
     /// `on_window_closed` handler keeps the app alive in the tray.
     suppress_quit: bool,
@@ -61,10 +64,37 @@ fn open_main_window(cx: &mut App) {
                 app_id: Some("io.juicity.gui".to_string()),
                 ..Default::default()
             },
-            |window, _cx| {
+            |window, cx| {
                 window.set_window_title(&t!("window.title"));
                 window.set_app_id("io.juicity.gui");
-                view
+
+                // Detect main-window close *before* gpui removes it from the
+                // window map, so that `on_window_closed` can distinguish the
+                // main window from dialog windows.
+                window.on_window_should_close(cx, |_window, cx| {
+                    // Read close_to_tray before mutating the global.
+                    let view_entity = cx
+                        .default_global::<AppRoot>()
+                        .view
+                        .clone();
+                    let close_to_tray = view_entity
+                        .as_ref()
+                        .map(|v| v.read(cx).gui.runtime.close_to_tray)
+                        .unwrap_or(false);
+                    {
+                        let g = cx.default_global::<AppRoot>();
+                        g.main_window_closed = true;
+                        g.main_window = None;
+                        let suppress = g.suppress_quit;
+                        g.suppress_quit = false;
+                        if !suppress && !close_to_tray {
+                            cx.quit();
+                        }
+                    }
+                    true
+                });
+
+                cx.new(|cx| gpui_component::Root::new(view, window, cx))
             },
         )
         .ok();
@@ -75,126 +105,54 @@ fn open_main_window(cx: &mut App) {
     }
 }
 
-struct GuiState {
-    storage: Storage,
-    config: crate::config::AppConfig,
-    profiles: ProfileStore,
-    runtime: RuntimeState,
-    core_manager: CoreManager,
-    pac_server: Option<pac::PacServer>,
-    pac_update_rx: Option<std::sync::mpsc::Receiver<anyhow::Result<()>>>,
-    _tray_service: Option<tray::TrayService>,
-}
-
-impl GuiState {
-    fn new() -> anyhow::Result<Self> {
-        let storage = Storage::new()?;
-        let config = storage.load_app_config()?;
-        let mut profiles = storage.load_profiles()?;
-        let mut runtime = storage.load_runtime_state()?;
-
-        if profiles.profiles.is_empty() {
-            profiles.profiles.push(ProxyProfile::default());
-            runtime.selected_profile = 0;
-        }
-
-        Ok(Self {
-            storage,
-            config,
-            profiles,
-            runtime,
-            core_manager: CoreManager::new(),
-            pac_server: None,
-            pac_update_rx: None,
-            _tray_service: None,
-        })
-    }
-
-    fn flush(&self) -> anyhow::Result<()> {
-        self.storage.save_app_config(&self.config)?;
-        self.storage.save_profiles(&self.profiles)?;
-        self.storage.save_runtime_state(&self.runtime)?;
-        Ok(())
-    }
-
-    fn selected_profile(&self) -> Option<&ProxyProfile> {
-        self.profiles.profiles.get(self.runtime.selected_profile)
-    }
-
-    fn selected_profile_mut(&mut self) -> Option<&mut ProxyProfile> {
-        self.profiles
-            .profiles
-            .get_mut(self.runtime.selected_profile)
-    }
-
-    fn normalize_selected_index(&mut self) {
-        if self.profiles.profiles.is_empty() {
-            self.profiles.profiles.push(ProxyProfile::default());
-        }
-        if self.runtime.selected_profile >= self.profiles.profiles.len() {
-            self.runtime.selected_profile = self.profiles.profiles.len().saturating_sub(1);
-        }
-    }
-}
-
-/// Restart or update the PAC server with fresh rules from disk.
-///
-/// If `force_restart` is `true` (e.g. the listen address changed), a new
-/// server is started even if one already exists.  Otherwise the existing
-/// server is updated in-place, or a new one is started if none exists.
-fn restart_pac_server(state: &mut GuiState, force_restart: bool) -> anyhow::Result<()> {
-    let (direct, proxy) = pac::load_rules(&state.storage.paths().config_dir);
-    let content = pac::generate_pac(
-        state.config.pac_rule_mode,
-        &state.config.socks_listen,
-        &direct,
-        &proxy,
-    );
-    if force_restart || state.pac_server.is_none() {
-        state.pac_server = Some(pac::start(&state.config.pac_listen, content)?);
-    } else if let Some(srv) = &state.pac_server {
-        srv.update(content);
-    }
-    Ok(())
-}
-
-/// Which dropdown is currently open (used to render its popup).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DropdownId {
-    Protocol,
-    Method,
-}
-
 pub struct AppView {
     gui: GuiState,
     tray_tx: std::sync::mpsc::Sender<TrayEvent>,
     tray_rx: std::sync::mpsc::Receiver<TrayEvent>,
     tray_shared: Arc<Mutex<TraySharedState>>,
 
-    // ── Editor text fields ────────────────────────────────────────────────
-    server: Entity<TextField>,
-    port: Entity<TextField>,
-    password: Entity<TextField>,
-    uuid: Entity<TextField>,
-    sni: Entity<TextField>,
-    plugin: Entity<TextField>,
-    plugin_opts: Entity<TextField>,
-    plugin_args: Entity<TextField>,
-    remarks: Entity<TextField>,
-    timeout: Entity<TextField>,
-    group: Entity<TextField>,
-    proxy_port: Entity<TextField>,
+    // ── Editor text fields (gpui-component InputState; built lazily on first render) ──
+    server: Option<Entity<InputState>>,
+    port: Option<Entity<InputState>>,
+    password: Option<Entity<InputState>>,
+    uuid: Option<Entity<InputState>>,
+    sni: Option<Entity<InputState>>,
+    plugin: Option<Entity<InputState>>,
+    plugin_opts: Option<Entity<InputState>>,
+    plugin_args: Option<Entity<InputState>>,
+    remarks: Option<Entity<InputState>>,
+    timeout: Option<Entity<InputState>>,
+    group: Option<Entity<InputState>>,
+    proxy_port: Option<Entity<InputState>>,
 
-    // ── Editor widget state ───────────────────────────────────────────────
+    // ── Editor select fields ──
+    protocol_select: Option<Entity<SelectState<Vec<SharedString>>>>,
+    method_select: Option<Entity<SelectState<Vec<SharedString>>>>,
+    protocol_options: Vec<SharedString>,
+    method_options: Vec<SharedString>,
+
+    // ── Editor widget state ──
     protocol: usize,
     method: usize,
     show_password: bool,
     allow_insecure: bool,
     need_plugin_arg: bool,
     close_to_tray: bool,
-    open_dropdown: Option<DropdownId>,
+    inputs_inited: bool,
+    pending_reload: bool,
+    /// Set when the protocol dropdown changes; the render method will
+    /// call `load_fields` (which requires a `&mut Window`).
+    protocol_changed: bool,
 
     status: String,
+
+    // ── Config hot-reload ───────────────────────────────────────────────
+    #[allow(dead_code)]
+    config_watcher: Option<notify::RecommendedWatcher>,
+    config_reload_rx: Option<std::sync::mpsc::Receiver<()>>,
+    /// Timestamp of the last `flush()` call – used to ignore self-inflicted
+    /// watcher events that would otherwise cause an infinite reload loop.
+    last_flush_at: std::time::Instant,
 }
 
 impl AppView {
@@ -224,20 +182,6 @@ impl AppView {
             }
         }
 
-        let new_field = |cx: &mut Context<TextField>| TextField::new(cx);
-        let server = cx.new(new_field);
-        let port = cx.new(new_field);
-        let password = cx.new(new_field);
-        let uuid = cx.new(new_field);
-        let sni = cx.new(new_field);
-        let plugin = cx.new(new_field);
-        let plugin_opts = cx.new(new_field);
-        let plugin_args = cx.new(new_field);
-        let remarks = cx.new(new_field);
-        let timeout = cx.new(new_field);
-        let group = cx.new(new_field);
-        let proxy_port = cx.new(new_field);
-
         // ── Shared tray state + service ─────────────────────────────────────
         let (tray_tx, tray_rx) = std::sync::mpsc::channel::<TrayEvent>();
         let tray_shared = Arc::new(Mutex::new(TraySharedState::default()));
@@ -253,35 +197,53 @@ impl AppView {
                 .collect();
             ts.active_server_idx = gui.runtime.selected_profile;
         }
-        gui._tray_service = Some(tray::start(tray_tx.clone(), Arc::clone(&tray_shared)));
+        gui._tray_service = Some(crate::tray::start(tray_tx.clone(), Arc::clone(&tray_shared)));
+
+        let protocol_options: Vec<SharedString> = vec![
+            t!("protocol.juicity").to_string().into(),
+            t!("protocol.shadowsocks").to_string().into(),
+        ];
+        let method_options: Vec<SharedString> =
+            SS_METHODS.iter().map(|s| SharedString::from(*s)).collect();
 
         let mut view = Self {
             gui,
             tray_tx,
             tray_rx,
             tray_shared,
-            server,
-            port,
-            password,
-            uuid,
-            sni,
-            plugin,
-            plugin_opts,
-            plugin_args,
-            remarks,
-            timeout,
-            group,
-            proxy_port,
+            server: None,
+            port: None,
+            password: None,
+            uuid: None,
+            sni: None,
+            plugin: None,
+            plugin_opts: None,
+            plugin_args: None,
+            remarks: None,
+            timeout: None,
+            group: None,
+            proxy_port: None,
+            protocol_select: None,
+            method_select: None,
+            protocol_options,
+            method_options,
             protocol: 0,
             method: 0,
             show_password: false,
             allow_insecure: false,
             need_plugin_arg: false,
             close_to_tray: false,
-            open_dropdown: None,
+            inputs_inited: false,
+            pending_reload: false,
+            protocol_changed: false,
             status: t!("status.stopped").to_string(),
+            config_watcher: None,
+            config_reload_rx: None,
+            last_flush_at: std::time::Instant::now(),
         };
-        view.load_fields(cx);
+
+        // ── Config hot-reload watcher ──
+        view.spawn_config_watcher(view.gui.storage.paths().config_dir.clone());
 
         // ── Periodic poll loop: tray events + PAC + core status ────────────
         cx.spawn(async move |this, cx| {
@@ -304,60 +266,253 @@ impl AppView {
     fn set_status(&mut self, text: &str, cx: &mut Context<Self>) {
         if self.status != text {
             self.status = text.to_string();
-            cx.notify();
+            // After the main window is closed to the tray, skip notifying gpui
+            // to avoid "window not found" errors from the 300ms poll loop.
+            if !cx.default_global::<AppRoot>().main_window_closed {
+                cx.notify();
+            }
         }
+    }
+
+    // ── Lazy input construction (needs a Window, so built on first render) ──
+
+    fn init_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mk = |window: &mut Window, cx: &mut Context<Self>, value: &str| -> Entity<InputState> {
+            let state = cx.new(|cx| InputState::new(window, cx));
+            state.update(cx, |s, scx| {
+                s.set_value(value.to_string(), window, scx);
+            });
+            state
+        };
+
+        let server = mk(window, cx, "");
+        let port = mk(window, cx, "");
+        let password = mk(window, cx, "");
+        let uuid = mk(window, cx, "");
+        let sni = mk(window, cx, "");
+        let plugin = mk(window, cx, "");
+        let plugin_opts = mk(window, cx, "");
+        let plugin_args = mk(window, cx, "");
+        let remarks = mk(window, cx, "");
+        let timeout = mk(window, cx, "");
+        let group = mk(window, cx, "");
+        let proxy_port = mk(window, cx, "");
+
+        // Password starts masked.
+        password.update(cx, |s, scx| s.set_masked(true, window, scx));
+
+        let protocol_select = cx.new(|cx| {
+            SelectState::new(
+                self.protocol_options.clone(),
+                Some(IndexPath::new(self.protocol)),
+                window,
+                cx,
+            )
+        });
+        let method_select = cx.new(|cx| {
+            SelectState::new(
+                self.method_options.clone(),
+                Some(IndexPath::new(self.method)),
+                window,
+                cx,
+            )
+        });
+
+        let owner = cx.weak_entity();
+        let _ = cx.subscribe(&protocol_select, {
+            let owner = owner.clone();
+            move |_view, _state, event, cx| {
+                if let SelectEvent::Confirm(Some(value)) = event {
+                    let _ = owner.update(cx, |view, vcx| {
+                        // Save current field values to the profile first.
+                        view.save_fields(vcx);
+                        let _ = view.gui.flush();
+                        view.protocol = view
+                            .protocol_options
+                            .iter()
+                            .position(|o| o == value)
+                            .unwrap_or(0);
+                        view.protocol_changed = true;
+                        vcx.notify();
+                    });
+                }
+            }
+        });
+        let _ = cx.subscribe(&method_select, {
+            let owner = owner.clone();
+            move |_view, _state, event, cx| {
+                if let SelectEvent::Confirm(Some(value)) = event {
+                    let _ = owner.update(cx, |view, vcx| {
+                        view.method = view
+                            .method_options
+                            .iter()
+                            .position(|o| o == value)
+                            .unwrap_or(0);
+                        // Persist the method change immediately.
+                        view.save_fields(vcx);
+                        let _ = view.gui.flush();
+                        vcx.notify();
+                    });
+                }
+            }
+        });
+
+        self.server = Some(server);
+        self.port = Some(port);
+        self.password = Some(password);
+        self.uuid = Some(uuid);
+        self.sni = Some(sni);
+        self.plugin = Some(plugin);
+        self.plugin_opts = Some(plugin_opts);
+        self.plugin_args = Some(plugin_args);
+        self.remarks = Some(remarks);
+        self.timeout = Some(timeout);
+        self.group = Some(group);
+        self.proxy_port = Some(proxy_port);
+        self.protocol_select = Some(protocol_select);
+        self.method_select = Some(method_select);
+
+        self.load_fields(window, cx);
     }
 
     // ── Field load / save ─────────────────────────────────────────────────
 
-    fn load_fields(&mut self, cx: &mut Context<Self>) {
+    fn load_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let profile = self.gui.selected_profile().cloned();
         if let Some(p) = profile {
             self.protocol = p.protocol.index() as usize;
-            self.server.update(cx, |f, cx| f.set_text(p.server, cx));
-            self.port
-                .update(cx, |f, cx| f.set_text(p.server_port.to_string(), cx));
-            self.password.update(cx, |f, cx| f.set_text(p.password, cx));
-            self.uuid.update(cx, |f, cx| f.set_text(p.uuid, cx));
-            self.sni
-                .update(cx, |f, cx| f.set_text(p.sni.unwrap_or_default(), cx));
+            if let Some(f) = &self.server {
+                f.update(cx, |s, scx| s.set_value(p.server, window, scx));
+            }
+            if let Some(f) = &self.port {
+                f.update(cx, |s, scx| s.set_value(p.server_port.to_string(), window, scx));
+            }
+            if let Some(f) = &self.password {
+                f.update(cx, |s, scx| s.set_value(p.password, window, scx));
+            }
+            if let Some(f) = &self.uuid {
+                f.update(cx, |s, scx| s.set_value(p.uuid, window, scx));
+            }
+            if let Some(f) = &self.sni {
+                f.update(cx, |s, scx| s.set_value(p.sni.unwrap_or_default(), window, scx));
+            }
             self.allow_insecure = p.allow_insecure;
             self.method = method_to_index(&p.method) as usize;
-            self.plugin
-                .update(cx, |f, cx| f.set_text(p.plugin.unwrap_or_default(), cx));
-            self.plugin_opts.update(cx, |f, cx| {
-                f.set_text(p.plugin_opts.unwrap_or_default(), cx)
-            });
+            if let Some(f) = &self.plugin {
+                f.update(cx, |s, scx| s.set_value(p.plugin.unwrap_or_default(), window, scx));
+            }
+            if let Some(f) = &self.plugin_opts {
+                f.update(cx, |s, scx| {
+                    s.set_value(p.plugin_opts.unwrap_or_default(), window, scx)
+                });
+            }
             self.need_plugin_arg = p.plugin_args.is_some();
-            self.plugin_args.update(cx, |f, cx| {
-                f.set_text(p.plugin_args.unwrap_or_default(), cx)
-            });
-            self.remarks.update(cx, |f, cx| f.set_text(p.name, cx));
-            self.timeout
-                .update(cx, |f, cx| f.set_text(p.timeout.to_string(), cx));
-            self.group
-                .update(cx, |f, cx| f.set_text(p.group.unwrap_or_default(), cx));
+            if let Some(f) = &self.plugin_args {
+                f.update(cx, |s, scx| {
+                    s.set_value(p.plugin_args.unwrap_or_default(), window, scx)
+                });
+            }
+            if let Some(f) = &self.remarks {
+                f.update(cx, |s, scx| s.set_value(p.name, window, scx));
+            }
+            if let Some(f) = &self.timeout {
+                f.update(cx, |s, scx| s.set_value(p.timeout.to_string(), window, scx));
+            }
+            if let Some(f) = &self.group {
+                f.update(cx, |s, scx| s.set_value(p.group.unwrap_or_default(), window, scx));
+            }
         }
         let port = extract_port(&self.gui.config.socks_listen);
-        self.proxy_port
-            .update(cx, |f, cx| f.set_text(port.to_string(), cx));
+        if let Some(f) = &self.proxy_port {
+            f.update(cx, |s, scx| s.set_value(port.to_string(), window, scx));
+        }
         self.close_to_tray = self.gui.runtime.close_to_tray;
+
+        if let Some(sel) = &self.protocol_select {
+            sel.update(cx, |st, scx| {
+                st.set_selected_index(Some(IndexPath::new(self.protocol)), window, scx)
+            });
+        }
+        if let Some(sel) = &self.method_select {
+            sel.update(cx, |st, scx| {
+                st.set_selected_index(Some(IndexPath::new(self.method)), window, scx)
+            });
+        }
         cx.notify();
     }
 
     fn save_fields(&mut self, cx: &mut Context<Self>) {
-        let server = self.server.read(cx).text();
-        let port = self.port.read(cx).text();
-        let password = self.password.read(cx).text();
-        let uuid = self.uuid.read(cx).text();
-        let sni = self.sni.read(cx).text();
-        let plugin = self.plugin.read(cx).text();
-        let plugin_opts = self.plugin_opts.read(cx).text();
-        let plugin_args = self.plugin_args.read(cx).text();
-        let remarks = self.remarks.read(cx).text();
-        let timeout = self.timeout.read(cx).text();
-        let group = self.group.read(cx).text();
-        let proxy_port = self.proxy_port.read(cx).text();
+        let server = self
+            .server
+            .as_ref()
+            .map(|s| s.read(cx).value().to_string())
+            .unwrap_or_default();
+        let port = self
+            .port
+            .as_ref()
+            .map(|s| s.read(cx).value().to_string())
+            .unwrap_or_default();
+        let password = self
+            .password
+            .as_ref()
+            .map(|s| s.read(cx).value().to_string())
+            .unwrap_or_default();
+        let uuid = self
+            .uuid
+            .as_ref()
+            .map(|s| s.read(cx).value().to_string())
+            .unwrap_or_default();
+        let sni = self
+            .sni
+            .as_ref()
+            .map(|s| s.read(cx).value().to_string())
+            .unwrap_or_default();
+        let plugin = self
+            .plugin
+            .as_ref()
+            .map(|s| s.read(cx).value().to_string())
+            .unwrap_or_default();
+        let plugin_opts = self
+            .plugin_opts
+            .as_ref()
+            .map(|s| s.read(cx).value().to_string())
+            .unwrap_or_default();
+        let plugin_args = self
+            .plugin_args
+            .as_ref()
+            .map(|s| s.read(cx).value().to_string())
+            .unwrap_or_default();
+        let remarks = self
+            .remarks
+            .as_ref()
+            .map(|s| s.read(cx).value().to_string())
+            .unwrap_or_default();
+        let timeout = self
+            .timeout
+            .as_ref()
+            .map(|s| s.read(cx).value().to_string())
+            .unwrap_or_default();
+        let group = self
+            .group
+            .as_ref()
+            .map(|s| s.read(cx).value().to_string())
+            .unwrap_or_default();
+        let proxy_port = self
+            .proxy_port
+            .as_ref()
+            .map(|s| s.read(cx).value().to_string())
+            .unwrap_or_default();
+
+        let protocol = self
+            .protocol_select
+            .as_ref()
+            .and_then(|sel| sel.read(cx).selected_index(cx).map(|ip| ip.row))
+            .unwrap_or(self.protocol);
+        let method = self
+            .method_select
+            .as_ref()
+            .and_then(|sel| sel.read(cx).selected_index(cx).map(|ip| ip.row))
+            .unwrap_or(self.method);
 
         let mut invalid: Vec<&str> = Vec::new();
         let server_port = match port.trim().parse::<u16>() {
@@ -391,7 +546,7 @@ impl AppView {
             let g = &mut self.gui;
             g.normalize_selected_index();
             if let Some(p) = g.selected_profile_mut() {
-                p.protocol = ProxyProtocol::from_index(self.protocol as u32);
+                p.protocol = ProxyProtocol::from_index(protocol as u32);
                 p.server = server.trim().to_string();
                 p.server_port = server_port;
                 p.password = password;
@@ -399,7 +554,7 @@ impl AppView {
                 p.sni = non_empty_text(&sni);
                 p.allow_insecure = self.allow_insecure;
                 p.method = SS_METHODS
-                    .get(self.method)
+                    .get(method)
                     .copied()
                     .unwrap_or("chacha20-ietf-poly1305")
                     .to_string();
@@ -425,55 +580,6 @@ impl AppView {
         }
     }
 
-    // ── Dropdown helpers ──────────────────────────────────────────────────
-
-    fn select_dropdown(&mut self, dd: DropdownId, idx: usize) {
-        match dd {
-            DropdownId::Protocol => self.protocol = idx,
-            DropdownId::Method => self.method = idx,
-        }
-        self.open_dropdown = None;
-    }
-
-    fn close_dropdown_if_open(&mut self, cx: &mut Context<Self>) {
-        if self.open_dropdown.is_some() {
-            self.open_dropdown = None;
-            cx.notify();
-        }
-    }
-
-    fn dropdown_element(
-        &mut self,
-        cx: &mut Context<Self>,
-        dd: DropdownId,
-        id: &'static str,
-        selected: usize,
-        options: Vec<SharedString>,
-    ) -> impl IntoElement {
-        let open = self.open_dropdown == Some(dd);
-        let this = cx.weak_entity();
-        let on_toggle: widgets::ClickHandler = Rc::new(move |_e, _w, cx| {
-            this.update(cx, |view, cx| {
-                view.open_dropdown = if view.open_dropdown == Some(dd) {
-                    None
-                } else {
-                    Some(dd)
-                };
-                cx.notify();
-            })
-            .ok();
-        });
-        let this = cx.weak_entity();
-        let on_select: widgets::IndexHandler = Rc::new(move |idx, _w, cx| {
-            this.update(cx, |view, cx| {
-                view.select_dropdown(dd, idx);
-                cx.notify();
-            })
-            .ok();
-        });
-        widgets::dropdown(id, selected, options, open, on_toggle, on_select)
-    }
-
     // ── Button handlers ───────────────────────────────────────────────────
 
     fn add_clicked(&mut self, cx: &mut Context<Self>) {
@@ -485,7 +591,7 @@ impl AppView {
         self.gui.profiles.profiles.push(p);
         self.gui.runtime.selected_profile = self.gui.profiles.profiles.len() - 1;
         self.sync_tray_servers();
-        self.load_fields(cx);
+        self.pending_reload = true;
         cx.notify();
     }
 
@@ -495,7 +601,7 @@ impl AppView {
             self.gui.profiles.profiles.remove(idx);
             self.gui.normalize_selected_index();
             self.sync_tray_servers();
-            self.load_fields(cx);
+            self.pending_reload = true;
             cx.notify();
         }
     }
@@ -506,7 +612,7 @@ impl AppView {
             self.gui.profiles.profiles.insert(idx + 1, p);
             self.gui.runtime.selected_profile = idx + 1;
             self.sync_tray_servers();
-            self.load_fields(cx);
+            self.pending_reload = true;
             cx.notify();
         }
     }
@@ -517,7 +623,7 @@ impl AppView {
             self.gui.profiles.profiles.swap(idx, idx - 1);
             self.gui.runtime.selected_profile = idx - 1;
             self.sync_tray_servers();
-            self.load_fields(cx);
+            self.pending_reload = true;
             cx.notify();
         }
     }
@@ -528,14 +634,22 @@ impl AppView {
             self.gui.profiles.profiles.swap(idx, idx + 1);
             self.gui.runtime.selected_profile = idx + 1;
             self.sync_tray_servers();
-            self.load_fields(cx);
+            self.pending_reload = true;
             cx.notify();
         }
     }
 
+    /// Persist config to disk and record the timestamp so the file-watcher
+    /// debounce can ignore these self-inflicted writes.
+    fn flush_and_record(&mut self) -> anyhow::Result<()> {
+        let result = self.gui.flush();
+        self.last_flush_at = std::time::Instant::now();
+        result
+    }
+
     fn start_selected(&mut self, cx: &mut Context<Self>) {
         self.save_fields(cx);
-        if let Err(err) = self.gui.flush() {
+        if let Err(err) = self.flush_and_record() {
             self.set_status(&t!("status.save_failed", err = err.to_string()), cx);
             return;
         }
@@ -558,7 +672,7 @@ impl AppView {
                     cx,
                 );
                 self.gui.runtime.was_running = true;
-                let _ = self.gui.flush();
+                let _ = self.flush_and_record();
                 if let Ok(mut ts) = self.tray_shared.lock() {
                     ts.is_running = true;
                     ts.active_server_name = profile.display_name();
@@ -573,7 +687,7 @@ impl AppView {
             Ok(()) => {
                 self.set_status(&t!("status.stopped"), cx);
                 self.gui.runtime.was_running = false;
-                let _ = self.gui.flush();
+                let _ = self.flush_and_record();
                 if let Ok(mut ts) = self.tray_shared.lock() {
                     ts.is_running = false;
                     ts.active_server_name = String::new();
@@ -591,7 +705,7 @@ impl AppView {
                     imported.apply_to(p);
                 }
                 self.sync_tray_servers();
-                self.load_fields(cx);
+                self.pending_reload = true;
                 self.set_status(&t!("status.imported"), cx);
             }
             Err(err) => self.set_status(&t!("status.import_failed", err = err.to_string()), cx),
@@ -617,7 +731,7 @@ impl AppView {
 
     fn ok_clicked(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.save_fields(cx);
-        match self.gui.flush() {
+        match self.flush_and_record() {
             Ok(()) => {
                 Self::suppress_quit(cx, true);
                 window.remove_window();
@@ -627,7 +741,7 @@ impl AppView {
     }
 
     fn cancel_clicked(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.load_fields(cx);
+        self.pending_reload = true;
         Self::suppress_quit(cx, true);
         window.remove_window();
     }
@@ -641,7 +755,7 @@ impl AppView {
     ) {
         let force_restart = self.gui.config.pac_listen != cfg.pac_listen;
         self.gui.config = cfg;
-        let _ = self.gui.flush();
+        let _ = self.flush_and_record();
         let _ = restart_pac_server(&mut self.gui, force_restart);
         if let Ok(mut ts) = self.tray_shared.lock() {
             ts.system_proxy_mode = self.gui.config.system_proxy_mode;
@@ -663,7 +777,7 @@ impl AppView {
     ) {
         self.gui.runtime = state;
         let _ = apply_autostart(&self.gui.runtime);
-        let _ = self.gui.flush();
+        let _ = self.flush_and_record();
         cx.notify();
     }
 
@@ -679,7 +793,7 @@ impl AppView {
 
     fn apply_clicked(&mut self, cx: &mut Context<Self>) {
         self.save_fields(cx);
-        match self.gui.flush() {
+        match self.flush_and_record() {
             Ok(()) => {
                 let _ = system_proxy::apply_system_proxy(&self.gui.config);
                 self.set_status(&t!("status.saved"), cx);
@@ -698,10 +812,11 @@ impl AppView {
         .detach();
     }
 
-    fn toggle_show_password(&mut self, cx: &mut Context<Self>) {
+    fn toggle_show_password(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.show_password = !self.show_password;
-        self.password
-            .update(cx, |f, _| f.set_masked(!self.show_password));
+        if let Some(p) = &self.password {
+            p.update(cx, |s, scx| s.set_masked(!self.show_password, window, scx));
+        }
         cx.notify();
     }
 
@@ -725,7 +840,7 @@ impl AppView {
             self.gui.runtime.selected_profile = idx;
         }
         self.sync_tray_servers();
-        self.load_fields(cx);
+        self.pending_reload = true;
         cx.notify();
     }
 
@@ -782,7 +897,7 @@ impl AppView {
                             cx,
                         );
                         self.gui.runtime.was_running = true;
-                        let _ = self.gui.flush();
+                        let _ = self.flush_and_record();
                         if let Ok(mut ts) = self.tray_shared.lock() {
                             ts.is_running = true;
                             ts.active_server_name = name;
@@ -823,7 +938,7 @@ impl AppView {
             }
             TrayEvent::SetSystemProxy(mode) => {
                 self.gui.config.system_proxy_mode = mode;
-                let _ = self.gui.flush();
+                let _ = self.flush_and_record();
                 let snap = self.gui.config.clone();
                 let _ = system_proxy::apply_system_proxy(&snap);
                 if let Ok(mut ts) = self.tray_shared.lock() {
@@ -833,7 +948,7 @@ impl AppView {
             }
             TrayEvent::SetPacRuleMode(mode) => {
                 self.gui.config.pac_rule_mode = mode;
-                let _ = self.gui.flush();
+                let _ = self.flush_and_record();
                 let _ = restart_pac_server(&mut self.gui, false);
                 if let Ok(mut ts) = self.tray_shared.lock() {
                     ts.pac_rule_mode = mode;
@@ -869,9 +984,72 @@ impl AppView {
         }
     }
 
+    // ── Config hot-reload ──────────────────────────────────────────────
+
+    fn spawn_config_watcher(&mut self, dir: std::path::PathBuf) {
+        use notify::Watcher;
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        match notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+            if res.is_ok() {
+                let _ = tx.send(());
+            }
+        }) {
+            Ok(mut watcher) => {
+                if watcher
+                    .watch(&dir, notify::RecursiveMode::Recursive)
+                    .is_ok()
+                {
+                    self.config_watcher = Some(watcher);
+                    self.config_reload_rx = Some(rx);
+                } else {
+                    tracing::warn!("failed to watch {:?} for config hot-reload", dir);
+                }
+            }
+            Err(e) => tracing::warn!("config hot-reload disabled: {e}"),
+        }
+    }
+
+    fn reload_config_from_disk(&mut self, cx: &mut Context<Self>) {
+        let storage = self.gui.storage.clone();
+        match (storage.load_profiles(), storage.load_runtime_state()) {
+            (Ok(profiles), Ok(runtime)) => {
+                self.gui.profiles = profiles;
+                self.gui.runtime = runtime;
+                self.close_to_tray = self.gui.runtime.close_to_tray;
+                self.gui.normalize_selected_index();
+                self.pending_reload = true;
+                cx.notify();
+                tracing::info!("config reloaded from disk");
+            }
+            (Err(e), _) | (_, Err(e)) => {
+                tracing::warn!("config reload from disk failed: {e}");
+            }
+        }
+    }
+
     // ── Periodic poll (runs every 300 ms from the spawned task) ───────────
 
     fn poll(&mut self, cx: &mut Context<Self>) {
+        // ── Config hot-reload (debounced: ignore self-inflicted writes) ──
+        if self.config_reload_rx.is_some() {
+            // Drain ALL pending events from the watcher channel.
+            let mut has_event = false;
+            while self
+                .config_reload_rx
+                .as_ref()
+                .map(|rx| rx.try_recv().is_ok())
+                .unwrap_or(false)
+            {
+                has_event = true;
+            }
+            // Only reload if the event is NOT caused by our own flush().
+            // The watcher may fire multiple times per flush (3 files written);
+            // we debounce by requiring >1 s since the last flush.
+            if has_event && self.last_flush_at.elapsed() > std::time::Duration::from_secs(1) {
+                self.reload_config_from_disk(cx);
+            }
+        }
+
         loop {
             match self.tray_rx.try_recv() {
                 Ok(ev) => self.handle_tray_event(ev, cx),
@@ -880,7 +1058,7 @@ impl AppView {
             }
         }
 
-        tray::poll(
+        crate::tray::poll(
             self.gui._tray_service.as_mut(),
             &self.tray_shared,
             &self.tray_tx,
@@ -941,16 +1119,22 @@ impl AppView {
 }
 
 impl Render for AppView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if !self.inputs_inited {
+            self.init_inputs(window, cx);
+            self.inputs_inited = true;
+        }
+        if self.pending_reload {
+            self.load_fields(window, cx);
+            self.pending_reload = false;
+        }
+        if self.protocol_changed {
+            self.load_fields(window, cx);
+            self.protocol_changed = false;
+        }
+
         let this = cx.weak_entity();
         let is_juicity = self.protocol == 0;
-
-        let protocols: Vec<SharedString> = vec![
-            t!("protocol.juicity").to_string().into(),
-            t!("protocol.shadowsocks").to_string().into(),
-        ];
-        let methods: Vec<SharedString> =
-            SS_METHODS.iter().map(|s| SharedString::from(*s)).collect();
 
         let selected_profile = self.gui.runtime.selected_profile;
         let server_rows = self.gui.profiles.profiles.iter().enumerate().map({
@@ -985,13 +1169,6 @@ impl Render for AppView {
             .flex()
             .flex_col()
             .bg(rgb(0xf6f8fa))
-            .on_mouse_down(MouseButton::Left, {
-                let this = this.clone();
-                move |_e, _w, cx| {
-                    this.update(cx, |view, cx| view.close_dropdown_if_open(cx))
-                        .ok();
-                }
-            })
             .child(
                 div()
                     .flex()
@@ -1021,13 +1198,13 @@ impl Render for AppView {
                                     .flex_row()
                                     .gap_1()
                                     .p_1()
-                                    .child(widgets::button(
+                                    .child(btn(
                                         "add-btn",
                                         t!("btn.add").to_string(),
                                         false,
                                         with_view(&this, AppView::add_clicked),
                                     ))
-                                    .child(widgets::button(
+                                    .child(btn(
                                         "del-btn",
                                         t!("btn.delete").to_string(),
                                         false,
@@ -1041,23 +1218,53 @@ impl Render for AppView {
                                     .gap_1()
                                     .px_1()
                                     .pb_1()
-                                    .child(widgets::button(
+                                    .child(btn(
                                         "dup-btn",
                                         t!("btn.duplicate").to_string(),
                                         false,
                                         with_view(&this, AppView::duplicate_clicked),
                                     ))
-                                    .child(widgets::button(
+                                    .child(btn(
                                         "up-btn",
                                         t!("btn.up").to_string(),
                                         false,
                                         with_view(&this, AppView::move_up_clicked),
                                     ))
-                                    .child(widgets::button(
+                                    .child(btn(
                                         "dn-btn",
                                         t!("btn.down").to_string(),
                                         false,
                                         with_view(&this, AppView::move_down_clicked),
+                                    )),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .gap_1()
+                                    .px_1()
+                                    .pb_1()
+                                    .child(btn(
+                                        "import-btn",
+                                        t!("btn.import_url").to_string(),
+                                        false,
+                                        {
+                                            let this = this.clone();
+                                            move |_e, _w, cx| {
+                                                if let Some(text) =
+                                                    cx.read_from_clipboard().and_then(|item| item.text())
+                                                {
+                                                    this.update(cx, |view, cx| view.import_link(&text, cx))
+                                                        .ok();
+                                                }
+                                            }
+                                        },
+                                    ))
+                                    .child(btn(
+                                        "export-btn",
+                                        t!("btn.export_url").to_string(),
+                                        false,
+                                        with_view(&this, AppView::export_link),
                                     )),
                             ),
                     )
@@ -1081,21 +1288,15 @@ impl Render for AppView {
                             )
                             .child(widgets::field_row(
                                 t!("field.protocol").to_string(),
-                                self.dropdown_element(
-                                    cx,
-                                    DropdownId::Protocol,
-                                    "protocol-dropdown",
-                                    self.protocol,
-                                    protocols,
-                                ),
+                                Select::new(self.protocol_select.as_ref().unwrap()),
                             ))
                             .child(widgets::field_row(
                                 t!("field.server_ip").to_string(),
-                                self.server.clone(),
+                                Input::new(self.server.as_ref().unwrap()),
                             ))
                             .child(widgets::field_row(
                                 t!("field.server_port").to_string(),
-                                self.port.clone(),
+                                Input::new(self.port.as_ref().unwrap()),
                             ))
                             .child(
                                 div()
@@ -1112,76 +1313,91 @@ impl Render for AppView {
                                             .text_color(rgb(0x57606a))
                                             .child(t!("field.password").to_string()),
                                     )
-                                    .child(self.password.clone())
-                                    .child(widgets::checkbox(
+                                    .child(Input::new(self.password.as_ref().unwrap()))
+                                    .child(chk(
                                         "show-pwd-check",
                                         t!("field.show_password").to_string(),
                                         self.show_password,
-                                        with_view(&this, AppView::toggle_show_password),
+                                        {
+                                            let this = this.clone();
+                                            move |_checked, window, cx| {
+                                                let _ = this.update(cx, |view, vcx| {
+                                                    view.toggle_show_password(window, vcx)
+                                                });
+                                            }
+                                        },
                                     )),
                             )
                             .when(is_juicity, |el| {
                                 el.child(separator())
                                     .child(widgets::field_row(
                                         t!("field.uuid").to_string(),
-                                        self.uuid.clone(),
+                                        Input::new(self.uuid.as_ref().unwrap()),
                                     ))
                                     .child(widgets::field_row(
                                         t!("field.sni").to_string(),
-                                        self.sni.clone(),
+                                        Input::new(self.sni.as_ref().unwrap()),
                                     ))
-                                    .child(div().pl(px(138.)).child(widgets::checkbox(
+                                    .child(div().pl(px(138.)).child(chk(
                                         "allow-insecure-check",
                                         t!("field.allow_insecure").to_string(),
                                         self.allow_insecure,
-                                        with_view(&this, AppView::toggle_allow_insecure),
+                                        {
+                                            let this = this.clone();
+                                            move |_checked, _window, cx| {
+                                                let _ = this.update(cx, |view, cx| {
+                                                    view.toggle_allow_insecure(cx)
+                                                });
+                                            }
+                                        },
                                     )))
                             })
                             .when(!is_juicity, |el| {
                                 el.child(separator())
                                     .child(widgets::field_row(
                                         t!("field.encryption").to_string(),
-                                        self.dropdown_element(
-                                            cx,
-                                            DropdownId::Method,
-                                            "method-dropdown",
-                                            self.method,
-                                            methods,
-                                        ),
+                                        Select::new(self.method_select.as_ref().unwrap()),
                                     ))
                                     .child(widgets::field_row(
                                         t!("field.plugin_program").to_string(),
-                                        self.plugin.clone(),
+                                        Input::new(self.plugin.as_ref().unwrap()),
                                     ))
                                     .child(widgets::field_row(
                                         t!("field.plugin_options").to_string(),
-                                        self.plugin_opts.clone(),
+                                        Input::new(self.plugin_opts.as_ref().unwrap()),
                                     ))
-                                    .child(div().pl(px(138.)).child(widgets::checkbox(
+                                    .child(div().pl(px(138.)).child(chk(
                                         "need-plugin-arg-check",
                                         t!("field.need_plugin_arg").to_string(),
                                         self.need_plugin_arg,
-                                        with_view(&this, AppView::toggle_need_plugin_arg),
+                                        {
+                                            let this = this.clone();
+                                            move |_checked, _window, cx| {
+                                                let _ = this.update(cx, |view, cx| {
+                                                    view.toggle_need_plugin_arg(cx)
+                                                });
+                                            }
+                                        },
                                     )))
                                     .when(self.need_plugin_arg, |el| {
                                         el.child(widgets::field_row(
                                             t!("field.plugin_args").to_string(),
-                                            self.plugin_args.clone(),
+                                            Input::new(self.plugin_args.as_ref().unwrap()),
                                         ))
                                     })
                             })
                             .child(separator())
                             .child(widgets::field_row(
                                 t!("field.remarks").to_string(),
-                                self.remarks.clone(),
+                                Input::new(self.remarks.as_ref().unwrap()),
                             ))
                             .child(widgets::field_row(
                                 t!("field.timeout").to_string(),
-                                self.timeout.clone(),
+                                Input::new(self.timeout.as_ref().unwrap()),
                             ))
                             .child(widgets::field_row(
                                 t!("field.group").to_string(),
-                                self.group.clone(),
+                                Input::new(self.group.as_ref().unwrap()),
                             )),
                     ),
             )
@@ -1204,13 +1420,13 @@ impl Render for AppView {
                             .text_color(rgb(0x57606a))
                             .child(self.status.clone()),
                     )
-                    .child(widgets::button(
+                    .child(btn(
                         "start-btn",
                         t!("btn.start").to_string(),
                         false,
                         with_view(&this, AppView::start_selected),
                     ))
-                    .child(widgets::button(
+                    .child(btn(
                         "stop-btn",
                         t!("btn.stop").to_string(),
                         false,
@@ -1235,14 +1451,19 @@ impl Render for AppView {
                             .text_color(rgb(0x57606a))
                             .child(t!("field.proxy_port").to_string()),
                     )
-                    .child(div().w(px(90.)).child(self.proxy_port.clone()))
-                    .child(widgets::checkbox(
+                    .child(div().w(px(90.)).child(Input::new(self.proxy_port.as_ref().unwrap())))
+                    .child(chk(
                         "close-to-tray-check",
                         t!("field.close_to_tray").to_string(),
                         self.close_to_tray,
-                        with_view(&this, AppView::toggle_close_to_tray),
+                        {
+                            let this = this.clone();
+                            move |_checked, _window, cx| {
+                                let _ = this.update(cx, |view, cx| view.toggle_close_to_tray(cx));
+                            }
+                        },
                     ))
-                    .child(widgets::button(
+                    .child(btn(
                         "pac-settings-btn",
                         t!("btn.pac_settings").to_string(),
                         false,
@@ -1254,37 +1475,19 @@ impl Render for AppView {
                         },
                     ))
                     .child(div().flex_grow())
-                    .child(widgets::button(
-                        "import-btn",
-                        t!("btn.import_url").to_string(),
-                        false,
+                    .child(btn(
+                        "ok-btn",
+                        t!("btn.ok").to_string(),
+                        true,
                         {
                             let this = this.clone();
-                            move |_e, _w, cx| {
-                                if let Some(text) =
-                                    cx.read_from_clipboard().and_then(|item| item.text())
-                                {
-                                    this.update(cx, |view, cx| {
-                                        view.import_link(&text, cx);
-                                    })
+                            move |_e, window, cx| {
+                                this.update(cx, |view, cx| view.ok_clicked(window, cx))
                                     .ok();
-                                }
                             }
                         },
                     ))
-                    .child(widgets::button(
-                        "export-btn",
-                        t!("btn.export_url").to_string(),
-                        false,
-                        with_view(&this, AppView::export_link),
-                    ))
-                    .child(widgets::button("ok-btn", t!("btn.ok").to_string(), true, {
-                        let this = this.clone();
-                        move |_e, window, cx| {
-                            this.update(cx, |view, cx| view.ok_clicked(window, cx)).ok();
-                        }
-                    }))
-                    .child(widgets::button(
+                    .child(btn(
                         "cancel-btn",
                         t!("btn.cancel").to_string(),
                         false,
@@ -1296,7 +1499,7 @@ impl Render for AppView {
                             }
                         },
                     ))
-                    .child(widgets::button(
+                    .child(btn(
                         "apply-btn",
                         t!("btn.apply").to_string(),
                         false,
@@ -1308,7 +1511,7 @@ impl Render for AppView {
 
 /// Build a click handler that routes to a `&mut self` view method.
 fn with_view<F>(
-    this: &gpui::WeakEntity<AppView>,
+    this: &WeakEntity<AppView>,
     f: F,
 ) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static
 where
@@ -1316,8 +1519,30 @@ where
 {
     let this = this.clone();
     move |_e, _w, cx| {
-        this.update(cx, |view, cx| f(view, cx)).ok();
+        let _ = this.update(cx, |view, cx| f(view, cx));
     }
+}
+
+/// Build a gpui-component `Button`.
+fn btn(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    primary: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Button {
+    let b = Button::new(id).label(label);
+    let b = if primary { b.primary() } else { b };
+    b.on_click(on_click)
+}
+
+/// Build a gpui-component `Checkbox`.
+fn chk(
+    id: impl Into<ElementId>,
+    label: impl Into<gpui_component::text::Text>,
+    checked: bool,
+    on_click: impl Fn(&bool, &mut Window, &mut App) + 'static,
+) -> Checkbox {
+    Checkbox::new(id).label(label).checked(checked).on_click(on_click)
 }
 
 /// Thin horizontal separator line.
@@ -1376,40 +1601,23 @@ fn apply_autostart(state: &RuntimeState) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn extract_port(addr: &str) -> u16 {
-    addr.rsplit(':')
-        .next()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(1080)
-}
-
-fn non_empty_text(input: &str) -> Option<String> {
-    let t = input.trim();
-    if t.is_empty() {
-        None
-    } else {
-        Some(t.to_string())
-    }
-}
-
 pub fn run() -> anyhow::Result<()> {
     gpui::Application::new().run(|cx: &mut App| {
         crate::icon::install();
-        widgets::bind_text_field_keys(cx);
+        gpui_component::init(cx);
         cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
         cx.on_action(|_: &Quit, cx| cx.quit());
 
         let view = cx.new(AppView::new);
         cx.default_global::<AppRoot>().view = Some(view.clone());
 
-        cx.on_window_closed({
+        let _ = cx.on_window_closed({
             let view = view.downgrade();
             move |cx| {
-                // Only the first close of the *main* window may trigger the
-                // quit path; closing dialog windows must never quit the app.
-                if !cx.windows().is_empty() {
-                    return;
-                }
+                // Main-window close is handled by `on_window_should_close` in
+                // `open_main_window`.  This observer is a safety net: if the
+                // flag was NOT set (e.g. the window was removed programmatically
+                // without going through the close-request path), handle it here.
                 let already_closed = cx.default_global::<AppRoot>().main_window_closed;
                 if already_closed {
                     return;
@@ -1438,7 +1646,7 @@ pub fn run() -> anyhow::Result<()> {
             open_main_window(cx);
         }
 
-        view.update(cx, |view, cx| view.apply_startup_connection(cx));
+        let _ = view.update(cx, |view, cx| view.apply_startup_connection(cx));
         cx.activate(true);
     });
     Ok(())

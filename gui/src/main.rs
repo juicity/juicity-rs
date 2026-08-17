@@ -1,3 +1,11 @@
+// On Windows, hide the console window for the release build of the GUI binary.
+// The proxy child processes already suppress their own console via
+// `CREATE_NO_WINDOW` (see `core.rs`); this hides the one the GUI itself spawns.
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
+
 mod app;
 mod config;
 mod core;
@@ -7,6 +15,7 @@ mod link;
 mod pac;
 mod pac_dialog;
 mod startup_dialog;
+mod state;
 mod system_proxy;
 mod tray;
 mod util;

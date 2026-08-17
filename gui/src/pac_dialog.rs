@@ -7,12 +7,14 @@
 use crate::app::AppView;
 use crate::config::AppConfig;
 use crate::pac;
-use crate::widgets::{self, TextField};
+use crate::widgets;
 use gpui::prelude::*;
 use gpui::{
-    div, px, rgb, size, App, Bounds, Context, Entity, WeakEntity, Window, WindowBounds,
-    WindowOptions,
+    div, px, rgb, size, App, Bounds, ClickEvent, Context, ElementId, Entity, SharedString,
+    WeakEntity, Window, WindowBounds, WindowOptions,
 };
+use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::input::{Input, InputState};
 use rust_i18n::t;
 
 /// Open the PAC settings dialog as its own window on top of the main view.
@@ -40,7 +42,8 @@ pub fn open(owner: &WeakEntity<AppView>, cx: &mut App) {
             |window, cx| {
                 window.set_window_title(&t!("pac_dialog.title"));
                 window.set_app_id("io.juicity.gui");
-                cx.new(|cx| PacDialog::new(owner, config, cx))
+                let dialog = cx.new(|cx| PacDialog::new(owner, config, window, cx));
+                cx.new(|cx| gpui_component::Root::new(dialog, window, cx))
             },
         )
         .ok();
@@ -56,40 +59,25 @@ pub fn open(owner: &WeakEntity<AppView>, cx: &mut App) {
 /// Dialog state: the owner view plus editable fields.
 pub struct PacDialog {
     owner: WeakEntity<AppView>,
-    direct_url: Entity<TextField>,
-    proxy_url: Entity<TextField>,
-    interval: Entity<TextField>,
-    listen_addr: Entity<TextField>,
-    online_url: Entity<TextField>,
+    direct_url: Entity<InputState>,
+    proxy_url: Entity<InputState>,
+    interval: Entity<InputState>,
+    listen_addr: Entity<InputState>,
+    online_url: Entity<InputState>,
 }
 
 impl PacDialog {
-    fn new(owner: WeakEntity<AppView>, cfg: AppConfig, cx: &mut Context<Self>) -> Self {
-        let direct_url = cx.new(|cx| {
-            let mut f = TextField::new(cx);
-            f.set_text(cfg.pac_direct_url, cx);
-            f
-        });
-        let proxy_url = cx.new(|cx| {
-            let mut f = TextField::new(cx);
-            f.set_text(cfg.pac_proxy_url, cx);
-            f
-        });
-        let interval = cx.new(|cx| {
-            let mut f = TextField::new(cx);
-            f.set_text(cfg.pac_auto_update_hours.to_string(), cx);
-            f
-        });
-        let listen_addr = cx.new(|cx| {
-            let mut f = TextField::new(cx);
-            f.set_text(cfg.pac_listen, cx);
-            f
-        });
-        let online_url = cx.new(|cx| {
-            let mut f = TextField::new(cx);
-            f.set_text(cfg.online_pac_url.unwrap_or_default(), cx);
-            f
-        });
+    fn new(owner: WeakEntity<AppView>, cfg: AppConfig, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let mk = |window: &mut Window, cx: &mut Context<Self>, value: &str| -> Entity<InputState> {
+            let state = cx.new(|cx| InputState::new(window, cx));
+            state.update(cx, |s, scx| s.set_value(value.to_string(), window, scx));
+            state
+        };
+        let direct_url = mk(window, cx, &cfg.pac_direct_url);
+        let proxy_url = mk(window, cx, &cfg.pac_proxy_url);
+        let interval = mk(window, cx, &cfg.pac_auto_update_hours.to_string());
+        let listen_addr = mk(window, cx, &cfg.pac_listen);
+        let online_url = mk(window, cx, &cfg.online_pac_url.unwrap_or_default());
 
         Self {
             owner,
@@ -107,11 +95,11 @@ impl PacDialog {
             .update(cx, |view, _| view.config_snapshot())
             .ok()
             .unwrap_or_default();
-        cfg.pac_direct_url = self.direct_url.read(cx).text().trim().to_string();
-        cfg.pac_proxy_url = self.proxy_url.read(cx).text().trim().to_string();
-        cfg.pac_auto_update_hours = self.interval.read(cx).text().trim().parse().unwrap_or(0);
-        cfg.pac_listen = self.listen_addr.read(cx).text().trim().to_string();
-        let url = self.online_url.read(cx).text().trim().to_string();
+        cfg.pac_direct_url = self.direct_url.read(cx).value().trim().to_string();
+        cfg.pac_proxy_url = self.proxy_url.read(cx).value().trim().to_string();
+        cfg.pac_auto_update_hours = self.interval.read(cx).value().trim().parse().unwrap_or(0);
+        cfg.pac_listen = self.listen_addr.read(cx).value().trim().to_string();
+        let url = self.online_url.read(cx).value().trim().to_string();
         cfg.online_pac_url = if url.is_empty() { None } else { Some(url) };
         cfg
     }
@@ -141,7 +129,7 @@ impl PacDialog {
 impl Render for PacDialog {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.weak_entity();
-        let pac_url = pac::pac_url(&self.listen_addr.read(cx).text());
+        let pac_url = pac::pac_url(&self.listen_addr.read(cx).value());
 
         let group_header = |title: &str| {
             div()
@@ -172,11 +160,11 @@ impl Render for PacDialog {
                     )
                     .child(widgets::field_row(
                         t!("pac_dialog.direct_url").to_string(),
-                        self.direct_url.clone(),
+                        Input::new(&self.direct_url),
                     ))
                     .child(widgets::field_row(
                         t!("pac_dialog.proxy_url").to_string(),
-                        self.proxy_url.clone(),
+                        Input::new(&self.proxy_url),
                     ))
                     .child(separator())
                     .child(
@@ -185,7 +173,7 @@ impl Render for PacDialog {
                     )
                     .child(widgets::field_row(
                         t!("pac_dialog.update_interval").to_string(),
-                        self.interval.clone(),
+                        Input::new(&self.interval),
                     ))
                     .child(separator())
                     .child(
@@ -194,7 +182,7 @@ impl Render for PacDialog {
                     )
                     .child(widgets::field_row(
                         t!("pac_dialog.listen_addr").to_string(),
-                        self.listen_addr.clone(),
+                        Input::new(&self.listen_addr),
                     ))
                     .child(
                         div()
@@ -220,7 +208,7 @@ impl Render for PacDialog {
                     )
                     .child(widgets::field_row(
                         t!("pac_dialog.online_pac_url").to_string(),
-                        self.online_url.clone(),
+                        Input::new(&self.online_url),
                     )),
             )
             .child(
@@ -234,20 +222,20 @@ impl Render for PacDialog {
                     .border_t_1()
                     .border_color(rgb(0xd0d7de))
                     .bg(rgb(0xffffff))
-                    .child(widgets::button(
+                    .child(btn(
                         "pac-update-now",
                         t!("pac_dialog.update_now").to_string(),
                         false,
                         with_view(&this, PacDialog::update_now),
                     ))
                     .child(div().flex_grow())
-                    .child(widgets::button(
+                    .child(btn(
                         "pac-cancel",
                         t!("btn.cancel").to_string(),
                         false,
                         with_view(&this, PacDialog::cancel),
                     ))
-                    .child(widgets::button(
+                    .child(btn(
                         "pac-save",
                         t!("pac_dialog.save").to_string(),
                         true,
@@ -261,6 +249,18 @@ impl PacDialog {
     fn cancel(&mut self, window: &mut Window, _cx: &mut Context<Self>) {
         window.remove_window();
     }
+}
+
+/// Build a gpui-component `Button`.
+fn btn(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    primary: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Button {
+    let b = Button::new(id).label(label);
+    let b = if primary { b.primary() } else { b };
+    b.on_click(on_click)
 }
 
 /// Build a click handler that routes to a `&mut self` view method.

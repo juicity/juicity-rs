@@ -5,12 +5,13 @@
 
 use crate::app::AppView;
 use crate::config::{RuntimeState, StartupConnectionState};
-use crate::widgets;
 use gpui::prelude::*;
 use gpui::{
-    div, px, rgb, size, App, Bounds, ClickEvent, Context, WeakEntity, Window, WindowBounds,
-    WindowOptions,
+    div, px, rgb, size, App, Bounds, ClickEvent, Context, ElementId, SharedString, WeakEntity,
+    Window, WindowBounds, WindowOptions,
 };
+use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::checkbox::Checkbox;
 use rust_i18n::t;
 
 /// Open the startup settings dialog as its own window.
@@ -34,7 +35,8 @@ pub fn open(owner: &WeakEntity<AppView>, cx: &mut App) {
             |window, cx| {
                 window.set_window_title(&t!("startup_dialog.title"));
                 window.set_app_id("io.juicity.gui");
-                cx.new(|cx| StartupDialog::new(owner, state, cx))
+                let dialog = cx.new(|cx| StartupDialog::new(owner, state, cx));
+                cx.new(|cx| gpui_component::Root::new(dialog, window, cx))
             },
         )
         .ok();
@@ -139,11 +141,16 @@ impl Render for StartupDialog {
                         group_header(&t!("startup_dialog.group_hide_window"))
                             .child(div().h(px(1.)).w_full().bg(rgb(0xe0e0e0)).mt_1()),
                     )
-                    .child(div().pl(px(8.)).child(widgets::checkbox(
+                    .child(div().pl(px(8.)).child(chk(
                         "startup-hide-window",
                         t!("startup_dialog.hide_window_desc").to_string(),
                         self.hide_window,
-                        with_view(&this, StartupDialog::toggle_hide_window),
+                        {
+                            let this = this.clone();
+                            move |_checked, _window, cx| {
+                                let _ = this.update(cx, |view, cx| view.toggle_hide_window(cx));
+                            }
+                        },
                     )))
                     .child(separator())
                     .child(
@@ -159,7 +166,7 @@ impl Render for StartupDialog {
                                 let selected = option == self.connection_state;
                                 let label = option.label();
                                 let this = this.clone();
-                                widgets::button(
+                                btn(
                                     ("startup-conn", option.index()),
                                     label,
                                     selected,
@@ -177,13 +184,18 @@ impl Render for StartupDialog {
                         group_header(&t!("startup_dialog.group_autostart"))
                             .child(div().h(px(1.)).w_full().bg(rgb(0xe0e0e0)).mt_1()),
                     )
-                    .child(div().pl(px(8.)).child(widgets::checkbox(
+                    .child(div().pl(px(8.)).child(chk(
                         "startup-auto-start",
                         t!("startup_dialog.autostart_desc").to_string(),
                         self.auto_start,
-                        with_view(&this, StartupDialog::toggle_auto_start),
-                    ))),
-            )
+                        {
+                            let this = this.clone();
+                            move |_checked, _window, cx| {
+                                let _ = this.update(cx, |view, cx| view.toggle_auto_start(cx));
+                            }
+                        },
+                    )),
+            ))
             .child(
                 div()
                     .flex()
@@ -196,7 +208,7 @@ impl Render for StartupDialog {
                     .border_color(rgb(0xd0d7de))
                     .bg(rgb(0xffffff))
                     .child(div().flex_grow())
-                    .child(widgets::button(
+                    .child(btn(
                         "startup-cancel",
                         t!("btn.cancel").to_string(),
                         false,
@@ -207,7 +219,7 @@ impl Render for StartupDialog {
                             }
                         },
                     ))
-                    .child(widgets::button(
+                    .child(btn(
                         "startup-save",
                         t!("startup_dialog.save").to_string(),
                         true,
@@ -222,18 +234,26 @@ impl Render for StartupDialog {
     }
 }
 
-/// Build a click handler that routes to a `&mut self` view method.
-fn with_view<F>(
-    this: &WeakEntity<StartupDialog>,
-    f: F,
-) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static
-where
-    F: Fn(&mut StartupDialog, &mut Context<StartupDialog>) + 'static,
-{
-    let this = this.clone();
-    move |_e, _window, cx| {
-        this.update(cx, |view, cx| f(view, cx)).ok();
-    }
+/// Build a gpui-component `Button`.
+fn btn(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    primary: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Button {
+    let b = Button::new(id).label(label);
+    let b = if primary { b.primary() } else { b };
+    b.on_click(on_click)
+}
+
+/// Build a gpui-component `Checkbox`.
+fn chk(
+    id: impl Into<ElementId>,
+    label: impl Into<gpui_component::text::Text>,
+    checked: bool,
+    on_click: impl Fn(&bool, &mut Window, &mut App) + 'static,
+) -> Checkbox {
+    Checkbox::new(id).label(label).checked(checked).on_click(on_click)
 }
 
 /// Thin horizontal separator line.

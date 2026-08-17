@@ -90,11 +90,6 @@ pub fn pac_url(listen_addr: &str) -> String {
 
 // ── Rule download ─────────────────────────────────────────────────────────────
 
-pub const DIRECT_LIST_URL: &str =
-    "https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/direct-list.txt";
-pub const PROXY_LIST_URL: &str =
-    "https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/proxy-list.txt";
-
 /// Return how many hours ago the downloaded rule files were last modified.
 /// Returns `None` if the files don't exist yet.
 pub fn rules_age_hours(data_dir: &Path) -> Option<u64> {

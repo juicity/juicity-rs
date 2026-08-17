@@ -60,22 +60,6 @@ pub enum SystemProxyMode {
 }
 
 impl SystemProxyMode {
-    pub fn from_index(idx: u32) -> Self {
-        match idx {
-            1 => SystemProxyMode::Pac,
-            2 => SystemProxyMode::Global,
-            _ => SystemProxyMode::Disable,
-        }
-    }
-
-    pub fn index(self) -> u32 {
-        match self {
-            SystemProxyMode::Disable => 0,
-            SystemProxyMode::Pac => 1,
-            SystemProxyMode::Global => 2,
-        }
-    }
-
     pub fn label(self) -> String {
         match self {
             SystemProxyMode::Disable => t!("proxy.disable").to_string(),
@@ -109,36 +93,6 @@ impl PacRuleMode {
         match self {
             PacRuleMode::BypassChina => t!("pac.bypass_china").to_string(),
             PacRuleMode::ProxyGfw => t!("pac.gfw_only").to_string(),
-        }
-    }
-
-    pub fn from_index(idx: u32) -> Self {
-        match idx {
-            1 => PacRuleMode::ProxyGfw,
-            _ => PacRuleMode::BypassChina,
-        }
-    }
-
-    pub fn index(self) -> u32 {
-        match self {
-            PacRuleMode::BypassChina => 0,
-            PacRuleMode::ProxyGfw => 1,
-        }
-    }
-}
-
-impl PacMode {
-    pub fn from_index(idx: u32) -> Self {
-        match idx {
-            1 => PacMode::Online,
-            _ => PacMode::Local,
-        }
-    }
-
-    pub fn index(self) -> u32 {
-        match self {
-            PacMode::Local => 0,
-            PacMode::Online => 1,
         }
     }
 }
@@ -308,14 +262,6 @@ impl StartupConnectionState {
         }
     }
 
-    pub fn from_index(idx: u32) -> Self {
-        match idx {
-            1 => StartupConnectionState::On,
-            2 => StartupConnectionState::LastState,
-            _ => StartupConnectionState::Off,
-        }
-    }
-
     pub fn index(self) -> u32 {
         match self {
             StartupConnectionState::Off => 0,
@@ -325,7 +271,7 @@ impl StartupConnectionState {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RuntimeState {
     pub auto_start: bool,
@@ -338,6 +284,21 @@ pub struct RuntimeState {
     /// Whether the proxy was running when the application last exited.
     /// Used with StartupConnectionState::LastState to restore the connection.
     pub was_running: bool,
+}
+
+impl Default for RuntimeState {
+    fn default() -> Self {
+        Self {
+            auto_start: false,
+            selected_profile: 0,
+            // Minimize to the system tray instead of quitting when the main
+            // window is closed — the proxy keeps running in the background.
+            close_to_tray: true,
+            hide_window_on_startup: false,
+            startup_connection_state: StartupConnectionState::default(),
+            was_running: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
