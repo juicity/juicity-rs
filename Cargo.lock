@@ -3852,7 +3852,7 @@ dependencies = [
 
 [[package]]
 name = "juicity-client"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3885,7 +3885,7 @@ dependencies = [
 
 [[package]]
 name = "juicity-common"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -3913,7 +3913,7 @@ dependencies = [
 
 [[package]]
 name = "juicity-gui"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "base64",
@@ -3939,7 +3939,7 @@ dependencies = [
 
 [[package]]
 name = "juicity-server"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "async-trait",

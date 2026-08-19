@@ -324,14 +324,17 @@ impl AppView {
             move |_view, _state, event, cx| {
                 if let SelectEvent::Confirm(Some(value)) = event {
                     let _ = owner.update(cx, |view, vcx| {
-                        // Save current field values to the profile first.
-                        view.save_fields(vcx);
-                        let _ = view.gui.flush();
-                        view.protocol = view
+                        let new_protocol = view
                             .protocol_options
                             .iter()
                             .position(|o| o == value)
                             .unwrap_or(0);
+                        // Pass the new protocol index so save_fields writes the
+                        // correct value even though SelectState may not have
+                        // updated yet at Confirm-event time.
+                        view.save_fields_with_protocol(vcx, Some(new_protocol));
+                        let _ = view.gui.flush();
+                        view.protocol = new_protocol;
                         view.protocol_changed = true;
                         vcx.notify();
                     });
@@ -441,7 +444,12 @@ impl AppView {
         cx.notify();
     }
 
-    fn save_fields(&mut self, cx: &mut Context<Self>) {
+    /// When called from the protocol subscription handler, `protocol_override`
+    /// supplies the newly-selected protocol index so that `save_fields` writes
+    /// the correct value to the profile even though the `SelectState` widget
+    /// may not have updated its internal state yet at the time of the
+    /// `Confirm` event.
+    fn save_fields_with_protocol(&mut self, cx: &mut Context<Self>, protocol_override: Option<usize>) {
         let server = self
             .server
             .as_ref()
@@ -503,11 +511,12 @@ impl AppView {
             .map(|s| s.read(cx).value().to_string())
             .unwrap_or_default();
 
-        let protocol = self
-            .protocol_select
-            .as_ref()
-            .and_then(|sel| sel.read(cx).selected_index(cx).map(|ip| ip.row))
-            .unwrap_or(self.protocol);
+        let protocol = protocol_override.unwrap_or_else(|| {
+            self.protocol_select
+                .as_ref()
+                .and_then(|sel| sel.read(cx).selected_index(cx).map(|ip| ip.row))
+                .unwrap_or(self.protocol)
+        });
         let method = self
             .method_select
             .as_ref()
@@ -578,6 +587,11 @@ impl AppView {
         if !invalid.is_empty() {
             self.set_status(&format!("Status: invalid {}", invalid.join(", ")), cx);
         }
+    }
+
+    /// Convenience wrapper — saves fields without a protocol override.
+    fn save_fields(&mut self, cx: &mut Context<Self>) {
+        self.save_fields_with_protocol(cx, None);
     }
 
     // ── Button handlers ───────────────────────────────────────────────────

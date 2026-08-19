@@ -12,7 +12,6 @@ name: Test Core
 
 on:
   push:
-    branches: [main, master]
     paths:
       - 'common/**'
       - 'client/**'
@@ -23,7 +22,6 @@ on:
       - 'build.bat'
       - '.github/**'
   pull_request:
-    branches: [main, master]
     paths:
       - 'common/**'
       - 'client/**'
