@@ -399,11 +399,26 @@ async fn start_udp_forward(entry: ForwardEntry, client: JuicityClient) -> anyhow
             let host = host.clone();
             async move {
                 let mut addr_buf = Vec::with_capacity(32);
+                // RAII guard: ensure send.finish() is called even when this task is
+                // aborted (e.g. via cancel).  Without this, the QUIC send stream
+                // would be left in a half-closed state until the connection idle
+                // timeout fires (up to 600s), holding stream resources unnecessarily.
+                struct SendGuard {
+                    send: Option<quinn::SendStream>,
+                }
+                impl Drop for SendGuard {
+                    fn drop(&mut self) {
+                        if let Some(ref mut s) = self.send {
+                            let _ = s.finish();
+                        }
+                    }
+                }
+                let mut guard = SendGuard { send: Some(send) };
                 loop {
                     match tokio::time::timeout(consts::DEFAULT_NAT_TIMEOUT, rx.recv()).await {
                         Ok(Some(datagram)) => {
                             if JuicityClient::send_udp_datagram(
-                                &mut send,
+                                guard.send.as_mut().unwrap(),
                                 &host,
                                 port,
                                 &datagram[..],
@@ -419,7 +434,6 @@ async fn start_udp_forward(entry: ForwardEntry, client: JuicityClient) -> anyhow
                         Err(_) => break, // NAT timeout
                     }
                 }
-                let _ = send.finish();
             }
         });
 

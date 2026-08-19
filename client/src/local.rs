@@ -377,7 +377,7 @@ async fn start_udp_assoc_session(
     first_datagram: UdpOutboundDatagram,
     cancel: CancellationToken,
 ) -> anyhow::Result<mpsc::Sender<UdpOutboundDatagram>> {
-    let (mut send, mut recv) = client
+    let (send, mut recv) = client
         .open_udp_stream(
             &first_datagram.addr,
             first_datagram.port,
@@ -394,11 +394,26 @@ async fn start_udp_assoc_session(
         // Reusable scratch buffer to avoid per-packet heap allocation for address headers.
         let mut addr_buf = Vec::with_capacity(32);
         let mut writer = tokio::spawn(async move {
+            // RAII guard: ensure send.finish() is called even when this task is
+            // aborted (e.g. via cancel).  Without this, the QUIC send stream
+            // would be left in a half-closed state until the connection idle
+            // timeout fires (up to 600s), holding stream resources unnecessarily.
+            struct SendGuard {
+                send: Option<quinn::SendStream>,
+            }
+            impl Drop for SendGuard {
+                fn drop(&mut self) {
+                    if let Some(ref mut s) = self.send {
+                        let _ = s.finish();
+                    }
+                }
+            }
+            let mut guard = SendGuard { send: Some(send) };
             loop {
                 match tokio::time::timeout(consts::DEFAULT_NAT_TIMEOUT, rx.recv()).await {
                     Ok(Some(datagram)) => {
                         if JuicityClient::send_udp_datagram(
-                            &mut send,
+                            guard.send.as_mut().unwrap(),
                             &datagram.addr,
                             datagram.port,
                             &datagram.payload[..],
@@ -414,7 +429,6 @@ async fn start_udp_assoc_session(
                     Err(_) => break,
                 }
             }
-            let _ = send.finish();
         });
 
         let mut reader = tokio::spawn(async move {

@@ -1185,7 +1185,7 @@ async fn handle_tcp_relay(
 ///   [trojanc_addr][len(2)][payload]
 /// No network byte per datagram; the stream header already carries it.
 async fn handle_udp_relay(
-    mut send_stream: SendStream,
+    send_stream: SendStream,
     mut recv_stream: RecvStream,
     dialer: Arc<dyn crate::dialer::Dialer>,
     disable_udp_443: bool,
@@ -1284,6 +1284,23 @@ async fn handle_udp_relay(
     let mut remote_to_quic = {
         let remote = remote.clone();
         tokio::spawn(async move {
+            // RAII guard: ensure send_stream.finish() is called even when this
+            // task is aborted.  Without this, the QUIC send stream would be
+            // left in a half-closed state until the connection idle timeout
+            // fires, holding stream resources unnecessarily.
+            struct SendGuard {
+                send: Option<SendStream>,
+            }
+            impl Drop for SendGuard {
+                fn drop(&mut self) {
+                    if let Some(ref mut s) = self.send {
+                        let _ = s.finish();
+                    }
+                }
+            }
+            let mut guard = SendGuard {
+                send: Some(send_stream),
+            };
             let mut buf = vec![0u8; consts::ETHERNET_MTU];
             // Pre-allocate frame buffer for reuse across all response datagrams.
             // Max: trojanc_addr header (up to ~261 bytes) + 2-byte length + payload.
@@ -1311,7 +1328,7 @@ async fn handle_udp_relay(
                         }
                         frame.extend_from_slice(&pkt_len);
                         frame.extend_from_slice(&buf[..n]);
-                        if send_stream.write_all(&frame).await.is_err() {
+                        if guard.send.as_mut().unwrap().write_all(&frame).await.is_err() {
                             break;
                         }
                     }
