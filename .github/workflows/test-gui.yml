@@ -12,6 +12,8 @@ name: Test GUI
 
 on:
   push:
+    branches:
+      - master
     paths:
       - 'gui/**'
       - 'common/**'
