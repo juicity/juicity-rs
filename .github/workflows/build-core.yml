@@ -48,7 +48,7 @@ jobs:
           - i686-unknown-linux-gnu
           - armv7-unknown-linux-gnueabihf
           - riscv64gc-unknown-linux-gnu
-          # - loongarch64-unknown-linux-gnu
+          - loongarch64-unknown-linux-gnu
           - aarch64-unknown-linux-musl
           - i686-unknown-linux-musl
           - armv7-unknown-linux-musleabihf
@@ -102,7 +102,7 @@ jobs:
         env:
           RUSTFLAGS: ${{ matrix.cpu_variant == 'v3' && '-C target-cpu=x86-64-v3' || matrix.cpu_variant == 'v2' && '-C target-cpu=x86-64-v2' || '' }}
         run: |
-          cargo zigbuild --frozen --workspace --release --target ${{ matrix.target }} --exclude juicity-gui
+          cargo-zigbuild zigbuild --frozen --workspace --release --target ${{ matrix.target }} --exclude juicity-gui
 
       - name: Prepare package
         shell: bash
