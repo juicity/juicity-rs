@@ -70,6 +70,12 @@ pub const MAX_UNDERLAY_HANDLER_CONCURRENCY: usize = 1_024;
 /// transport layer acts as a second line of defence.
 pub const MAX_QUIC_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 
+/// TCP relay idle timeout — if no data flows in either direction for this
+/// duration the relay is closed, releasing the remote TCP socket, QUIC
+/// streams and all associated buffers.  Each successful read/write resets
+/// the timer, so active transfers (e.g. large downloads) are unaffected.
+pub const TCP_RELAY_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
 /// Underlay session cleanup interval.
 /// Reduced from 10s to 3s to evict stale sessions and release their relay-back
 /// task memory (≈12KB per session) more promptly.

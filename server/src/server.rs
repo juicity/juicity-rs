@@ -1143,37 +1143,104 @@ async fn handle_stream(
 /// for [`consts::TCP_RELAY_IDLE_TIMEOUT`], the stream is closed and its
 /// resources (buffers, tasks, Arc refs) are released individually without
 /// waiting for the connection-level idle timeout.
+///
+/// Each successful read or write resets the idle timer, so active transfers
+/// (e.g. large downloads) are never interrupted.
 async fn handle_tcp_relay(
     send_stream: SendStream,
     recv_stream: RecvStream,
     dialer: Arc<dyn crate::dialer::Dialer>,
     target: &str,
 ) -> anyhow::Result<()> {
-    let remote = dialer.dial_tcp(target).await?;
+    let target = Arc::from(target);
+
+    let remote = dialer.dial_tcp(&target).await?;
     let (remote_rx, mut remote_tx) = tokio::io::split(remote);
     let (mut quic_tx, quic_rx) = (send_stream, recv_stream);
 
-    // Use 16KB buffered readers (reduced from 64KB) for bidirectional copy.
-    // 64KB × 2 directions × 256 concurrent connections = 32MB.
-    // 16KB × 2 × 256 = 8MB — saves 24MB at peak concurrency with negligible
-    // throughput impact (QUIC streams already have internal buffering).
+    // Use 16KB buffered readers for bidirectional copy.
     let mut remote_rx = tokio::io::BufReader::with_capacity(16 * 1024, remote_rx);
     let mut quic_rx = tokio::io::BufReader::with_capacity(16 * 1024, quic_rx);
 
-    let (r1, r2) = tokio::join!(
-        tokio::io::copy_buf(&mut remote_rx, &mut quic_tx),
-        tokio::io::copy_buf(&mut quic_rx, &mut remote_tx),
-    );
-    if let Err(e) = r1 {
-        tracing::debug!("TCP relay remote->quic: {:?}", e);
-    }
-    if let Err(e) = r2 {
-        tracing::debug!("TCP relay quic->remote: {:?}", e);
-    }
+    // Spawn idle-timeout monitor tasks — one per direction.
+    // Each wraps a manual copy loop in `tokio::time::timeout`.  A new
+    // timeout is created per chunk, so any successful read/write resets
+    // the timer.  When one direction finishes (or times out), the other
+    // is aborted.
+    let mut remote_to_quic = {
+        let target = target.clone();
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 16 * 1024];
+            loop {
+                let n = match tokio::time::timeout(
+                    consts::TCP_RELAY_IDLE_TIMEOUT,
+                    tokio::io::AsyncReadExt::read(&mut remote_rx, &mut buf),
+                )
+                .await
+                {
+                    Ok(Ok(0)) => return Ok(()),
+                    Ok(Ok(n)) => n,
+                    Ok(Err(e)) => return Err(e),
+                    Err(_) => {
+                        tracing::debug!(
+                            target = %target,
+                            idle_secs = consts::TCP_RELAY_IDLE_TIMEOUT.as_secs(),
+                            "TCP relay remote→quic idle timeout"
+                        );
+                        return Ok(());
+                    }
+                };
+                if let Err(e) =
+                    tokio::io::AsyncWriteExt::write_all(&mut quic_tx, &buf[..n]).await
+                {
+                    return Err(e);
+                }
+            }
+        })
+    };
 
-    // Gracefully finish the send direction so quinn can clean up the stream
-    // state immediately instead of holding it until a timeout or stream reset.
-    let _ = quic_tx.finish();
+    let mut quic_to_remote = {
+        let target = target.clone();
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 16 * 1024];
+            loop {
+                let n = match tokio::time::timeout(
+                    consts::TCP_RELAY_IDLE_TIMEOUT,
+                    tokio::io::AsyncReadExt::read(&mut quic_rx, &mut buf),
+                )
+                .await
+                {
+                    Ok(Ok(0)) => return Ok(()),
+                    Ok(Ok(n)) => n,
+                    Ok(Err(e)) => return Err(e),
+                    Err(_) => {
+                        tracing::debug!(
+                            target = %target,
+                            idle_secs = consts::TCP_RELAY_IDLE_TIMEOUT.as_secs(),
+                            "TCP relay quic→remote idle timeout"
+                        );
+                        return Ok(());
+                    }
+                };
+                if let Err(e) =
+                    tokio::io::AsyncWriteExt::write_all(&mut remote_tx, &buf[..n]).await
+                {
+                    return Err(e);
+                }
+            }
+        })
+    };
+
+    tokio::select! {
+        r = &mut remote_to_quic => {
+            quic_to_remote.abort();
+            let _ = r;
+        }
+        r = &mut quic_to_remote => {
+            remote_to_quic.abort();
+            let _ = r;
+        }
+    }
 
     Ok(())
 }
