@@ -35,6 +35,16 @@ on:
       - '.github/**'
 
 jobs:
+  server_tests:
+    name: Server relay regression tests
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - run: cargo test --locked -p juicity-server --lib
+
   # --------------------------------------------------
   # Package Offline Source Code
   # --------------------------------------------------
