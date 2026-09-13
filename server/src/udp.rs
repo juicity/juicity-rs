@@ -4,8 +4,35 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use juicity_common::consts;
+use juicity_common::protocol;
 use moka::sync::Cache;
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::sync::Notify;
+
+/// Relay UDP responses to a Juicity stream.
+pub(crate) async fn relay_responses<W: AsyncWrite + Unpin>(
+    remote: &tokio::net::UdpSocket,
+    writer: &mut W,
+) -> anyhow::Result<()> {
+    let mut buf = vec![0u8; consts::ETHERNET_MTU];
+    let mut frame = Vec::with_capacity(264 + consts::ETHERNET_MTU);
+
+    loop {
+        match tokio::time::timeout(consts::DEFAULT_NAT_TIMEOUT, remote.recv_from(&mut buf)).await {
+            Ok(Ok((n, addr))) => {
+                frame.clear();
+                let response_addr = protocol::CachedAddr::from_socket_addr(addr);
+                protocol::build_trojanc_addr_cached(&mut frame, &response_addr)?;
+                frame.extend_from_slice(&(n as u16).to_be_bytes());
+                frame.extend_from_slice(&buf[..n]);
+                writer.write_all(&frame).await?;
+            }
+            Ok(Err(err)) => return Err(err.into()),
+            Err(_) => return Ok(()),
+        }
+    }
+}
 
 /// Options for creating a UDP endpoint
 pub struct UdpEndpointOptions {
@@ -231,4 +258,80 @@ impl UdpEndpointPool {
     }
 }
 
-use juicity_common::consts;
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use juicity_common::protocol;
+    use tokio::io::{AsyncReadExt, DuplexStream};
+
+    use super::relay_responses;
+
+    async fn read_response(reader: &mut DuplexStream) -> (String, u16, Vec<u8>) {
+        let (host, port) = protocol::read_trojanc_addr_async(reader)
+            .await
+            .expect("response address should decode");
+        let mut len = [0u8; 2];
+        reader
+            .read_exact(&mut len)
+            .await
+            .expect("response length should decode");
+        let mut payload = vec![0u8; u16::from_be_bytes(len) as usize];
+        reader
+            .read_exact(&mut payload)
+            .await
+            .expect("response payload should decode");
+        (host, port, payload)
+    }
+
+    #[tokio::test]
+    async fn relay_responses_keeps_each_packet_source_address() {
+        let relay = tokio::net::UdpSocket::bind("127.0.0.1:0")
+            .await
+            .expect("relay socket should bind");
+        let relay_addr = relay
+            .local_addr()
+            .expect("relay address should be available");
+        let source_one = tokio::net::UdpSocket::bind("127.0.0.1:0")
+            .await
+            .expect("first source socket should bind");
+        let source_two = tokio::net::UdpSocket::bind("127.0.0.1:0")
+            .await
+            .expect("second source socket should bind");
+        let source_one_addr = source_one
+            .local_addr()
+            .expect("first source address should be available");
+        let source_two_addr = source_two
+            .local_addr()
+            .expect("second source address should be available");
+        let (mut reader, mut writer) = tokio::io::duplex(4096);
+
+        let relay_task = tokio::spawn(async move { relay_responses(&relay, &mut writer).await });
+
+        for (source, address, payload) in [
+            (&source_one, source_one_addr, b"first".as_slice()),
+            (&source_two, source_two_addr, b"second".as_slice()),
+            (&source_one, source_one_addr, b"third".as_slice()),
+        ] {
+            source
+                .send_to(payload, relay_addr)
+                .await
+                .expect("response packet should send");
+            let (host, port, actual_payload) =
+                tokio::time::timeout(Duration::from_secs(1), read_response(&mut reader))
+                    .await
+                    .expect("response should arrive before timeout");
+            assert_eq!(host, address.ip().to_string());
+            assert_eq!(port, address.port());
+            assert_eq!(actual_payload, payload);
+        }
+
+        relay_task.abort();
+        let result = tokio::time::timeout(Duration::from_secs(1), relay_task)
+            .await
+            .expect("relay task should stop after abort");
+        assert!(result
+            .expect_err("aborted relay task should be cancelled")
+            .is_cancelled());
+    }
+}

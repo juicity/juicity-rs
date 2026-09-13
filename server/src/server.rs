@@ -1137,111 +1137,21 @@ async fn handle_stream(
     }
 }
 
-/// TCP relay: bidirectional copy between QUIC stream and remote TCP.
-///
-/// Implements per-stream idle timeout: if no data flows in either direction
-/// for [`consts::TCP_RELAY_IDLE_TIMEOUT`], the stream is closed and its
-/// resources (buffers, tasks, Arc refs) are released individually without
-/// waiting for the connection-level idle timeout.
-///
-/// Each successful read or write resets the idle timer, so active transfers
-/// (e.g. large downloads) are never interrupted.
+/// Relay TCP while preserving half-close and sharing one idle deadline.
 async fn handle_tcp_relay(
     send_stream: SendStream,
     recv_stream: RecvStream,
     dialer: Arc<dyn crate::dialer::Dialer>,
     target: &str,
 ) -> anyhow::Result<()> {
-    let target = Arc::from(target);
-
-    let remote = dialer.dial_tcp(&target).await?;
-    let (remote_rx, mut remote_tx) = tokio::io::split(remote);
-    let (mut quic_tx, quic_rx) = (send_stream, recv_stream);
-
-    // Use 16KB buffered readers for bidirectional copy.
-    let mut remote_rx = tokio::io::BufReader::with_capacity(16 * 1024, remote_rx);
-    let mut quic_rx = tokio::io::BufReader::with_capacity(16 * 1024, quic_rx);
-
-    // Spawn idle-timeout monitor tasks — one per direction.
-    // Each wraps a manual copy loop in `tokio::time::timeout`.  A new
-    // timeout is created per chunk, so any successful read/write resets
-    // the timer.  When one direction finishes (or times out), the other
-    // is aborted.
-    let mut remote_to_quic = {
-        let target = target.clone();
-        tokio::spawn(async move {
-            let mut buf = vec![0u8; 16 * 1024];
-            loop {
-                let n = match tokio::time::timeout(
-                    consts::TCP_RELAY_IDLE_TIMEOUT,
-                    tokio::io::AsyncReadExt::read(&mut remote_rx, &mut buf),
-                )
-                .await
-                {
-                    Ok(Ok(0)) => return Ok(()),
-                    Ok(Ok(n)) => n,
-                    Ok(Err(e)) => return Err(e),
-                    Err(_) => {
-                        tracing::debug!(
-                            target = %target,
-                            idle_secs = consts::TCP_RELAY_IDLE_TIMEOUT.as_secs(),
-                            "TCP relay remote→quic idle timeout"
-                        );
-                        return Ok(());
-                    }
-                };
-                if let Err(e) =
-                    tokio::io::AsyncWriteExt::write_all(&mut quic_tx, &buf[..n]).await
-                {
-                    return Err(e);
-                }
-            }
-        })
-    };
-
-    let mut quic_to_remote = {
-        let target = target.clone();
-        tokio::spawn(async move {
-            let mut buf = vec![0u8; 16 * 1024];
-            loop {
-                let n = match tokio::time::timeout(
-                    consts::TCP_RELAY_IDLE_TIMEOUT,
-                    tokio::io::AsyncReadExt::read(&mut quic_rx, &mut buf),
-                )
-                .await
-                {
-                    Ok(Ok(0)) => return Ok(()),
-                    Ok(Ok(n)) => n,
-                    Ok(Err(e)) => return Err(e),
-                    Err(_) => {
-                        tracing::debug!(
-                            target = %target,
-                            idle_secs = consts::TCP_RELAY_IDLE_TIMEOUT.as_secs(),
-                            "TCP relay quic→remote idle timeout"
-                        );
-                        return Ok(());
-                    }
-                };
-                if let Err(e) =
-                    tokio::io::AsyncWriteExt::write_all(&mut remote_tx, &buf[..n]).await
-                {
-                    return Err(e);
-                }
-            }
-        })
-    };
-
-    tokio::select! {
-        r = &mut remote_to_quic => {
-            quic_to_remote.abort();
-            let _ = r;
-        }
-        r = &mut quic_to_remote => {
-            remote_to_quic.abort();
-            let _ = r;
-        }
-    }
-
+    let remote = dialer.dial_tcp(target).await?;
+    crate::tcp::relay(
+        recv_stream,
+        send_stream,
+        remote,
+        consts::TCP_RELAY_IDLE_TIMEOUT,
+    )
+    .await?;
     Ok(())
 }
 
@@ -1368,43 +1278,13 @@ async fn handle_udp_relay(
             let mut guard = SendGuard {
                 send: Some(send_stream),
             };
-            let mut buf = vec![0u8; consts::ETHERNET_MTU];
-            // Pre-allocate frame buffer for reuse across all response datagrams.
-            // Max: trojanc_addr header (up to ~261 bytes) + 2-byte length + payload.
-            let mut frame = Vec::with_capacity(264 + consts::ETHERNET_MTU);
-            // Cache the first response address; subsequent responses come from
-            // the same outbound target so we avoid re-parsing every datagram.
-            let mut cached_addr: Option<protocol::CachedAddr> = None;
-            loop {
-                match tokio::time::timeout(consts::DEFAULT_NAT_TIMEOUT, remote.recv_from(&mut buf))
-                    .await
-                {
-                    Ok(Ok((n, addr))) => {
-                        // Cache the address on first packet to avoid re-parsing
-                        // the address type (string → IPv4/IPv6/Domain) on every
-                        // subsequent datagram in this session.
-                        let cached = cached_addr
-                            .get_or_insert_with(|| protocol::CachedAddr::from_socket_addr(addr));
-                        // Build header directly into the reusable frame buffer,
-                        // eliminating the intermediate Vec allocation.
-                        let pkt_len = (n as u16).to_be_bytes();
-                        frame.clear();
-                        if let Err(e) = protocol::build_trojanc_addr_cached(&mut frame, cached) {
-                            tracing::debug!("build_trojanc_addr_cached error: {:?}", e);
-                            break;
-                        }
-                        frame.extend_from_slice(&pkt_len);
-                        frame.extend_from_slice(&buf[..n]);
-                        if guard.send.as_mut().unwrap().write_all(&frame).await.is_err() {
-                            break;
-                        }
-                    }
-                    Ok(Err(_)) => break,
-                    Err(_) => {
-                        tracing::debug!("UDP relay remote->quic idle timeout");
-                        break;
-                    }
-                }
+            if let Err(e) = crate::udp::relay_responses(
+                remote.as_ref(),
+                guard.send.as_mut().unwrap(),
+            )
+            .await
+            {
+                tracing::debug!("UDP relay remote->quic error: {:?}", e);
             }
         })
     };
