@@ -24,8 +24,10 @@ const ICON_256: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/256.png"));
 /// next to the executable. Every other path — notably the Lucide icon set used
 /// by gpui-kit components, such as the Select chevron — is delegated to the
 /// bundled gpui-kit assets.
+#[cfg(feature = "ui-gpui")]
 pub struct Assets;
 
+#[cfg(feature = "ui-gpui")]
 impl gpui_kit::AssetSource for Assets {
     fn load(&self, path: &str) -> gpui_kit::Result<Option<std::borrow::Cow<'static, [u8]>>> {
         let bytes = match path {

@@ -1,0 +1,38 @@
+import { Theme } from "../theme.slint";
+import { MenuItem } from "../state.slint";
+import { OptionRow } from "primitives.slint";
+import { ScrollArea } from "scroll.slint";
+
+export component PopupMenu inherits Rectangle {
+    in property <[MenuItem]> items;
+    in property <length> menu-width: 240px;
+    callback selected(int);
+    public function show() { popup.show(); }
+    public function close() { popup.close(); }
+    popup := PopupWindow {
+        y: root.height;
+        width: root.menu-width;
+        height: min(352px, root.items.length * 44px + 16px);
+        Rectangle {
+            background: Theme.card;
+            border-radius: 12px;
+            ScrollArea {
+                x: 8px;
+                y: 8px;
+                width: parent.width - 16px;
+                height: parent.height - 16px;
+                content-height: root.items.length * 44px;
+                VerticalLayout {
+                    for item[index] in root.items: OptionRow {
+                        text: item.text;
+                        selected: item.checked;
+                        opacity: item.enabled ? 1 : 0.5;
+                        clicked => {
+                            if item.enabled { root.selected(index); popup.close(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

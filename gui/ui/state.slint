@@ -1,0 +1,141 @@
+export enum Page { overview, nodes, settings }
+export enum Connection { stopped, starting, running }
+export enum ProxyMode { off, pac, global }
+export enum PacRule { bypass-china, gfw-list }
+export enum PacSource { local, online }
+export enum Protocol { juicity, shadowsocks }
+export enum StartupConnection { off, on, last }
+export enum Notice { none, imported, link-copied, start-failed, rules-updated, rules-failed, proxy-failed, save-failed }
+export enum NodeField { name, protocol, server, port, uuid, password, method, sni, allow-insecure, pinned-certchain-sha256, congestion-control, plugin, plugin-options, plugin-args, timeout, group }
+export enum SettingField { mixed-port, direct-url, proxy-url, update-hours, pac-listen, online-pac-url }
+export enum NodeCommand { move-up, move-down, duplicate, delete }
+
+export struct NodeRow {
+    id: string,
+    name: string,
+    address: string,
+    protocol: Protocol,
+    in-use: bool,
+    group: string,
+}
+export struct NodeDraft {
+    name: string,
+    protocol: Protocol,
+    server: string,
+    port: string,
+    uuid: string,
+    password: string,
+    method: string,
+    sni: string,
+    allow-insecure: bool,
+    pinned-certchain-sha256: string,
+    congestion-control: string,
+    plugin: string,
+    plugin-options: string,
+    plugin-args: string,
+    timeout: string,
+    group: string,
+}
+export struct FieldError { field: NodeField, message: string }
+export struct MenuItem { text: string, checked: bool, enabled: bool }
+export struct Versions { gui: string, juicity: string, shadowsocks: string, tag: string, commit: string }
+
+export global AppState {
+    in-out property <Page> page: Page.overview;
+    in-out property <Connection> connection: Connection.stopped;
+    in-out property <string> active-name;
+    in-out property <string> active-address;
+    in-out property <string> local-port;
+    in-out property <string> local-host;
+    in-out property <string> pac-url;
+    in-out property <ProxyMode> proxy-mode: ProxyMode.off;
+    in-out property <PacRule> pac-rule: PacRule.bypass-china;
+    in-out property <string> rules-updated-at;
+    in-out property <bool> rules-updating;
+    in-out property <Notice> notice: Notice.none;
+    in-out property <string> notice-detail;
+    in-out property <bool> notice-error;
+    out property <string> connection-text: connection == Connection.running ? @tr("Connected · {}", active-name) : connection == Connection.starting ? @tr("Connecting…") : @tr("Disconnected");
+    out property <string> proxy-text: proxy-mode == ProxyMode.pac ? @tr("System proxy · PAC") : proxy-mode == ProxyMode.global ? @tr("System proxy · Global") : @tr("System proxy · Off");
+    out property <string> notice-text: notice == Notice.imported ? @tr("Links imported") : notice == Notice.link-copied ? @tr("Link copied") : notice == Notice.start-failed ? @tr("Could not start proxy: {}", notice-detail) : notice == Notice.rules-updated ? @tr("Rules updated") : notice == Notice.rules-failed ? @tr("Could not update rules: {}", notice-detail) : notice == Notice.proxy-failed ? @tr("Could not set system proxy: {}", notice-detail) : notice == Notice.save-failed ? @tr("Could not save settings: {}", notice-detail) : "";
+}
+export global NodeStore {
+    in-out property <[NodeRow]> rows;
+    in-out property <int> selected: -1;
+    in-out property <NodeDraft> draft;
+    in-out property <[FieldError]> errors;
+    in-out property <bool> reconnect-required;
+    in-out property <bool> advanced-open;
+    in-out property <NodeDraft> advanced-draft;
+    in-out property <[string]> methods;
+}
+export global SettingsStore {
+    in-out property <bool> autostart;
+    in-out property <bool> hide-on-start;
+    in-out property <bool> close-to-tray;
+    in-out property <StartupConnection> startup-connection: StartupConnection.off;
+    in-out property <string> mixed-port;
+    in-out property <string> direct-url;
+    in-out property <string> proxy-url;
+    in-out property <int> update-hours;
+    in-out property <PacSource> pac-source: PacSource.local;
+    in-out property <string> pac-listen;
+    in-out property <string> online-pac-url;
+    in-out property <Versions> versions;
+    in-out property <bool> sheet-open;
+    in-out property <SettingField> sheet-field;
+    in-out property <string> sheet-draft;
+    in-out property <string> sheet-error;
+}
+export global Actions {
+    callback navigate(Page);
+    callback toggle-connection;
+    callback set-proxy-mode(ProxyMode);
+    callback set-pac-rule(PacRule);
+    callback update-rules;
+    callback copy-pac-url;
+    callback dismiss-notice;
+    callback select-node(int);
+    callback add-node;
+    callback import-links;
+    callback node-command(int, NodeCommand);
+    callback edit-node(NodeField, string);
+    callback set-active-node;
+    callback export-link;
+    callback open-advanced;
+    callback edit-advanced(NodeField, string);
+    callback commit-advanced;
+    callback cancel-advanced;
+    callback set-autostart(bool);
+    callback set-hide-on-start(bool);
+    callback set-close-to-tray(bool);
+    callback set-startup-connection(StartupConnection);
+    callback set-pac-source(PacSource);
+    callback set-update-hours(int);
+    callback open-setting(SettingField);
+    callback edit-setting(string);
+    callback commit-setting;
+    callback cancel-setting;
+    callback quit;
+}
+export global Fmt {
+    pure callback elide-middle(string, length, length) -> string;
+}
+export global TrayText {
+    out property <string> status: AppState.connection-text;
+    out property <string> connect: AppState.connection == Connection.running ? @tr("Disconnect") : @tr("Connect");
+    out property <string> system-proxy: @tr("System proxy");
+    out property <string> off: @tr("Off");
+    out property <string> pac: "PAC";
+    out property <string> global: @tr("Global");
+    out property <string> bypass-china: @tr("Bypass mainland China");
+    out property <string> gfw-list: @tr("Proxy GFW list only");
+    out property <string> update-rules: @tr("Update rules");
+    out property <string> nodes: @tr("Nodes");
+    out property <string> import-clipboard: @tr("Import from clipboard");
+    out property <string> open: @tr("Open juicity");
+    out property <string> edit-nodes: @tr("Nodes…");
+    out property <string> settings: @tr("Settings…");
+    out property <string> about: @tr("About juicity");
+    out property <string> quit: @tr("Quit");
+}

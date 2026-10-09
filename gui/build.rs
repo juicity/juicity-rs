@@ -12,6 +12,23 @@ const PNG_SIZES: [u32; 8] = [16, 32, 48, 64, 128, 256, 512, 1024];
 const ICO_SIZES: [u32; 6] = [16, 32, 48, 64, 128, 256];
 
 fn main() {
+    let gpui = std::env::var_os("CARGO_FEATURE_UI_GPUI").is_some();
+    let slint = std::env::var_os("CARGO_FEATURE_UI_SLINT").is_some();
+    if gpui == slint {
+        return;
+    }
+    #[cfg(feature = "ui-slint")]
+    if slint {
+        slint_build::compile_with_config(
+            "ui/app.slint",
+            slint_build::CompilerConfiguration::new()
+                // slint-build sets the domain to CARGO_PKG_NAME (juicity-gui).
+                .with_default_translation_context(slint_build::DefaultTranslationContext::None)
+                .with_bundled_translations("lang"),
+        )
+        .expect("Failed to compile Slint UI");
+        return;
+    }
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let svg_path = format!("{manifest_dir}/icon.svg");
@@ -31,6 +48,7 @@ fn main() {
 
         // For tray: also write raw ARGB32 big-endian (StatusNotifierItem format).
         // tiny-skia stores pixels as premultiplied RGBA; convert to ARGB big-endian.
+        #[cfg(feature = "ui-gpui")]
         if matches!(size, 16 | 32 | 48) {
             let argb: Vec<u8> = pixmap
                 .data()

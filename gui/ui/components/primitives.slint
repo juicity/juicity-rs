@@ -1,0 +1,384 @@
+import { Theme, Icons } from "../theme.slint";
+
+export component Icon inherits Image {
+    in property <length> size: 18px;
+    width: size;
+    height: size;
+    colorize: Theme.text;
+}
+
+export component Caption inherits Text {
+    font-size: 12px;
+    color: Theme.secondary;
+    height: 16px;
+    vertical-alignment: center;
+}
+
+// Noto Sans descent is 0.293 em; align the unit to the number's baseline.
+export component Metric inherits Rectangle {
+    in property <string> value;
+    in property <string> unit;
+    in property <length> size: 40px;
+    in property <length> unit-size: 16px;
+    height: size * 1.25;
+    num := Text {
+        x: 0;
+        y: 0;
+        width: self.preferred-width;
+        height: parent.height;
+        text: root.value;
+        font-family: Theme.latin;
+        font-weight: 500;
+        font-size: root.size;
+        color: Theme.text;
+        vertical-alignment: bottom;
+    }
+    Text {
+        x: num.width + root.size * 0.15;
+        y: 0;
+        width: self.preferred-width;
+        height: parent.height - (root.size - root.unit-size) * 0.293;
+        text: root.unit;
+        font-family: Theme.latin;
+        font-size: root.unit-size;
+        color: Theme.secondary;
+        vertical-alignment: bottom;
+    }
+}
+
+export component Card inherits Rectangle {
+    background: Theme.card;
+    border-radius: 16px;
+}
+
+export component HDivider inherits Rectangle {
+    height: 1px;
+    background: Theme.divider;
+}
+
+export component Button inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> has-icon: false;
+    in property <bool> enabled: true;
+    callback clicked;
+    forward-focus: focus;
+    height: 32px;
+    horizontal-stretch: 0;
+    border-radius: 8px;
+    background: Theme.pill;
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 6px;
+        alignment: center;
+        if root.has-icon: VerticalLayout {
+            alignment: center;
+            Icon { source: root.icon; size: 16px; }
+        }
+        Text { text: root.text; font-size: 13px; color: Theme.text; vertical-alignment: center; }
+    }
+    touch := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+    focus := FocusScope {
+        width: 0px;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if self.enabled && (event.text == Key.Return || event.text == Key.Space) {
+                touch.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    Rectangle {
+        visible: root.enabled && focus.has-focus;
+        background: transparent;
+        border-width: Theme.focus-ring-width;
+        border-color: Theme.focus-ring;
+        border-radius: root.border-radius;
+    }
+}
+
+export component IconButton inherits Rectangle {
+    in property <image> icon;
+    in property <bool> enabled: true;
+    callback clicked;
+    forward-focus: focus;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: Theme.pill;
+    Icon { source: root.icon; }
+    touch := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+    focus := FocusScope {
+        width: 0px;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if self.enabled && (event.text == Key.Return || event.text == Key.Space) {
+                touch.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    Rectangle {
+        visible: root.enabled && focus.has-focus;
+        background: transparent;
+        border-width: Theme.focus-ring-width;
+        border-color: Theme.focus-ring;
+        border-radius: root.border-radius;
+    }
+}
+
+// Use a Latin dot without changing the translated text's font or baseline.
+export component SeparatedText inherits Rectangle {
+    in property <string> text;
+    in property <string> detail;
+    // Untranslated Latin details (protocol names) keep the Latin face.
+    in property <string> detail-font: Theme.cjk;
+    in property <length> size: 13px;
+    in property <color> foreground: Theme.text;
+    preferred-width: metrics.preferred-width;
+    // Measure with the mockup font; only the CJK runs and Latin dot are painted.
+    metrics := Text {
+        visible: false;
+        width: 0px;
+        height: 0px;
+        text: root.detail != "" ? root.text + " · " + root.detail : root.text;
+        font-family: Theme.latin;
+        font-size: root.size;
+    }
+    label := Text {
+        x: 0px;
+        y: (separator.font-metrics.ascent + separator.font-metrics.descent - self.font-metrics.ascent - self.font-metrics.descent) / 2;
+        width: self.preferred-width;
+        height: parent.height;
+        text: root.text;
+        font-family: Theme.cjk;
+        font-size: root.size;
+        color: root.foreground;
+        vertical-alignment: center;
+    }
+    separator := Text {
+        x: label.width;
+        width: root.detail != "" ? root.size * Theme.separator-advance : 0px;
+        height: parent.height;
+        text: root.detail != "" ? " · " : "";
+        font-family: Theme.latin;
+        font-size: root.size;
+        color: root.foreground;
+        vertical-alignment: center;
+    }
+    detail := Text {
+        x: label.width + separator.width;
+        y: (separator.font-metrics.ascent + separator.font-metrics.descent - self.font-metrics.ascent - self.font-metrics.descent) / 2;
+        width: self.preferred-width;
+        height: parent.height;
+        text: root.detail;
+        font-family: root.detail-font;
+        font-size: root.size;
+        color: root.foreground;
+        vertical-alignment: center;
+    }
+}
+
+export component Pill inherits Rectangle {
+    in property <string> text;
+    in property <string> detail;
+    in property <bool> running: true;
+    height: 28px;
+    horizontal-stretch: 0;
+    border-radius: 14px;
+    background: Theme.pill;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 8px;
+        alignment: center;
+        VerticalLayout {
+            alignment: center;
+            Rectangle { width: 8px; height: 8px; border-radius: 4px; background: root.running ? Theme.green : Theme.secondary; }
+        }
+        SeparatedText { text: root.text; detail: root.detail; }
+    }
+}
+
+export component Switch inherits Rectangle {
+    in-out property <bool> on;
+    in property <bool> enabled: true;
+    callback toggled(bool);
+    forward-focus: focus;
+    width: 36px;
+    height: 20px;
+    border-radius: 10px;
+    background: on ? Theme.switch-on : Theme.switch-off;
+    Rectangle {
+        x: root.on ? 18px : 2px;
+        y: 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: root.on ? Theme.switch-on-knob : Theme.switch-off-knob;
+    }
+    touch := TouchArea { enabled: root.enabled; clicked => { root.on = !root.on; root.toggled(root.on); } }
+    focus := FocusScope {
+        width: 0px;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if self.enabled && (event.text == Key.Return || event.text == Key.Space) {
+                touch.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    Rectangle {
+        visible: root.enabled && focus.has-focus;
+        background: transparent;
+        border-width: Theme.focus-ring-width;
+        border-color: Theme.focus-ring;
+        border-radius: root.border-radius;
+    }
+}
+
+export component SettingSwitch inherits HorizontalLayout {
+    in-out property <bool> on;
+    callback toggled(bool);
+    padding-right: Theme.chevron-inset;
+    VerticalLayout { alignment: center; Switch { on <=> root.on; toggled(value) => { root.toggled(value); } } }
+}
+
+export component SettingRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> note;
+    height: root.note != "" ? 56px : 44px;
+    spacing: 16px;
+    VerticalLayout {
+        alignment: center;
+        spacing: 2px;
+        Text { text: root.label; font-size: 14px; color: Theme.text; height: 20px; vertical-alignment: center; }
+        if root.note != "": Caption { text: root.note; }
+    }
+    Rectangle { horizontal-stretch: 1; }
+    @children
+}
+
+export component SettingValue inherits Rectangle {
+    in property <string> text;
+    in property <bool> menu: false;
+    callback clicked;
+    HorizontalLayout {
+        spacing: 4px;
+        Text { text: root.text; font-family: Theme.cjk; font-size: 14px; color: Theme.secondary; vertical-alignment: center; }
+        VerticalLayout {
+            alignment: center;
+            padding-right: root.menu ? 2px : 0px;
+            Icon { source: root.menu ? Icons.chevron-down : Icons.chevron-right; size: 16px; colorize: Theme.secondary; }
+        }
+    }
+    TouchArea { clicked => { root.clicked(); } }
+}
+
+export component OptionRow inherits Rectangle {
+    in property <image> icon;
+    in property <string> text;
+    in property <bool> selected;
+    in property <bool> enabled: true;
+    callback clicked;
+    forward-focus: focus;
+    height: 44px;
+    HorizontalLayout {
+        spacing: 10px;
+        VerticalLayout { alignment: center; Icon { source: root.icon; } }
+        Text { text: root.text; font-size: 14px; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+        if root.selected: HorizontalLayout {
+            padding-right: Theme.chevron-inset - 2px;
+            VerticalLayout { alignment: center; Icon { source: Icons.check; size: 16px; } }
+        }
+    }
+    touch := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+    focus := FocusScope {
+        width: 0px;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if self.enabled && (event.text == Key.Return || event.text == Key.Space) {
+                touch.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    Rectangle {
+        visible: root.enabled && focus.has-focus;
+        background: transparent;
+        border-width: Theme.focus-ring-width;
+        border-color: Theme.focus-ring;
+        border-radius: root.border-radius;
+    }
+}
+
+export component OptionDivider inherits HorizontalLayout {
+    padding-left: 28px;
+    HDivider { }
+}
+
+export component GroupLabel inherits Text {
+    font-size: 13px;
+    font-weight: 500;
+    color: Theme.text;
+    height: 18px;
+    vertical-alignment: center;
+}
+
+export component SettingsCard inherits Card {
+    in property <string> title;
+    VerticalLayout {
+        padding: 20px;
+        padding-bottom: 12px;
+        Caption { text: root.title; }
+        Rectangle { height: 4px; }
+        @children
+    }
+}
+
+export component NodeListRow inherits Rectangle {
+    in property <string> name;
+    in property <string> address;
+    in property <bool> in-use;
+    in property <string> tag;
+    in property <bool> selected;
+    callback clicked;
+    callback context-menu;
+    height: 52px;
+    border-radius: 10px;
+    background: selected ? Theme.selected : transparent;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            Text { text: root.name; font-size: 14px; color: Theme.text; height: 20px; vertical-alignment: center; }
+            Text { text: root.address; font-family: Theme.latin; font-size: 12px; color: Theme.secondary; height: 16px; vertical-alignment: center; overflow: elide; }
+        }
+        if root.in-use: HorizontalLayout {
+            horizontal-stretch: 0;
+            spacing: 6px;
+            VerticalLayout {
+                alignment: center;
+                Rectangle { width: 8px; height: 8px; border-radius: 4px; background: Theme.green; }
+            }
+            Caption { text: @tr("In use"); height: 52px; horizontal-stretch: 0; }
+        }
+        if root.tag != "": Caption { text: root.tag; font-family: Theme.cjk; height: 52px; horizontal-stretch: 0; }
+    }
+    TouchArea {
+        clicked => { root.clicked(); }
+        pointer-event(event) => {
+            if event.button == PointerEventButton.right && event.kind == PointerEventKind.up {
+                root.context-menu();
+            }
+        }
+    }
+}

@@ -1,0 +1,49 @@
+import { Palette } from "std-widgets.slint";
+import "../fonts/NotoSans-Regular.ttf";
+import "../fonts/NotoSans-Medium.ttf";
+
+export global Theme {
+    in-out property <bool> dark: Palette.color-scheme == ColorScheme.dark;
+    out property <color> window: dark ? #1C1C1E : #F2F2F4;
+    out property <color> sidebar: dark ? #232325 : #ECECEF;
+    out property <color> sidebar-selected: dark ? #3A3A3C : #DEDEE3;
+    out property <color> card: dark ? #2C2C2E : #FFFFFF;
+    out property <color> divider: dark ? #FFFFFF1A : #0000001A;
+    out property <color> text: dark ? #F5F5F7 : #1D1D1F;
+    out property <color> secondary: dark ? #98989D : #86868B;
+    out property <color> focus-ring: secondary.with-alpha(0.4);
+    out property <length> focus-ring-width: 2px;
+    out property <color> pill: dark ? #3A3A3C : #E5E5EA;
+    out property <color> selected: dark ? #3A3A3C : #E8E8ED;
+    out property <color> switch-on: dark ? #F5F5F7 : #1D1D1F;
+    out property <color> switch-on-knob: dark ? #1C1C1E : #FFFFFF;
+    out property <color> switch-off: dark ? #3A3A3C : #E5E5EA;
+    out property <color> switch-off-knob: dark ? #98989D : #FFFFFF;
+    out property <length> chevron-inset: 5.3px;
+    out property <color> green: dark ? #30D158 : #34C759;
+    out property <color> red: dark ? #FF453A : #FF3B30;
+    in-out property <string> cjk: "Noto Sans CJK TC";
+    out property <string> latin: "Noto Sans";
+    // Noto Sans Regular: space + middle dot + space = 788 / 1000 em.
+    out property <float> separator-advance: 0.788;
+}
+
+export global Icons {
+    out property <image> logo: @image-url("../icon.svg");
+    out property <image> activity: @image-url("../icons/activity.svg");
+    out property <image> server: @image-url("../icons/server.svg");
+    out property <image> settings: @image-url("../icons/settings.svg");
+    out property <image> power-off: @image-url("../icons/power-off.svg");
+    out property <image> route: @image-url("../icons/route.svg");
+    out property <image> globe: @image-url("../icons/globe.svg");
+    out property <image> copy: @image-url("../icons/copy.svg");
+    out property <image> map-pin: @image-url("../icons/map-pin.svg");
+    out property <image> shield: @image-url("../icons/shield.svg");
+    out property <image> refresh: @image-url("../icons/refresh-cw.svg");
+    out property <image> paste: @image-url("../icons/clipboard-paste.svg");
+    out property <image> plus: @image-url("../icons/plus.svg");
+    out property <image> chevron-down: @image-url("../icons/chevron-down.svg");
+    out property <image> chevron-right: @image-url("../icons/chevron-right.svg");
+    out property <image> check: @image-url("../icons/check.svg");
+    out property <image> eye: @image-url("../icons/eye.svg");
+}

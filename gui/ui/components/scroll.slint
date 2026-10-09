@@ -1,0 +1,37 @@
+import { Theme } from "../theme.slint";
+
+export component ScrollArea inherits Rectangle {
+    in property <length> content-height;
+    in-out property <length> scroll-y <=> view.content-y;
+    private property <length> drag-start-scroll;
+    clip: true;
+    view := Flickable {
+        width: parent.width - 10px;
+        height: parent.height;
+        content-width: self.width;
+        content-height: max(root.content-height, self.height);
+        interactive: true;
+        @children
+    }
+    if root.content-height > root.height: Rectangle {
+        x: parent.width - 10px;
+        width: 10px;
+        height: parent.height;
+        Rectangle {
+            x: 4px;
+            y: -root.scroll-y / (root.content-height - root.height) * (root.height - self.height);
+            width: 4px;
+            height: max(24px, root.height * root.height / root.content-height);
+            border-radius: 2px;
+            background: Theme.secondary;
+        }
+        TouchArea {
+            changed pressed => { if self.pressed { root.drag-start-scroll = root.scroll-y; } }
+            moved => {
+                if self.pressed {
+                    root.scroll-y = clamp(root.drag-start-scroll - (self.mouse-y - self.pressed-y) * (root.content-height - root.height) / (root.height - max(24px, root.height * root.height / root.content-height)), root.height - root.content-height, 0px);
+                }
+            }
+        }
+    }
+}

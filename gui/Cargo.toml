@@ -3,6 +3,11 @@ name = "juicity-gui"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = ["ui-gpui"]
+ui-gpui = ["dep:gpui-kit"]
+ui-slint = ["dep:slint", "dep:slint-build"]
+
 [dependencies]
 juicity-common = { path = "../common" }
 # Embedded proxy core (QUIC client + local SOCKS5/HTTP server).
@@ -22,7 +27,8 @@ ureq = "2.9"
 
 # GPUI Kit bundles and re-exports GPUI, gpui-base and the styled component
 # library (formerly `gpui-component`), so the GUI depends on this one crate.
-gpui-kit = "0.7"
+gpui-kit = { version = "0.7", optional = true }
+slint = { version = "=1.18.1", optional = true, default-features = false, features = ["std", "backend-winit", "renderer-femtovg", "renderer-software", "compat-1-2", "accessibility", "unstable-fontique-011", "unstable-winit-030"] }
 directories = "5"
 unicode-segmentation = "1"
 notify = "7"
@@ -42,10 +48,10 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 
 [build-dependencies]
 resvg = "0.44"
+slint-build = { version = "=1.18.1", optional = true }
 # Compiles the generated `icon.ico` into the Windows executable's resources.
 embed-resource = "3"
 
-# Enables `#[gpui_kit::test]` + `TestAppContext` for headless UI/state tests.
-# The feature only affects test builds; it never reaches a release binary.
 [dev-dependencies]
-gpui-kit = { version = "0.7", features = ["test-support"] }
+i-slint-backend-testing = "=1.18.1"
+image = { version = "0.25", default-features = false, features = ["png"] }

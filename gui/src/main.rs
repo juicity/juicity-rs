@@ -6,30 +6,59 @@
     windows_subsystem = "windows"
 )]
 
+#[cfg(any(
+    all(feature = "ui-gpui", feature = "ui-slint"),
+    not(any(feature = "ui-gpui", feature = "ui-slint"))
+))]
+compile_error!("Enable exactly one of ui-gpui and ui-slint");
+
+#[cfg(feature = "ui-gpui")]
 mod about_dialog;
+#[cfg(feature = "ui-gpui")]
 mod app;
+#[cfg(feature = "ui-gpui")]
 mod config;
+#[cfg(feature = "ui-gpui")]
 mod core;
 mod i18n;
+#[cfg(feature = "ui-gpui")]
 mod icon;
+#[cfg(feature = "ui-gpui")]
 mod link;
+#[cfg(feature = "ui-gpui")]
 mod log_dialog;
+#[cfg_attr(feature = "ui-slint", allow(dead_code))]
 mod logging;
+#[cfg(feature = "ui-gpui")]
 mod pac;
+#[cfg(feature = "ui-gpui")]
 mod pac_dialog;
+#[cfg(feature = "ui-gpui")]
 mod save_prompt;
+#[cfg(feature = "ui-gpui")]
 mod startup_dialog;
+#[cfg(feature = "ui-gpui")]
 mod state;
+#[cfg(feature = "ui-gpui")]
 mod system_proxy;
+#[cfg(feature = "ui-gpui")]
 mod system_theme;
+#[cfg(feature = "ui-gpui")]
 mod traffic;
+#[cfg(feature = "ui-gpui")]
 mod tray;
+#[cfg(feature = "ui-slint")]
+mod ui;
+#[cfg(feature = "ui-gpui")]
 mod util;
+#[cfg(feature = "ui-gpui")]
 mod widgets;
 
+#[cfg(feature = "ui-gpui")]
 // Load translation files from `locales/` at compile time.
 rust_i18n::i18n!("locales", fallback = "en");
 
+#[cfg(any(feature = "ui-gpui", feature = "ui-slint"))]
 fn main() -> anyhow::Result<()> {
     let log_level = std::env::args()
         .position(|arg| arg == "--log-level")
@@ -40,7 +69,14 @@ fn main() -> anyhow::Result<()> {
     logging::init(&log_level);
 
     // Activate the system locale before any UI string is read.
+    #[cfg(feature = "ui-gpui")]
     i18n::init();
 
-    app::run()
+    #[cfg(feature = "ui-gpui")]
+    return app::run();
+    #[cfg(feature = "ui-slint")]
+    return ui::run();
 }
+
+#[cfg(not(any(feature = "ui-gpui", feature = "ui-slint")))]
+fn main() {}

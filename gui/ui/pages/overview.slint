@@ -1,0 +1,110 @@
+import { Theme, Icons } from "../theme.slint";
+import { AppState, Connection, ProxyMode, PacRule, Actions, Fmt } from "../state.slint";
+import { Caption, Metric, Card, HDivider, Button, IconButton, Pill, SeparatedText, OptionRow, OptionDivider } from "../components/primitives.slint";
+import { PageHeader } from "../components/nav.slint";
+
+export component OverviewPage inherits VerticalLayout {
+    spacing: 16px;
+    PageHeader {
+        title: @tr("Overview");
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+            Pill {
+                text: AppState.connection == Connection.running ? @tr("Connected") : AppState.connection-text;
+                detail: AppState.connection == Connection.running ? AppState.active-name : "";
+                running: AppState.connection == Connection.running;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+            Pill {
+                text: @tr("System proxy");
+                detail: AppState.proxy-mode == ProxyMode.pac ? "PAC" : AppState.proxy-mode == ProxyMode.global ? @tr("Global") : @tr("Off");
+            }
+        }
+    }
+    HorizontalLayout {
+        spacing: 16px;
+        Card {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            preferred-width: 0px;
+            VerticalLayout {
+                padding: 20px;
+                Caption { text: @tr("Current node"); }
+                Rectangle { height: 8px; }
+                Text { text: AppState.active-name; font-size: 28px; font-weight: 500; color: Theme.text; height: 40px; vertical-alignment: center; }
+                Rectangle { height: 4px; }
+                Text { text: AppState.active-address; font-family: Theme.latin; font-size: 13px; color: Theme.secondary; height: 20px; vertical-alignment: center; overflow: elide; }
+                Rectangle { min-height: 20px; vertical-stretch: 1; }
+                HorizontalLayout { alignment: start; Button { text: AppState.connection == Connection.running ? @tr("Stop proxy") : @tr("Start proxy"); clicked => { Actions.toggle-connection(); } } }
+            }
+        }
+        Card {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            preferred-width: 0px;
+            VerticalLayout {
+                padding: 20px;
+                SeparatedText { text: @tr("Local proxy"); detail: "SOCKS5 / HTTP"; detail-font: Theme.latin; size: 12px; foreground: Theme.secondary; height: 16px; }
+                Rectangle { height: 4px; }
+                Metric { value: AppState.local-port; unit: AppState.local-host; }
+                Rectangle { min-height: 16px; vertical-stretch: 1; }
+                HDivider { }
+                Rectangle { height: 14px; }
+                HorizontalLayout {
+                    spacing: 12px;
+                    address := Rectangle {
+                        min-width: 0px;
+                        preferred-width: 0px;
+                        horizontal-stretch: 1;
+                        height: 40px;
+                        Caption { y: 0px; text: @tr("PAC address"); width: parent.width; }
+                        Text { y: 20px; width: parent.width; text: Fmt.elide-middle(AppState.pac-url, address.width, 14px); font-family: Theme.latin; font-size: 14px; color: Theme.text; height: 20px; vertical-alignment: center; overflow: elide; }
+                    }
+                    VerticalLayout { alignment: center; IconButton { icon: Icons.copy; clicked => { Actions.copy-pac-url(); } } }
+                }
+            }
+        }
+    }
+    HorizontalLayout {
+        spacing: 16px;
+        Card {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            preferred-width: 0px;
+            VerticalLayout {
+                padding: 20px;
+                alignment: start;
+                Caption { text: @tr("System proxy"); }
+                Rectangle { height: 4px; }
+                OptionRow { icon: Icons.power-off; text: @tr("Off"); selected: AppState.proxy-mode == ProxyMode.off; clicked => { Actions.set-proxy-mode(ProxyMode.off); } }
+                OptionDivider { }
+                OptionRow { icon: Icons.route; text: "PAC"; selected: AppState.proxy-mode == ProxyMode.pac; clicked => { Actions.set-proxy-mode(ProxyMode.pac); } }
+                OptionDivider { }
+                OptionRow { icon: Icons.globe; text: @tr("Global"); selected: AppState.proxy-mode == ProxyMode.global; clicked => { Actions.set-proxy-mode(ProxyMode.global); } }
+            }
+        }
+        Card {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            preferred-width: 0px;
+            VerticalLayout {
+                padding: 20px;
+                Caption { text: @tr("PAC rules"); }
+                Rectangle { height: 4px; }
+                OptionRow { icon: Icons.map-pin; text: @tr("Bypass mainland China"); selected: AppState.pac-rule == PacRule.bypass-china; clicked => { Actions.set-pac-rule(PacRule.bypass-china); } }
+                OptionDivider { }
+                OptionRow { icon: Icons.shield; text: @tr("Proxy GFW list only"); selected: AppState.pac-rule == PacRule.gfw-list; clicked => { Actions.set-pac-rule(PacRule.gfw-list); } }
+                Rectangle { min-height: 12px; vertical-stretch: 1; }
+                HorizontalLayout {
+                    spacing: 12px;
+                    Text { text: @tr("Rules updated {}", AppState.rules-updated-at); font-size: 12px; color: Theme.secondary; vertical-alignment: center; horizontal-stretch: 1; }
+                    Button { text: @tr("Update rules"); icon: Icons.refresh; has-icon: true; enabled: !AppState.rules-updating; clicked => { Actions.update-rules(); } }
+                }
+            }
+        }
+    }
+}

@@ -1,30 +1,39 @@
-//! Locale detection and initialization.
-//!
-//! Reads `LANG`, `LC_ALL`, or `LC_MESSAGES` (in that priority order) to pick
-//! the display language.  Falls back to `"en"` when none is set or the locale
-//! is not recognised.
-//!
-//! Supported locales: `en`, `zh-CN`.
+//! Locale detection with backend-specific catalog tags.
 
-/// Detect the system locale from environment variables and activate it.
-///
-/// Call this once at program startup, *after* `rust_i18n::i18n!("locales")` has
-/// been processed (i.e. after `main()` begins execution).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UiLang {
+    En,
+    ZhCn,
+    ZhTw,
+}
+
+impl UiLang {
+    #[cfg(feature = "ui-slint")]
+    pub fn slint_tag(self) -> &'static str {
+        match self {
+            Self::En => "en",
+            Self::ZhCn => "zh_CN",
+            Self::ZhTw => "zh_TW",
+        }
+    }
+
+    #[cfg(feature = "ui-gpui")]
+    fn gpui_tag(self) -> &'static str {
+        match self {
+            Self::En => "en",
+            Self::ZhCn | Self::ZhTw => "zh-CN",
+        }
+    }
+}
+
+#[cfg(feature = "ui-gpui")]
 pub fn init() {
-    let locale = detect();
-    rust_i18n::set_locale(&locale);
+    let locale = detect().gpui_tag();
+    rust_i18n::set_locale(locale);
     tracing::debug!("i18n locale set to: {locale}");
 }
 
-/// Return a rust-i18n locale tag that best matches the system environment.
-///
-/// Priority:
-///   1. `LANG` env var (POSIX)
-///   2. `LC_ALL` env var (POSIX)
-///   3. `LC_MESSAGES` env var (POSIX)
-///   4. OS-native API (Windows: `GetUserDefaultLocaleName`, macOS/Linux: `CFLocale`/`locale.conf`)
-///   5. Fallback to `"en"`
-pub fn detect() -> String {
+pub fn detect() -> UiLang {
     let from_env = std::env::var("LANG")
         .or_else(|_| std::env::var("LC_ALL"))
         .or_else(|_| std::env::var("LC_MESSAGES"))
@@ -33,50 +42,77 @@ pub fn detect() -> String {
     normalise(&raw)
 }
 
-/// Normalise a POSIX locale string (e.g. `zh_CN.UTF-8`) to a rust-i18n tag.
-fn normalise(raw: &str) -> String {
-    // Strip codeset suffix: "zh_CN.UTF-8" → "zh_CN"
-    let without_codeset = raw.split('.').next().unwrap_or("en");
-
-    // Replace underscore separator: "zh_CN" → "zh-CN"
-    let tag = without_codeset.replace('_', "-");
-
-    // Map to supported locales; fall back to "en".
-    match tag.as_str() {
-        t if t.starts_with("zh") => {
-            // Distinguish simplified (zh-CN, zh-SG) from traditional (zh-TW, zh-HK).
-            // We only ship zh-CN for now; everything else falls back to en.
-            if t == "zh-CN" || t == "zh-SG" || t == "zh" {
-                "zh-CN".to_string()
-            } else {
-                "en".to_string()
-            }
-        }
-        _ => "en".to_string(),
+fn normalise(raw: &str) -> UiLang {
+    let tag = raw
+        .split(['.', '@'])
+        .next()
+        .unwrap_or_default()
+        .replace('_', "-")
+        .to_ascii_lowercase();
+    let mut parts = tag.split('-');
+    if parts.next() != Some("zh") {
+        return UiLang::En;
+    }
+    if parts
+        .clone()
+        .any(|part| matches!(part, "tw" | "hk" | "mo" | "hant"))
+    {
+        UiLang::ZhTw
+    } else if tag == "zh" || parts.any(|part| matches!(part, "cn" | "sg" | "hans")) {
+        UiLang::ZhCn
+    } else {
+        UiLang::En
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::normalise;
+    use super::{normalise, UiLang};
 
     #[test]
     fn posix_zh_cn() {
-        assert_eq!(normalise("zh_CN.UTF-8"), "zh-CN");
+        assert_eq!(normalise("zh_CN.UTF-8"), UiLang::ZhCn);
     }
 
     #[test]
     fn posix_en_us() {
-        assert_eq!(normalise("en_US.UTF-8"), "en");
+        assert_eq!(normalise("en_US.UTF-8"), UiLang::En);
     }
 
     #[test]
-    fn zh_tw_falls_back() {
-        assert_eq!(normalise("zh_TW.UTF-8"), "en");
+    fn zh_tw_uses_traditional() {
+        assert_eq!(normalise("zh_TW.UTF-8"), UiLang::ZhTw);
     }
 
     #[test]
     fn empty_falls_back() {
-        assert_eq!(normalise(""), "en");
+        assert_eq!(normalise(""), UiLang::En);
+    }
+
+    #[test]
+    fn script_and_region_variants() {
+        for tag in [
+            "zh-HK",
+            "zh_MO",
+            "ZH-hANT",
+            "zh-Hant-HK",
+            "zh_TW@calendar=roc",
+        ] {
+            assert_eq!(normalise(tag), UiLang::ZhTw, "{tag}");
+        }
+        for tag in ["zh", "zh-SG", "zh-Hans", "zh-Hans-CN"] {
+            assert_eq!(normalise(tag), UiLang::ZhCn, "{tag}");
+        }
+        for tag in ["fr-FR", "C.UTF-8", "zho", "zhish-TW", "zh-JP"] {
+            assert_eq!(normalise(tag), UiLang::En, "{tag}");
+        }
+    }
+
+    #[cfg(feature = "ui-gpui")]
+    #[test]
+    fn gpui_uses_existing_catalogs() {
+        assert_eq!(UiLang::ZhTw.gpui_tag(), "zh-CN");
+        assert_eq!(UiLang::ZhCn.gpui_tag(), "zh-CN");
+        assert_eq!(UiLang::En.gpui_tag(), "en");
     }
 }
