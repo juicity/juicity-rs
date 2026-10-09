@@ -120,6 +120,15 @@ pub fn rules_age_hours(data_dir: &Path) -> Option<u64> {
     Some(elapsed.as_secs() / 3600)
 }
 
+/// Modification time of the downloaded rule files, or `None` until both
+/// exist.
+#[allow(dead_code)]
+pub fn rules_updated_at(data_dir: &Path) -> Option<std::time::SystemTime> {
+    // The older of the two files, so a half-failed download is not shown as fresh.
+    let mtime = |file: &str| std::fs::metadata(data_dir.join(file)).ok()?.modified().ok();
+    Some(mtime("china-list.txt")?.min(mtime("gfw.txt")?))
+}
+
 /// Download fresh rule lists into `data_dir` (blocking, intended for a
 /// background thread).  Returns `(direct_count, proxy_count)` on success.
 ///
@@ -340,6 +349,19 @@ mod tests {
         assert!(pac.contains("\"twitter.com\":1"));
         assert!(pac.contains("return \"DIRECT\""));
         assert!(pac.contains("SOCKS5 127.0.0.1:1080"));
+    }
+
+    #[test]
+    fn rules_updated_at_reads_the_rule_file_mtime() {
+        let dir = std::env::temp_dir().join(format!("juicity-gui-pac-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(rules_updated_at(&dir).is_none());
+        std::fs::write(dir.join("china-list.txt"), "example.cn\n").unwrap();
+        assert!(rules_updated_at(&dir).is_none(), "gfw.txt is still missing");
+        std::fs::write(dir.join("gfw.txt"), "example.com\n").unwrap();
+        let stamp = rules_updated_at(&dir).expect("mtime");
+        assert!(stamp.elapsed().unwrap_or_default() < std::time::Duration::from_secs(60));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The local inbound is a mixed port, so the PAC offers the HTTP proxy on

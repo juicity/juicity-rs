@@ -3,14 +3,13 @@ import { Sidebar } from "components/nav.slint";
 import { OverviewPage } from "pages/overview.slint";
 import { AppState, NodeStore, SettingsStore, Actions, Fmt, TrayText } from "state.slint";
 export { Theme, Icons } from "theme.slint";
-export { Page, Connection, ProxyMode, PacRule, PacSource, Protocol, StartupConnection, Notice, NodeField, SettingField, NodeCommand, NodeRow, NodeDraft, FieldError, MenuItem, Versions, AppState, NodeStore, SettingsStore, Actions, Fmt, TrayText } from "state.slint";
+export { Page, Connection, ProxyMode, PacRule, PacSource, Protocol, StartupConnection, Notice, NodeField, SettingField, NodeCommand, NodeRow, NodeDraft, FieldError, MenuItem, Versions, AppState, NodeStore, SettingsStore, Actions, Fmt, TrayText, FieldText } from "state.slint";
 import { Field, LabeledField } from "components/field.slint";
 import { PopupMenu } from "components/menu.slint";
 import { Sheet, Banner } from "components/sheet.slint";
 import { ScrollArea } from "components/scroll.slint";
 
 export component MainWindow inherits Window {
-    out property <string> fixture-updated-at: @tr("Today 09:42");
     title: "juicity";
     min-width: 960px;
     min-height: 640px;

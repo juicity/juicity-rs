@@ -5,7 +5,7 @@ export enum PacRule { bypass-china, gfw-list }
 export enum PacSource { local, online }
 export enum Protocol { juicity, shadowsocks }
 export enum StartupConnection { off, on, last }
-export enum Notice { none, imported, link-copied, start-failed, rules-updated, rules-failed, proxy-failed, save-failed }
+export enum Notice { none, imported, link-copied, start-failed, rules-updated, rules-failed, proxy-failed, save-failed, core-exited, no-node, missing-fields }
 export enum NodeField { name, protocol, server, port, uuid, password, method, sni, allow-insecure, pinned-certchain-sha256, congestion-control, plugin, plugin-options, plugin-args, timeout, group }
 export enum SettingField { mixed-port, direct-url, proxy-url, update-hours, pac-listen, online-pac-url }
 export enum NodeCommand { move-up, move-down, duplicate, delete }
@@ -50,14 +50,17 @@ export global AppState {
     in-out property <string> pac-url;
     in-out property <ProxyMode> proxy-mode: ProxyMode.off;
     in-out property <PacRule> pac-rule: PacRule.bypass-china;
-    in-out property <string> rules-updated-at;
+    // Days since the rules were downloaded (-1: never) and the time or date to show.
+    in-out property <int> rules-age-days: -1;
+    in-out property <string> rules-time;
     in-out property <bool> rules-updating;
     in-out property <Notice> notice: Notice.none;
     in-out property <string> notice-detail;
     in-out property <bool> notice-error;
     out property <string> connection-text: connection == Connection.running ? @tr("Connected · {}", active-name) : connection == Connection.starting ? @tr("Connecting…") : @tr("Disconnected");
     out property <string> proxy-text: proxy-mode == ProxyMode.pac ? @tr("System proxy · PAC") : proxy-mode == ProxyMode.global ? @tr("System proxy · Global") : @tr("System proxy · Off");
-    out property <string> notice-text: notice == Notice.imported ? @tr("Links imported") : notice == Notice.link-copied ? @tr("Link copied") : notice == Notice.start-failed ? @tr("Could not start proxy: {}", notice-detail) : notice == Notice.rules-updated ? @tr("Rules updated") : notice == Notice.rules-failed ? @tr("Could not update rules: {}", notice-detail) : notice == Notice.proxy-failed ? @tr("Could not set system proxy: {}", notice-detail) : notice == Notice.save-failed ? @tr("Could not save settings: {}", notice-detail) : "";
+    out property <string> notice-text: notice == Notice.imported ? @tr("Links imported") : notice == Notice.link-copied ? @tr("Link copied") : notice == Notice.start-failed ? @tr("Could not start proxy: {}", notice-detail) : notice == Notice.rules-updated ? @tr("Rules updated") : notice == Notice.rules-failed ? @tr("Could not update rules: {}", notice-detail) : notice == Notice.proxy-failed ? @tr("Could not set system proxy: {}", notice-detail) : notice == Notice.save-failed ? @tr("Could not save settings: {}", notice-detail) : notice == Notice.core-exited ? @tr("Proxy stopped: {}", notice-detail) : notice == Notice.no-node ? @tr("Add a node first") : notice == Notice.missing-fields ? @tr("Missing fields: {}", notice-detail) : "";
+    out property <string> rules-updated-at: rules-age-days == 0 ? @tr("Today {}", rules-time) : rules-age-days == 1 ? @tr("Yesterday {}", rules-time) : rules-time;
 }
 export global NodeStore {
     in-out property <[NodeRow]> rows;
@@ -120,6 +123,13 @@ export global Actions {
 }
 export global Fmt {
     pure callback elide-middle(string, length, length) -> string;
+}
+// Names of mandatory node fields, joined by Rust for the missing-fields notice.
+export global FieldText {
+    out property <string> server: @tr("Server");
+    out property <string> uuid: "UUID";
+    out property <string> password: @tr("Password");
+    out property <string> separator: @tr(", ");
 }
 export global TrayText {
     out property <string> status: AppState.connection-text;

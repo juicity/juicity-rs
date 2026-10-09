@@ -2,7 +2,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: juicity-gui VERSION\n"
-"POT-Creation-Date: 2026-10-09 19:02+0000\n"
+"POT-Creation-Date: 2026-10-09 21:16+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -12,166 +12,201 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
-#: gui/ui/app.slint:13
-msgid "Today 09:42"
-msgstr ""
-
-#: gui/ui/pages/overview.slint:14
-msgid "Connected"
-msgstr ""
-
-#: gui/ui/state.slint:58
+#: gui/ui/state.slint:60
 msgid "Connected · {}"
 msgstr ""
 
-#: gui/ui/state.slint:58
+#: gui/ui/state.slint:60
 msgid "Connecting…"
 msgstr ""
 
-#: gui/ui/state.slint:58
+#: gui/ui/state.slint:60
 msgid "Disconnected"
 msgstr ""
 
-#: gui/ui/state.slint:59
+#: gui/ui/state.slint:61
 msgid "System proxy · PAC"
 msgstr ""
 
-#: gui/ui/state.slint:59
+#: gui/ui/state.slint:61
 msgid "System proxy · Global"
 msgstr ""
 
-#: gui/ui/state.slint:59
+#: gui/ui/state.slint:61
 msgid "System proxy · Off"
 msgstr ""
 
-#: gui/ui/state.slint:60
+#: gui/ui/state.slint:62
 msgid "Links imported"
 msgstr ""
 
-#: gui/ui/state.slint:60
+#: gui/ui/state.slint:62
 msgid "Link copied"
 msgstr ""
 
-#: gui/ui/state.slint:60
+#: gui/ui/state.slint:62
 msgid "Could not start proxy: {}"
 msgstr ""
 
-#: gui/ui/state.slint:60
+#: gui/ui/state.slint:62
 msgid "Rules updated"
 msgstr ""
 
-#: gui/ui/state.slint:60
+#: gui/ui/state.slint:62
 msgid "Could not update rules: {}"
 msgstr ""
 
-#: gui/ui/state.slint:60
+#: gui/ui/state.slint:62
 msgid "Could not set system proxy: {}"
 msgstr ""
 
-#: gui/ui/state.slint:60
+#: gui/ui/state.slint:62
 msgid "Could not save settings: {}"
 msgstr ""
 
-#: gui/ui/state.slint:126
-msgid "Disconnect"
+#: gui/ui/state.slint:62
+msgid "Proxy stopped: {}"
 msgstr ""
 
-#: gui/ui/state.slint:126
-msgid "Connect"
+#: gui/ui/state.slint:62
+msgid "Add a node first"
 msgstr ""
 
-#: gui/ui/state.slint:127 gui/ui/pages/overview.slint:69
-msgid "System proxy"
+#: gui/ui/state.slint:62
+msgid "Missing fields: {}"
 msgstr ""
 
-#: gui/ui/state.slint:128 gui/ui/pages/overview.slint:71
-msgid "Off"
+#: gui/ui/state.slint:63
+msgid "Today {}"
 msgstr ""
 
-#: gui/ui/state.slint:130 gui/ui/pages/overview.slint:75
-msgid "Global"
+#: gui/ui/state.slint:63
+msgid "Yesterday {}"
 msgstr ""
 
-#: gui/ui/state.slint:131 gui/ui/pages/overview.slint:86
-msgid "Bypass mainland China"
+#: gui/ui/state.slint:129
+msgid "Server"
 msgstr ""
 
-#: gui/ui/state.slint:132 gui/ui/pages/overview.slint:88
-msgid "Proxy GFW list only"
+#: gui/ui/state.slint:131
+msgid "Password"
 msgstr ""
 
-#: gui/ui/state.slint:133 gui/ui/pages/overview.slint:93
-msgid "Update rules"
-msgstr ""
-
-#: gui/ui/state.slint:134
-msgid "Nodes"
-msgstr ""
-
-#: gui/ui/state.slint:135
-msgid "Import from clipboard"
+#: gui/ui/state.slint:132
+msgid ", "
 msgstr ""
 
 #: gui/ui/state.slint:136
+msgid "Disconnect"
+msgstr ""
+
+#: gui/ui/state.slint:136
+msgid "Connect"
+msgstr ""
+
+#: gui/ui/state.slint:137 gui/ui/pages/overview.slint:24
+#: gui/ui/state.slint:137 gui/ui/pages/overview.slint:24
+msgid "System proxy"
+msgstr ""
+
+#: gui/ui/state.slint:138 gui/ui/pages/overview.slint:25
+#: gui/ui/state.slint:138 gui/ui/pages/overview.slint:25
+msgid "Off"
+msgstr ""
+
+#: gui/ui/state.slint:140 gui/ui/pages/overview.slint:25
+#: gui/ui/state.slint:140 gui/ui/pages/overview.slint:25
+msgid "Global"
+msgstr ""
+
+#: gui/ui/state.slint:141 gui/ui/pages/overview.slint:104
+msgid "Bypass mainland China"
+msgstr ""
+
+#: gui/ui/state.slint:142 gui/ui/pages/overview.slint:106
+msgid "Proxy GFW list only"
+msgstr ""
+
+#: gui/ui/state.slint:143 gui/ui/pages/overview.slint:111
+msgid "Update rules"
+msgstr ""
+
+#: gui/ui/state.slint:144
+msgid "Nodes"
+msgstr ""
+
+#: gui/ui/state.slint:145
+msgid "Import from clipboard"
+msgstr ""
+
+#: gui/ui/state.slint:146
 msgid "Open juicity"
 msgstr ""
 
-#: gui/ui/state.slint:137
+#: gui/ui/state.slint:147
 msgid "Nodes…"
 msgstr ""
 
-#: gui/ui/state.slint:138
+#: gui/ui/state.slint:148
 msgid "Settings…"
 msgstr ""
 
-#: gui/ui/state.slint:139
+#: gui/ui/state.slint:149
 msgid "About juicity"
 msgstr ""
 
-#: gui/ui/state.slint:140
+#: gui/ui/state.slint:150
 msgid "Quit"
 msgstr ""
 
-#: gui/ui/components/nav.slint:38 gui/ui/pages/overview.slint:9
+#: gui/ui/components/nav.slint:38 gui/ui/pages/overview.slint:10
 msgid "Overview"
 msgstr ""
 
-#: gui/ui/components/primitives.slint:241
+#: gui/ui/components/primitives.slint:372
 msgid "In use"
 msgstr ""
 
-#: gui/ui/components/sheet.slint:33
+#: gui/ui/components/sheet.slint:40
 msgid "Cancel"
 msgstr ""
 
-#: gui/ui/components/sheet.slint:34
+#: gui/ui/components/sheet.slint:41
 msgid "Done"
 msgstr ""
 
-#: gui/ui/pages/overview.slint:21
+#: gui/ui/pages/overview.slint:15
+msgid "Connected"
+msgstr ""
+
+#: gui/ui/pages/overview.slint:42
 msgid "Current node"
 msgstr ""
 
-#: gui/ui/pages/overview.slint:27
+#: gui/ui/pages/overview.slint:48
 msgid "Stop proxy"
 msgstr ""
 
-#: gui/ui/pages/overview.slint:27
+#: gui/ui/pages/overview.slint:48
 msgid "Start proxy"
 msgstr ""
 
-#: gui/ui/pages/overview.slint:36
+#: gui/ui/pages/overview.slint:57
 msgid "Local proxy"
 msgstr ""
 
-#: gui/ui/pages/overview.slint:51
+#: gui/ui/pages/overview.slint:70
 msgid "PAC address"
 msgstr ""
 
-#: gui/ui/pages/overview.slint:84
+#: gui/ui/pages/overview.slint:102
 msgid "PAC rules"
 msgstr ""
 
-#: gui/ui/pages/overview.slint:92
+#: gui/ui/pages/overview.slint:110
+msgid "Rules not downloaded yet"
+msgstr ""
+
+#: gui/ui/pages/overview.slint:110
 msgid "Rules updated {}"
 msgstr ""

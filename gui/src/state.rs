@@ -5,12 +5,9 @@
 //! `app.rs` (which owns the GPUI rendering + view logic) mirrors the `core`/`ui`
 //! split used by larger GPUI apps and makes the state testable on its own.
 
-use crate::config::{
-    AppConfig, ProfileStore, ProxyProfile, RuntimeState, Storage,
-};
+use crate::config::{AppConfig, ProfileStore, ProxyProfile, RuntimeState, Storage};
 use crate::core::CoreManager;
 use crate::pac;
-use crate::tray::TrayService;
 use std::path::Path;
 use std::sync::mpsc::Receiver;
 
@@ -22,23 +19,40 @@ pub struct GuiState {
     pub core_manager: CoreManager,
     pub pac_server: Option<pac::PacServer>,
     pub pac_update_rx: Option<Receiver<anyhow::Result<()>>>,
-    pub _tray_service: Option<TrayService>,
 }
 
 impl GuiState {
     pub fn new() -> anyhow::Result<Self> {
-        let storage = Storage::new()?;
+        Ok(Self::load(Storage::new()?))
+    }
+
+    /// Load the three config files from `storage`, recovering from corrupt ones.
+    pub fn load(storage: Storage) -> Self {
+        Self::load_tracked(storage).0
+    }
+
+    /// Like [`GuiState::load`], also returning the bytes parsed for
+    /// app.json, profiles.json and runtime.json (`None` when missing or
+    /// recovered from corruption).
+    pub fn load_tracked(storage: Storage) -> (Self, [Option<Vec<u8>>; 3]) {
         let paths = storage.paths().clone();
-        let config = load_or_recover(&paths.app_json, || storage.load_app_config());
-        let mut profiles = load_or_recover(&paths.profiles_json, || storage.load_profiles());
-        let mut runtime = load_or_recover(&paths.runtime_json, || storage.load_runtime_state());
+        let (config, app): (AppConfig, _) =
+            load_or_recover(&paths.app_json, || storage.load_with_bytes(&paths.app_json));
+        let (mut profiles, profiles_bytes): (ProfileStore, _) =
+            load_or_recover(&paths.profiles_json, || {
+                storage.load_with_bytes(&paths.profiles_json)
+            });
+        let (mut runtime, runtime_bytes): (RuntimeState, _) =
+            load_or_recover(&paths.runtime_json, || {
+                storage.load_with_bytes(&paths.runtime_json)
+            });
 
         if profiles.profiles.is_empty() {
             profiles.profiles.push(ProxyProfile::default());
             runtime.selected_profile = 0;
         }
 
-        Ok(Self {
+        let state = Self {
             storage,
             config,
             profiles,
@@ -46,8 +60,8 @@ impl GuiState {
             core_manager: CoreManager::new(),
             pac_server: None,
             pac_update_rx: None,
-            _tray_service: None,
-        })
+        };
+        (state, [app, profiles_bytes, runtime_bytes])
     }
 
     pub fn flush(&self) -> anyhow::Result<()> {
@@ -144,14 +158,14 @@ mod tests {
 
     #[test]
     fn corrupt_file_is_moved_aside_and_defaults_used() {
-        let dir = std::env::temp_dir().join(format!("juicity-gui-state-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("juicity-gui-state-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("profiles.json");
         std::fs::write(&path, "{ not json").unwrap();
 
-        let store: crate::config::ProfileStore = load_or_recover(&path, || {
-            anyhow::bail!("invalid json")
-        });
+        let store: crate::config::ProfileStore =
+            load_or_recover(&path, || anyhow::bail!("invalid json"));
 
         assert!(store.profiles.is_empty());
         assert!(!path.exists());

@@ -16,20 +16,20 @@ compile_error!("Enable exactly one of ui-gpui and ui-slint");
 mod about_dialog;
 #[cfg(feature = "ui-gpui")]
 mod app;
-#[cfg(feature = "ui-gpui")]
+#[cfg_attr(feature = "ui-slint", allow(dead_code))]
 mod config;
-#[cfg(feature = "ui-gpui")]
+#[cfg_attr(feature = "ui-slint", allow(dead_code))]
 mod core;
 mod i18n;
 #[cfg(feature = "ui-gpui")]
 mod icon;
-#[cfg(feature = "ui-gpui")]
+#[cfg_attr(feature = "ui-slint", allow(dead_code))]
 mod link;
 #[cfg(feature = "ui-gpui")]
 mod log_dialog;
 #[cfg_attr(feature = "ui-slint", allow(dead_code))]
 mod logging;
-#[cfg(feature = "ui-gpui")]
+#[cfg_attr(feature = "ui-slint", allow(dead_code))]
 mod pac;
 #[cfg(feature = "ui-gpui")]
 mod pac_dialog;
@@ -37,9 +37,9 @@ mod pac_dialog;
 mod save_prompt;
 #[cfg(feature = "ui-gpui")]
 mod startup_dialog;
-#[cfg(feature = "ui-gpui")]
+#[cfg_attr(feature = "ui-slint", allow(dead_code))]
 mod state;
-#[cfg(feature = "ui-gpui")]
+#[cfg_attr(feature = "ui-slint", allow(dead_code))]
 mod system_proxy;
 #[cfg(feature = "ui-gpui")]
 mod system_theme;
@@ -49,13 +49,14 @@ mod traffic;
 mod tray;
 #[cfg(feature = "ui-slint")]
 mod ui;
-#[cfg(feature = "ui-gpui")]
+#[cfg_attr(feature = "ui-slint", allow(dead_code))]
 mod util;
+mod validate;
 #[cfg(feature = "ui-gpui")]
 mod widgets;
 
-#[cfg(feature = "ui-gpui")]
-// Load translation files from `locales/` at compile time.
+// Load translation files from `locales/` at compile time. The Slint UI does
+// not use them, but `config.rs` labels still call `t!` until M5.
 rust_i18n::i18n!("locales", fallback = "en");
 
 #[cfg(any(feature = "ui-gpui", feature = "ui-slint"))]

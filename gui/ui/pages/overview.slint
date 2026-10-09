@@ -1,7 +1,8 @@
 import { Theme, Icons } from "../theme.slint";
-import { AppState, Connection, ProxyMode, PacRule, Actions, Fmt } from "../state.slint";
+import { AppState, Connection, ProxyMode, PacRule, Notice, Actions, Fmt } from "../state.slint";
 import { Caption, Metric, Card, HDivider, Button, IconButton, Pill, SeparatedText, OptionRow, OptionDivider } from "../components/primitives.slint";
 import { PageHeader } from "../components/nav.slint";
+import { Banner } from "../components/sheet.slint";
 
 export component OverviewPage inherits VerticalLayout {
     spacing: 16px;
@@ -24,6 +25,11 @@ export component OverviewPage inherits VerticalLayout {
                 detail: AppState.proxy-mode == ProxyMode.pac ? "PAC" : AppState.proxy-mode == ProxyMode.global ? @tr("Global") : @tr("Off");
             }
         }
+    }
+    if AppState.notice != Notice.none: Banner {
+        text: AppState.notice-text;
+        error: AppState.notice-error;
+        dismissed => { Actions.dismiss-notice(); }
     }
     HorizontalLayout {
         spacing: 16px;
@@ -101,7 +107,7 @@ export component OverviewPage inherits VerticalLayout {
                 Rectangle { min-height: 12px; vertical-stretch: 1; }
                 HorizontalLayout {
                     spacing: 12px;
-                    Text { text: @tr("Rules updated {}", AppState.rules-updated-at); font-size: 12px; color: Theme.secondary; vertical-alignment: center; horizontal-stretch: 1; }
+                    Text { text: AppState.rules-age-days < 0 ? @tr("Rules not downloaded yet") : @tr("Rules updated {}", AppState.rules-updated-at); font-size: 12px; color: Theme.secondary; vertical-alignment: center; horizontal-stretch: 1; }
                     Button { text: @tr("Update rules"); icon: Icons.refresh; has-icon: true; enabled: !AppState.rules-updating; clicked => { Actions.update-rules(); } }
                 }
             }

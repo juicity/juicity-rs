@@ -8,6 +8,7 @@ use crate::state::{extract_port, non_empty_text, restart_pac_server, GuiState};
 use crate::system_proxy;
 use crate::system_theme;
 use crate::tray::{TrayEvent, TraySharedState};
+use crate::validate::RequiredField;
 use crate::widgets;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::checkbox::Checkbox;
@@ -197,6 +198,7 @@ pub struct AppView {
     tray_tx: std::sync::mpsc::Sender<TrayEvent>,
     tray_rx: std::sync::mpsc::Receiver<TrayEvent>,
     tray_shared: Arc<Mutex<TraySharedState>>,
+    tray_service: Option<crate::tray::TrayService>,
 
     // ── Editor text fields (gpui-kit InputState; built lazily on first render) ──
     server: Option<Entity<InputState>>,
@@ -294,7 +296,10 @@ impl AppView {
                 .collect();
             ts.active_server_idx = gui.runtime.selected_profile;
         }
-        gui._tray_service = Some(crate::tray::start(tray_tx.clone(), Arc::clone(&tray_shared)));
+        let tray_service = Some(crate::tray::start(
+            tray_tx.clone(),
+            Arc::clone(&tray_shared),
+        ));
 
         let protocol_options: Vec<SharedString> = vec![
             t!("protocol.juicity").to_string().into(),
@@ -311,6 +316,7 @@ impl AppView {
             tray_tx,
             tray_rx,
             tray_shared,
+            tray_service,
             server: None,
             port: None,
             password: None,
@@ -810,10 +816,7 @@ impl AppView {
     }
 
     fn tray_available(&self) -> bool {
-        self.gui
-            ._tray_service
-            .as_ref()
-            .is_some_and(|t| t.is_available())
+        self.tray_service.as_ref().is_some_and(|t| t.is_available())
     }
 
     /// Persist config to disk and record the timestamp so the file-watcher
@@ -882,7 +885,10 @@ impl AppView {
                 return;
             }
         };
-        let missing = missing_fields(&profile);
+        let missing: Vec<String> = crate::validate::missing_fields(&profile)
+            .into_iter()
+            .map(required_field_label)
+            .collect();
         if !missing.is_empty() {
             self.set_status(
                 &t!("status.incomplete_profile", fields = missing.join(", ")),
@@ -1394,7 +1400,7 @@ impl AppView {
         }
 
         crate::tray::poll(
-            self.gui._tray_service.as_mut(),
+            self.tray_service.as_mut(),
             &self.tray_shared,
             &self.tray_tx,
         );
@@ -1895,29 +1901,13 @@ fn finish_close(next: PendingClose, cx: &mut App) {
     }
 }
 
-/// Localized names of the mandatory fields the profile is still missing.
-fn missing_fields(profile: &ProxyProfile) -> Vec<String> {
-    let mut missing = Vec::new();
-    if profile.server.trim().is_empty() {
-        missing.push(t!("field.server_ip").to_string());
+/// Localized name of a mandatory profile field.
+fn required_field_label(field: RequiredField) -> String {
+    match field {
+        RequiredField::Server => t!("field.server_ip").to_string(),
+        RequiredField::Uuid => t!("field.uuid").to_string(),
+        RequiredField::Password => t!("field.password").to_string(),
     }
-    match profile.protocol {
-        ProxyProtocol::Juicity => {
-            if profile.uuid.trim().is_empty() {
-                missing.push(t!("field.uuid").to_string());
-            }
-            if profile.password.is_empty() {
-                missing.push(t!("field.password").to_string());
-            }
-        }
-        ProxyProtocol::Shadowsocks => {
-            if profile.password.is_empty() && !matches!(profile.method.as_str(), "none" | "plain")
-            {
-                missing.push(t!("field.password").to_string());
-            }
-        }
-    }
-    missing
 }
 
 /// Build a click handler that routes to a `&mut self` view method.
@@ -2111,27 +2101,6 @@ pub fn run() -> anyhow::Result<()> {
 mod tests {
     use super::*;
     use gpui_kit::TestAppContext;
-
-    #[test]
-    fn missing_fields_reports_incomplete_juicity_profile() {
-        let mut p = ProxyProfile::default();
-        assert_eq!(missing_fields(&p).len(), 3);
-        p.server = "example.com".into();
-        p.uuid = "id".into();
-        p.password = "pw".into();
-        assert!(missing_fields(&p).is_empty());
-    }
-
-    #[test]
-    fn missing_fields_allows_passwordless_ss_none() {
-        let p = ProxyProfile {
-            protocol: ProxyProtocol::Shadowsocks,
-            server: "example.com".into(),
-            method: "none".into(),
-            ..Default::default()
-        };
-        assert!(missing_fields(&p).is_empty());
-    }
 
     struct Target;
 

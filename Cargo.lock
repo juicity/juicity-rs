@@ -5372,7 +5372,9 @@ name = "juicity-gui"
 version = "1.0.3"
 dependencies = [
  "anyhow",
+ "arboard",
  "base64 0.22.1",
+ "chrono",
  "directories",
  "embed-resource",
  "gpui-kit",

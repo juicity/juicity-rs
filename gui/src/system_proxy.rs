@@ -4,6 +4,7 @@ use std::process::Command;
 
 /// Command that never flashes a console window on Windows.
 fn command(program: &str) -> Command {
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut cmd = Command::new(program);
     #[cfg(windows)]
     {

@@ -1,4 +1,4 @@
-use super::{fonts, prepare, AppState, MainWindow, Theme};
+use super::{fonts, prepare, AppState, Connection, MainWindow, PacRule, ProxyMode, Theme};
 use crate::i18n::UiLang;
 use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
 use slint::platform::{Platform, PlatformError, WindowAdapter, WindowEvent};
@@ -24,6 +24,21 @@ impl Platform for HeadlessPlatform {
     fn duration_since_start(&self) -> Duration {
         self.started.elapsed()
     }
+}
+
+/// Mockup fixture data (東京 01 …).
+fn fixture(window: &MainWindow) {
+    let state = window.global::<AppState>();
+    state.set_connection(Connection::Running);
+    state.set_active_name("東京 01".into());
+    state.set_active_address("juicity · tokyo.example.com:443".into());
+    state.set_local_port("1080".into());
+    state.set_local_host("127.0.0.1".into());
+    state.set_pac_url("http://127.0.0.1:1090/pac".into());
+    state.set_proxy_mode(ProxyMode::Pac);
+    state.set_pac_rule(PacRule::BypassChina);
+    state.set_rules_age_days(0);
+    state.set_rules_time("09:42".into());
 }
 
 fn compare_mockup(
@@ -85,13 +100,14 @@ fn shots() -> anyhow::Result<()> {
         for dark in [false, true] {
             let ui = MainWindow::new()?;
             prepare(&ui, language)?;
+            fixture(&ui);
             ui.global::<Theme>().set_dark(dark);
             if language == UiLang::ZhTw {
                 assert_eq!(
                     ui.global::<AppState>().get_connection_text(),
                     "已連線 · 東京 01"
                 );
-                assert_eq!(ui.get_fixture_updated_at(), "今天 09:42");
+                assert_eq!(ui.global::<AppState>().get_rules_updated_at(), "今天 09:42");
             }
             let mut pixels = SharedPixelBuffer::<Rgb8Pixel>::new(WIDTH, HEIGHT);
             window.dispatch_event(WindowEvent::ScaleFactorChanged {

@@ -1,170 +1,202 @@
 msgid ""
 msgstr ""
-"POT-Creation-Date: 2026-10-09 19:02+0000\n"
+"POT-Creation-Date: 2026-10-09 21:16+0000\n"
 "Language: zh_TW\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
-#: gui/ui/app.slint:13
-msgid "Today 09:42"
-msgstr "今天 09:42"
-
-#: gui/ui/pages/overview.slint:14
-msgid "Connected"
-msgstr "已連線"
-
-#: gui/ui/state.slint:58
+#: gui/ui/state.slint:60
 msgid "Connected · {}"
 msgstr "已連線 · {}"
 
-#: gui/ui/state.slint:58
+#: gui/ui/state.slint:60
 msgid "Connecting…"
 msgstr "正在連線…"
 
-#: gui/ui/state.slint:58
+#: gui/ui/state.slint:60
 msgid "Disconnected"
 msgstr "未連線"
 
-#: gui/ui/state.slint:59
+#: gui/ui/state.slint:61
 msgid "System proxy · PAC"
 msgstr "系統代理 · PAC"
 
-#: gui/ui/state.slint:59
+#: gui/ui/state.slint:61
 msgid "System proxy · Global"
 msgstr "系統代理 · 全域"
 
-#: gui/ui/state.slint:59
+#: gui/ui/state.slint:61
 msgid "System proxy · Off"
 msgstr "系統代理 · 關閉"
 
-#: gui/ui/state.slint:60
+#: gui/ui/state.slint:62
 msgid "Links imported"
 msgstr "已匯入連結"
 
-#: gui/ui/state.slint:60
+#: gui/ui/state.slint:62
 msgid "Link copied"
 msgstr "已複製連結"
 
-#: gui/ui/state.slint:60
+#: gui/ui/state.slint:62
 msgid "Could not start proxy: {}"
 msgstr "無法啟動代理：{}"
 
-#: gui/ui/state.slint:60
+#: gui/ui/state.slint:62
 msgid "Rules updated"
 msgstr "已更新規則"
 
-#: gui/ui/state.slint:60
+#: gui/ui/state.slint:62
 msgid "Could not update rules: {}"
 msgstr "無法更新規則：{}"
 
-#: gui/ui/state.slint:60
+#: gui/ui/state.slint:62
 msgid "Could not set system proxy: {}"
 msgstr "無法設定系統代理：{}"
 
-#: gui/ui/state.slint:60
+#: gui/ui/state.slint:62
 msgid "Could not save settings: {}"
 msgstr "無法儲存設定：{}"
 
-#: gui/ui/state.slint:126
+#: gui/ui/state.slint:62
+msgid "Proxy stopped: {}"
+msgstr "代理已停止：{}"
+
+#: gui/ui/state.slint:62
+msgid "Add a node first"
+msgstr "請先新增節點"
+
+#: gui/ui/state.slint:62
+msgid "Missing fields: {}"
+msgstr "缺少欄位：{}"
+
+#: gui/ui/state.slint:63
+msgid "Today {}"
+msgstr "今天 {}"
+
+#: gui/ui/state.slint:63
+msgid "Yesterday {}"
+msgstr "昨天 {}"
+
+#: gui/ui/state.slint:129
+msgid "Server"
+msgstr "伺服器"
+
+#: gui/ui/state.slint:131
+msgid "Password"
+msgstr "密碼"
+
+#: gui/ui/state.slint:132
+msgid ", "
+msgstr "、"
+
+#: gui/ui/state.slint:136
 msgid "Disconnect"
 msgstr "中斷連線"
 
-#: gui/ui/state.slint:126
+#: gui/ui/state.slint:136
 msgid "Connect"
 msgstr "連線"
 
-#: gui/ui/state.slint:127 gui/ui/pages/overview.slint:69
+#: gui/ui/state.slint:137 gui/ui/pages/overview.slint:24
 msgid "System proxy"
 msgstr "系統代理"
 
-#: gui/ui/state.slint:128 gui/ui/pages/overview.slint:71
+#: gui/ui/state.slint:138 gui/ui/pages/overview.slint:25
 msgid "Off"
 msgstr "關閉"
 
-#: gui/ui/state.slint:130 gui/ui/pages/overview.slint:75
+#: gui/ui/state.slint:140 gui/ui/pages/overview.slint:25
 msgid "Global"
 msgstr "全域"
 
-#: gui/ui/state.slint:131 gui/ui/pages/overview.slint:86
+#: gui/ui/state.slint:141 gui/ui/pages/overview.slint:104
 msgid "Bypass mainland China"
 msgstr "繞過中國大陸"
 
-#: gui/ui/state.slint:132 gui/ui/pages/overview.slint:88
+#: gui/ui/state.slint:142 gui/ui/pages/overview.slint:106
 msgid "Proxy GFW list only"
 msgstr "僅代理 GFW 列表"
 
-#: gui/ui/state.slint:133 gui/ui/pages/overview.slint:93
+#: gui/ui/state.slint:143 gui/ui/pages/overview.slint:111
 msgid "Update rules"
 msgstr "更新規則"
 
-#: gui/ui/state.slint:134
+#: gui/ui/state.slint:144
 msgid "Nodes"
 msgstr "節點"
 
-#: gui/ui/state.slint:135
+#: gui/ui/state.slint:145
 msgid "Import from clipboard"
 msgstr "從剪貼簿匯入"
 
-#: gui/ui/state.slint:136
+#: gui/ui/state.slint:146
 msgid "Open juicity"
 msgstr "打開 juicity"
 
-#: gui/ui/state.slint:137
+#: gui/ui/state.slint:147
 msgid "Nodes…"
 msgstr "節點…"
 
-#: gui/ui/state.slint:138
+#: gui/ui/state.slint:148
 msgid "Settings…"
 msgstr "設定…"
 
-#: gui/ui/state.slint:139
+#: gui/ui/state.slint:149
 msgid "About juicity"
 msgstr "關於 juicity"
 
-#: gui/ui/state.slint:140
+#: gui/ui/state.slint:150
 msgid "Quit"
 msgstr "結束"
 
-#: gui/ui/components/nav.slint:38 gui/ui/pages/overview.slint:9
+#: gui/ui/components/nav.slint:38 gui/ui/pages/overview.slint:10
 msgid "Overview"
 msgstr "概覽"
 
-#: gui/ui/components/primitives.slint:241
+#: gui/ui/components/primitives.slint:372
 msgid "In use"
 msgstr "使用中"
 
-#: gui/ui/components/sheet.slint:33
+#: gui/ui/components/sheet.slint:40
 msgid "Cancel"
 msgstr "取消"
 
-#: gui/ui/components/sheet.slint:34
+#: gui/ui/components/sheet.slint:41
 msgid "Done"
 msgstr "完成"
 
-#: gui/ui/pages/overview.slint:21
+#: gui/ui/pages/overview.slint:15
+msgid "Connected"
+msgstr "已連線"
+
+#: gui/ui/pages/overview.slint:42
 msgid "Current node"
 msgstr "目前節點"
 
-#: gui/ui/pages/overview.slint:27
+#: gui/ui/pages/overview.slint:48
 msgid "Stop proxy"
 msgstr "停止代理"
 
-#: gui/ui/pages/overview.slint:27
+#: gui/ui/pages/overview.slint:48
 msgid "Start proxy"
 msgstr "啟動代理"
 
-#: gui/ui/pages/overview.slint:36
+#: gui/ui/pages/overview.slint:57
 msgid "Local proxy"
 msgstr "本機代理"
 
-#: gui/ui/pages/overview.slint:51
+#: gui/ui/pages/overview.slint:70
 msgid "PAC address"
 msgstr "PAC 位址"
 
-#: gui/ui/pages/overview.slint:84
+#: gui/ui/pages/overview.slint:102
 msgid "PAC rules"
 msgstr "PAC 規則"
 
-#: gui/ui/pages/overview.slint:92
+#: gui/ui/pages/overview.slint:110
+msgid "Rules not downloaded yet"
+msgstr "規則尚未下載"
+
+#: gui/ui/pages/overview.slint:110
 msgid "Rules updated {}"
 msgstr "規則更新於 {}"

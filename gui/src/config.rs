@@ -316,14 +316,17 @@ impl ConfigPaths {
     pub fn discover() -> anyhow::Result<Self> {
         let project_dirs = ProjectDirs::from("io", "juicity", "juicity-gui")
             .context("failed to resolve standard config directory")?;
+        Ok(Self::in_dir(project_dirs.config_dir().to_path_buf()))
+    }
 
-        let config_dir = project_dirs.config_dir().to_path_buf();
-        Ok(Self {
+    /// Paths of the config files inside `config_dir`.
+    pub fn in_dir(config_dir: PathBuf) -> Self {
+        Self {
             app_json: config_dir.join("app.json"),
             profiles_json: config_dir.join("profiles.json"),
             runtime_json: config_dir.join("runtime.json"),
             config_dir,
-        })
+        }
     }
 }
 
@@ -334,7 +337,16 @@ pub struct Storage {
 
 impl Storage {
     pub fn new() -> anyhow::Result<Self> {
-        let paths = ConfigPaths::discover()?;
+        Self::with_paths(ConfigPaths::discover()?)
+    }
+
+    /// Storage rooted at an explicit directory (used by tests).
+    #[allow(dead_code)]
+    pub fn with_dir(dir: impl Into<PathBuf>) -> anyhow::Result<Self> {
+        Self::with_paths(ConfigPaths::in_dir(dir.into()))
+    }
+
+    fn with_paths(paths: ConfigPaths) -> anyhow::Result<Self> {
         fs::create_dir_all(&paths.config_dir)
             .with_context(|| format!("failed to create {}", paths.config_dir.display()))?;
         Ok(Self { paths })
@@ -372,33 +384,46 @@ impl Storage {
     where
         T: DeserializeOwned + Default,
     {
+        self.load_with_bytes(path).map(|(value, _)| value)
+    }
+
+    /// Load `path` (default when missing) and also return the bytes that were
+    /// parsed, so callers can track the exact content they loaded.
+    pub fn load_with_bytes<T>(&self, path: &Path) -> anyhow::Result<(T, Option<Vec<u8>>)>
+    where
+        T: DeserializeOwned + Default,
+    {
         if !path.exists() {
-            return Ok(T::default());
+            return Ok((T::default(), None));
         }
 
-        let content = fs::read_to_string(path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
-        let value = serde_json::from_str::<T>(&content)
+        let content =
+            fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
+        let value = serde_json::from_slice::<T>(&content)
             .with_context(|| format!("invalid json in {}", path.display()))?;
-        Ok(value)
+        Ok((value, Some(content)))
     }
 
     fn save_pretty_json<T>(&self, path: &Path, value: &T) -> anyhow::Result<()>
     where
         T: Serialize,
     {
+        self.write_atomic(path, &serde_json::to_vec_pretty(value)?)
+    }
+
+    /// Replace `path` with `payload` via a synced temp file and a rename.
+    pub fn write_atomic(&self, path: &Path, payload: &[u8]) -> anyhow::Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create {}", parent.display()))?;
         }
 
-        let payload = serde_json::to_vec_pretty(value)?;
         let tmp_path = path.with_extension("tmp");
 
         {
             let mut file = fs::File::create(&tmp_path)
                 .with_context(|| format!("failed to create {}", tmp_path.display()))?;
-            file.write_all(&payload)
+            file.write_all(payload)
                 .with_context(|| format!("failed to write {}", tmp_path.display()))?;
             file.sync_all()
                 .with_context(|| format!("failed to sync {}", tmp_path.display()))?;
@@ -427,8 +452,7 @@ mod tests {
 
     #[test]
     fn legacy_socks_listen_field_is_still_accepted() {
-        let cfg: AppConfig =
-            serde_json::from_str(r#"{"socks_listen":"127.0.0.1:2080"}"#).unwrap();
+        let cfg: AppConfig = serde_json::from_str(r#"{"socks_listen":"127.0.0.1:2080"}"#).unwrap();
         assert_eq!(cfg.mixed_listen, "127.0.0.1:2080");
     }
 

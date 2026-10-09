@@ -171,7 +171,7 @@ fn parse_juicity_link(raw: &str) -> anyhow::Result<ImportedShareLink> {
     let name = url
         .fragment()
         .filter(|v| !v.trim().is_empty())
-        .map(|v| percent_decode(v))
+        .map(percent_decode)
         .unwrap_or_else(|| format!("{}:{}", host, port));
 
     Ok(ImportedShareLink {
@@ -244,7 +244,7 @@ fn parse_ss_sip002(raw: &str) -> anyhow::Result<ImportedShareLink> {
     let name = url
         .fragment()
         .filter(|v| !v.trim().is_empty())
-        .map(|v| percent_decode(v))
+        .map(percent_decode)
         .unwrap_or_else(|| format!("{}:{}", host, port));
 
     Ok(ImportedShareLink {
@@ -269,7 +269,7 @@ fn parse_ss_legacy(raw: &str) -> anyhow::Result<ImportedShareLink> {
     let remark = parts
         .next()
         .filter(|v| !v.trim().is_empty())
-        .map(|v| percent_decode(v));
+        .map(percent_decode);
 
     let decoded = decode_base64_variants(encoded)
         .context("legacy ss link must be base64(method:password@host:port)")?;

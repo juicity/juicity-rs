@@ -6,7 +6,7 @@ edition.workspace = true
 [features]
 default = ["ui-gpui"]
 ui-gpui = ["dep:gpui-kit"]
-ui-slint = ["dep:slint", "dep:slint-build"]
+ui-slint = ["dep:slint", "dep:slint-build", "dep:arboard", "dep:chrono"]
 
 [dependencies]
 juicity-common = { path = "../common" }
@@ -29,6 +29,9 @@ ureq = "2.9"
 # library (formerly `gpui-component`), so the GUI depends on this one crate.
 gpui-kit = { version = "0.7", optional = true }
 slint = { version = "=1.18.1", optional = true, default-features = false, features = ["std", "backend-winit", "renderer-femtovg", "renderer-software", "compat-1-2", "accessibility", "unstable-fontique-011", "unstable-winit-030"] }
+# Clipboard and local time for the Slint UI; both are already in the lockfile via Slint.
+arboard = { version = "3", optional = true, default-features = false, features = ["wayland-data-control"] }
+chrono = { version = "0.4", optional = true, default-features = false, features = ["clock"] }
 directories = "5"
 unicode-segmentation = "1"
 notify = "7"
