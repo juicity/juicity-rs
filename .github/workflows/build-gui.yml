@@ -118,6 +118,11 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev libfontconfig1-dev
 
+      - name: Install Slint build deps (Linux)
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get install -y libfontconfig1-dev fonts-noto-cjk fonts-noto-cjk-extra fonts-noto-core
+
       - name: Install Rust toolchain (Linux/macOS)
         if: matrix.os != 'windows'
         uses: dtolnay/rust-toolchain@v1
@@ -185,6 +190,12 @@ jobs:
           RUSTFLAGS: -C target-feature=+crt-static
           AWS_LC_SYS_PREBUILT_NASM: '1'
         run: cargo test --locked --frozen --offline  -p juicity-gui --target ${{ matrix.target }}
+
+      - name: Build and test Slint (Linux)
+        if: matrix.os == 'linux'
+        run: |
+          cargo build --locked --frozen --offline -p juicity-gui --no-default-features --features ui-slint --target ${{ matrix.target }} --target-dir target/slint
+          cargo test --locked --frozen --offline -p juicity-gui --no-default-features --features ui-slint --target ${{ matrix.target }} --target-dir target/slint
 
       # ── Prepare package ───────────────────────────────────────────────────
 
