@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"POT-Creation-Date: 2026-10-09 21:42+0000\n"
+"POT-Creation-Date: 2026-10-09 21:54+0000\n"
 "Language: zh_CN\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
@@ -93,97 +93,115 @@ msgstr "今天 {}"
 msgid "Yesterday {}"
 msgstr "昨天 {}"
 
-#: gui/ui/state.slint:144 gui/ui/pages/node_editor.slint:64
+#: gui/ui/state.slint:146 gui/ui/pages/node_editor.slint:64
 msgid "Server"
 msgstr "服务器"
 
-#: gui/ui/state.slint:146 gui/ui/pages/node_editor.slint:87
+#: gui/ui/state.slint:148 gui/ui/pages/node_editor.slint:87
 msgid "Password"
 msgstr "密码"
 
-#: gui/ui/state.slint:147
+#: gui/ui/state.slint:149
 msgid ", "
 msgstr "、"
 
-#: gui/ui/state.slint:148
+#: gui/ui/state.slint:150
 msgid "Required"
 msgstr "必填"
 
-#: gui/ui/state.slint:149
+#: gui/ui/state.slint:151
 msgid "Enter a port from 1 to 65535"
 msgstr "请输入 1 至 65535 之间的端口"
 
-#: gui/ui/state.slint:150
+#: gui/ui/state.slint:152
 msgid "Enter a whole number of seconds"
 msgstr "请输入整数秒数"
 
-#: gui/ui/state.slint:151
+#: gui/ui/state.slint:153
+msgid "Enter an address as host:port"
+msgstr "请按“主机:端口”格式输入地址"
+
+#: gui/ui/state.slint:154
+msgid "Enter a URL that starts with http:// or https://"
+msgstr "请输入以 http:// 或 https:// 开头的网址"
+
+#: gui/ui/state.slint:155
+msgid "Enter a whole number of hours, 1 or more"
+msgstr "请输入不小于 1 的整数小时数"
+
+#: gui/ui/state.slint:156
 msgid "Node {}"
 msgstr "节点 {}"
 
-#: gui/ui/state.slint:155
+#: gui/ui/state.slint:160
 msgid "Disconnect"
 msgstr "断开连接"
 
-#: gui/ui/state.slint:155
+#: gui/ui/state.slint:160
 msgid "Connect"
 msgstr "连接"
 
-#: gui/ui/state.slint:156 gui/ui/pages/overview.slint:24
+#: gui/ui/state.slint:161 gui/ui/pages/overview.slint:24
 msgid "System proxy"
 msgstr "系统代理"
 
-#: gui/ui/state.slint:157 gui/ui/pages/overview.slint:25
+#: gui/ui/state.slint:162 gui/ui/pages/overview.slint:25
+#: gui/ui/pages/settings.slint:43 gui/ui/pages/settings.slint:87
+#: gui/ui/pages/settings.slint:144
 msgid "Off"
 msgstr "关闭"
 
-#: gui/ui/state.slint:159 gui/ui/pages/overview.slint:25
+#: gui/ui/state.slint:164 gui/ui/pages/overview.slint:25
 msgid "Global"
 msgstr "全局"
 
-#: gui/ui/state.slint:160 gui/ui/pages/overview.slint:104
+#: gui/ui/state.slint:165 gui/ui/pages/overview.slint:104
 msgid "Bypass mainland China"
 msgstr "绕过中国大陆"
 
-#: gui/ui/state.slint:161 gui/ui/pages/overview.slint:106
+#: gui/ui/state.slint:166 gui/ui/pages/overview.slint:106
 msgid "Proxy GFW list only"
 msgstr "仅代理 GFW 列表"
 
-#: gui/ui/state.slint:162 gui/ui/pages/overview.slint:111
+#: gui/ui/state.slint:167 gui/ui/pages/overview.slint:111
 msgid "Update rules"
 msgstr "更新规则"
 
-#: gui/ui/state.slint:163 gui/ui/components/nav.slint:39
+#: gui/ui/state.slint:168 gui/ui/components/nav.slint:39
 msgid "Nodes"
 msgstr "节点"
 
-#: gui/ui/state.slint:164
+#: gui/ui/state.slint:169
 msgid "Import from clipboard"
 msgstr "从剪贴板导入"
 
-#: gui/ui/state.slint:165
+#: gui/ui/state.slint:170
 msgid "Open juicity"
 msgstr "打开 juicity"
 
-#: gui/ui/state.slint:166
+#: gui/ui/state.slint:171
 msgid "Nodes…"
 msgstr "节点…"
 
-#: gui/ui/state.slint:167
+#: gui/ui/state.slint:172
 msgid "Settings…"
 msgstr "设置…"
 
-#: gui/ui/state.slint:168
+#: gui/ui/state.slint:173
 msgid "About juicity"
 msgstr "关于 juicity"
 
-#: gui/ui/state.slint:169
+#: gui/ui/state.slint:174
 msgid "Quit"
 msgstr "退出"
 
 #: gui/ui/components/nav.slint:38 gui/ui/pages/overview.slint:10
 msgid "Overview"
 msgstr "概览"
+
+#: gui/ui/components/nav.slint:40 gui/ui/pages/settings.slint:46
+msgid "Settings"
+msgstr "设置"
 
 #: gui/ui/components/primitives.slint:372
 msgid "In use"
@@ -213,7 +231,7 @@ msgstr "名称"
 msgid "Protocol"
 msgstr "协议"
 
-#: gui/ui/pages/node_editor.slint:71
+#: gui/ui/pages/node_editor.slint:71 gui/ui/pages/settings.slint:100
 msgid "Port"
 msgstr "端口"
 
@@ -309,7 +327,7 @@ msgstr "停止代理"
 msgid "Start proxy"
 msgstr "启动代理"
 
-#: gui/ui/pages/overview.slint:57
+#: gui/ui/pages/overview.slint:57 gui/ui/pages/settings.slint:98
 msgid "Local proxy"
 msgstr "本机代理"
 
@@ -328,3 +346,112 @@ msgstr "规则尚未下载"
 #: gui/ui/pages/overview.slint:110
 msgid "Rules updated {}"
 msgstr "规则更新于 {}"
+
+#: gui/ui/pages/settings.slint:43
+msgid "Every {n} hour"
+msgid_plural "Every {n} hours"
+msgstr[0] "每 {n} 小时"
+
+#: gui/ui/pages/settings.slint:66
+msgid "General"
+msgstr "常规"
+
+#: gui/ui/pages/settings.slint:68
+msgid "Start at login"
+msgstr "开机时自动启动"
+
+#: gui/ui/pages/settings.slint:73
+msgid "Hide window on start"
+msgstr "启动时隐藏窗口"
+
+#: gui/ui/pages/settings.slint:78
+msgid "Minimize to tray on close"
+msgstr "关闭窗口时最小化到系统托盘"
+
+#: gui/ui/pages/settings.slint:83
+msgid "Connect on start"
+msgstr "启动时连接"
+
+#: gui/ui/pages/settings.slint:85 gui/ui/pages/settings.slint:88
+msgid "On"
+msgstr "开启"
+
+#: gui/ui/pages/settings.slint:85 gui/ui/pages/settings.slint:89
+msgid "Last state"
+msgstr "保持上次状态"
+
+#: gui/ui/pages/settings.slint:101
+msgid "SOCKS5 and HTTP share this port"
+msgstr "SOCKS5 与 HTTP 共用此端口"
+
+#: gui/ui/pages/settings.slint:108
+msgid "Source"
+msgstr "来源"
+
+#: gui/ui/pages/settings.slint:110 gui/ui/pages/settings.slint:113
+msgid "Online"
+msgstr "在线"
+
+#: gui/ui/pages/settings.slint:110 gui/ui/pages/settings.slint:112
+msgid "Local"
+msgstr "本地"
+
+#: gui/ui/pages/settings.slint:120 gui/ui/pages/settings.slint:209
+msgid "Direct list"
+msgstr "直连列表"
+
+#: gui/ui/pages/settings.slint:125 gui/ui/pages/settings.slint:209
+msgid "Proxy list"
+msgstr "代理列表"
+
+#: gui/ui/pages/settings.slint:130
+msgid "Auto update"
+msgstr "自动更新"
+
+#: gui/ui/pages/settings.slint:142 gui/ui/pages/settings.slint:150
+msgid "Custom…"
+msgstr "自定义…"
+
+#: gui/ui/pages/settings.slint:163 gui/ui/pages/settings.slint:209
+msgid "PAC server"
+msgstr "PAC 服务器"
+
+#: gui/ui/pages/settings.slint:168 gui/ui/pages/settings.slint:209
+msgid "Online PAC"
+msgstr "在线 PAC"
+
+#: gui/ui/pages/settings.slint:170
+msgid "Not set"
+msgstr "未设置"
+
+#: gui/ui/pages/settings.slint:177
+msgid "About"
+msgstr "关于"
+
+#: gui/ui/pages/settings.slint:187
+msgid "Version {} · juicity core {} · shadowsocks-rust {}"
+msgstr "版本 {} · juicity core {} · shadowsocks-rust {}"
+
+#: gui/ui/pages/settings.slint:191
+msgid "Build {} ({})"
+msgstr "构建 {}（{}）"
+
+#: gui/ui/pages/settings.slint:209
+msgid "Local proxy port"
+msgstr "本地代理端口"
+
+#: gui/ui/pages/settings.slint:209
+msgid "Custom update interval"
+msgstr "自定义更新间隔"
+
+#: gui/ui/pages/settings.slint:215
+msgid "Hours"
+msgstr "小时"
+
+#: gui/ui/pages/settings.slint:215
+msgid "Address"
+msgstr "地址"
+
+#: gui/ui/pages/settings.slint:215
+msgid "URL"
+msgstr "网址"

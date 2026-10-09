@@ -8,6 +8,7 @@
 
 mod nodes;
 mod overview;
+mod settings;
 
 use super::controller::{Changes, Controller, RuleJob};
 use super::MainWindow;
@@ -40,17 +41,18 @@ pub fn install(ui: &MainWindow, controller: Controller) {
     WINDOW.with(|w| *w.borrow_mut() = Some(ui.as_weak()));
     overview::wire(ui);
     nodes::wire(ui);
+    settings::wire(ui);
     POLL_TIMER.with(|timer| {
         timer.start(slint::TimerMode::Repeated, POLL_INTERVAL, || {
             update(|c, _| c.poll_core());
         })
     });
-    apply(Changes::OVERVIEW | Changes::EDITOR);
+    apply(Changes::OVERVIEW | Changes::EDITOR | Changes::SETTINGS);
 }
 
 /// Run startup side effects (PAC server, saved proxy mode, overdue rules).
 pub fn startup() {
-    if let Some(job) = update_with(|c, _| c.startup()).flatten() {
+    if let Some(job) = update_with(|c, now| c.startup(now)).flatten() {
         spawn_rules(job);
     }
 }
@@ -119,6 +121,11 @@ fn apply(changes: Changes) {
     if changes.nodes || changes.editor {
         if let Some(snapshot) = read(|c| c.nodes()) {
             sync(|| nodes::sync(&ui, &snapshot, changes.editor));
+        }
+    }
+    if changes.settings {
+        if let Some(snapshot) = read(|c| c.settings()) {
+            sync(|| settings::sync(&ui, &snapshot));
         }
     }
     if changes.notice {

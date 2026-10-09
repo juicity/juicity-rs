@@ -243,9 +243,10 @@ export component Switch inherits Rectangle {
 
 export component SettingSwitch inherits HorizontalLayout {
     in-out property <bool> on;
+    in property <bool> enabled: true;
     callback toggled(bool);
     padding-right: Theme.chevron-inset;
-    VerticalLayout { alignment: center; Switch { on <=> root.on; toggled(value) => { root.toggled(value); } } }
+    VerticalLayout { alignment: center; Switch { on <=> root.on; enabled: root.enabled; opacity: root.enabled ? 1 : 0.5; toggled(value) => { root.toggled(value); } } }
 }
 
 export component SettingRow inherits HorizontalLayout {
@@ -266,10 +267,12 @@ export component SettingRow inherits HorizontalLayout {
 export component SettingValue inherits Rectangle {
     in property <string> text;
     in property <bool> menu: false;
+    // Latin values (ports, addresses, URLs) use the mockup's Latin face.
+    in property <bool> latin: false;
     callback clicked;
     HorizontalLayout {
         spacing: 4px;
-        Text { text: root.text; font-family: Theme.cjk; font-size: 14px; color: Theme.secondary; vertical-alignment: center; }
+        Text { text: root.text; font-family: root.latin ? Theme.latin : Theme.cjk; font-size: 14px; color: Theme.secondary; vertical-alignment: center; }
         VerticalLayout {
             alignment: center;
             padding-right: root.menu ? 2px : 0px;

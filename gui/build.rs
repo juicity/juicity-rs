@@ -14,6 +14,9 @@ const ICO_SIZES: [u32; 6] = [16, 32, 48, 64, 128, 256];
 fn main() {
     let gpui = std::env::var_os("CARGO_FEATURE_UI_GPUI").is_some();
     let slint = std::env::var_os("CARGO_FEATURE_UI_SLINT").is_some();
+    // Emitted first so a build with both or neither feature reports only
+    // the `compile_error!` in main.rs.
+    emit_dependency_versions();
     if gpui == slint {
         return;
     }
@@ -75,8 +78,13 @@ fn main() {
         embed_icon_resource(Path::new(&out_dir), &ico_path);
     }
 
-    // The About dialog reports the versions of the embedded protocol backends,
-    // so read them from the lockfile to match what is actually linked.
+    println!("cargo:rerun-if-changed={manifest_dir}/icon.svg");
+}
+
+/// About (both frontends) reports the versions of the embedded protocol
+/// backends, so read them from the lockfile to match what is actually linked.
+fn emit_dependency_versions() {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let lock = std::fs::read_to_string(format!("{manifest_dir}/../Cargo.lock")).unwrap_or_default();
     for (package, var) in [
         ("shadowsocks-service", "JUICITY_DEPS_SHADOWSOCKS_SERVICE"),
@@ -85,8 +93,6 @@ fn main() {
         let version = locked_version(&lock, package).unwrap_or_else(|| "unknown".to_string());
         println!("cargo:rustc-env={var}={version}");
     }
-
-    println!("cargo:rerun-if-changed={manifest_dir}/icon.svg");
     println!("cargo:rerun-if-changed={manifest_dir}/../Cargo.lock");
 }
 

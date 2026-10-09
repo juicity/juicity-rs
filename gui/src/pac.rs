@@ -9,29 +9,36 @@
 
 use crate::config::PacRuleMode;
 use anyhow::Context;
-use std::io::{BufRead, BufReader, Write};
-use std::net::TcpListener;
+use std::io::Write;
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 /// Shared PAC content that the HTTP server thread reads on every request.
 pub type PacContent = Arc<Mutex<String>>;
 
-/// Handle for the background PAC HTTP server.  Dropping this struct does **not**
-/// stop the server thread (the thread holds its own Arc clone), but the OS will
-/// reclaim everything on process exit.
+/// Handle for the background PAC HTTP server. [`PacServer::shutdown`] (also
+/// run on drop) stops the accept loop and releases the listening socket.
 pub struct PacServer {
     /// Live PAC content – write here to update what the server serves.
     pub content: PacContent,
-    // Keep the JoinHandle so the thread is at least not orphaned silently.
-    _thread: std::thread::JoinHandle<()>,
+    /// The `pac_listen` value this server was started with.
+    listen: String,
+    /// Bound address, used to wake the accept loop on shutdown.
+    addr: SocketAddr,
+    stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl std::fmt::Debug for PacServer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PacServer").finish_non_exhaustive()
+        f.debug_struct("PacServer")
+            .field("listen", &self.listen)
+            .finish_non_exhaustive()
     }
 }
 
@@ -42,6 +49,39 @@ impl PacServer {
             *c = new_content;
         }
     }
+
+    /// The listen address this server was started with.
+    pub fn listen(&self) -> &str {
+        &self.listen
+    }
+
+    /// Stop serving and close the listening socket. The accept loop is woken
+    /// with a local connection; if that fails the thread is detached.
+    pub fn shutdown(&mut self) {
+        let Some(thread) = self.thread.take() else {
+            return;
+        };
+        self.stop.store(true, Ordering::Release);
+        let mut wake = self.addr;
+        if wake.ip().is_unspecified() {
+            wake.set_ip(match wake {
+                SocketAddr::V4(_) => Ipv4Addr::LOCALHOST.into(),
+                SocketAddr::V6(_) => Ipv6Addr::LOCALHOST.into(),
+            });
+        }
+        match TcpStream::connect_timeout(&wake, Duration::from_secs(1)) {
+            Ok(_) => {
+                let _ = thread.join();
+            }
+            Err(err) => tracing::warn!("PAC server on {} did not stop: {err}", self.listen),
+        }
+    }
+}
+
+impl Drop for PacServer {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
 }
 
 // ── Server ────────────────────────────────────────────────────────────────────
@@ -51,36 +91,28 @@ impl PacServer {
 pub fn start(listen_addr: &str, initial_content: String) -> anyhow::Result<PacServer> {
     let listener = TcpListener::bind(listen_addr)
         .with_context(|| format!("PAC server: bind {listen_addr}"))?;
+    let addr = listener
+        .local_addr()
+        .with_context(|| format!("PAC server: address of {listen_addr}"))?;
 
     let content: PacContent = Arc::new(Mutex::new(initial_content));
     let content_thread = Arc::clone(&content);
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_thread = Arc::clone(&stop);
 
     let thread = std::thread::Builder::new()
         .name("pac-server".into())
         .spawn(move || {
             for stream in listener.incoming() {
+                if stop_thread.load(Ordering::Acquire) {
+                    break;
+                }
                 let Ok(mut stream) = stream else { continue };
-
-                // Read (and discard) the request headers before replying. Closing
+                // Read (and discard) the request head before replying. Closing
                 // a socket that still has unread data in its receive buffer makes
                 // Windows send an RST, which can reset or truncate the response we
-                // are about to write. The short timeout stops a silent client from
-                // stalling the single-threaded accept loop.
-                let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
-                {
-                    let mut reader = BufReader::new(&stream);
-                    let mut line = String::new();
-                    loop {
-                        line.clear();
-                        match reader.read_line(&mut line) {
-                            Ok(0) => break,                                   // peer closed
-                            Ok(_) if line == "\r\n" || line == "\n" => break, // end of headers
-                            Ok(_) => {}
-                            Err(_) => break, // timeout or reset
-                        }
-                    }
-                }
-
+                // are about to write.
+                read_request_head(&mut stream);
                 let pac = content_thread.lock().map(|c| c.clone()).unwrap_or_default();
                 // Minimal HTTP/1.0 response – no keep-alive needed.
                 let response = format!(
@@ -101,8 +133,30 @@ pub fn start(listen_addr: &str, initial_content: String) -> anyhow::Result<PacSe
 
     Ok(PacServer {
         content,
-        _thread: thread,
+        listen: listen_addr.to_string(),
+        addr,
+        stop,
+        thread: Some(thread),
     })
+}
+
+/// Consume an HTTP request head (up to the blank line, 8 KiB or 2 s). The
+/// short timeout stops a silent client from stalling the single-threaded
+/// accept loop; a bare `\n` line ending is accepted as well as `\r\n`.
+fn read_request_head(stream: &mut TcpStream) {
+    use std::io::Read;
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    let mut head = Vec::with_capacity(512);
+    let mut buf = [0u8; 512];
+    let complete = |head: &[u8]| {
+        head.windows(2).any(|w| w == b"\n\n") || head.windows(3).any(|w| w == b"\n\r\n")
+    };
+    while head.len() < 8192 && !complete(&head) {
+        match stream.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => head.extend_from_slice(&buf[..n]),
+        }
+    }
 }
 
 /// URL that browsers/system proxy should be configured with.
@@ -455,5 +509,39 @@ mod tests {
             std::fs::write(&path, &pac).expect("failed to write PAC dump");
             println!("dumped PAC to {path}");
         }
+    }
+
+    fn free_port() -> u16 {
+        TcpListener::bind("127.0.0.1:0")
+            .and_then(|listener| listener.local_addr())
+            .unwrap()
+            .port()
+    }
+
+    fn fetch(addr: &str) -> std::io::Result<String> {
+        let mut stream = TcpStream::connect(addr)?;
+        stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+        stream.write_all(b"GET /pac HTTP/1.1\r\nHost: localhost\r\n\r\n")?;
+        let mut body = String::new();
+        stream.read_to_string(&mut body)?;
+        Ok(body)
+    }
+
+    #[test]
+    fn shutdown_releases_the_port_for_a_round_trip() {
+        let first = format!("127.0.0.1:{}", free_port());
+        let second = format!("127.0.0.1:{}", free_port());
+        let mut a = start(&first, "first".into()).unwrap();
+        assert!(fetch(&first).unwrap().ends_with("first"));
+        let b = start(&second, "second".into()).unwrap();
+        a.shutdown();
+        assert!(fetch(&first).is_err(), "the old server must stop serving");
+        // The released address can be bound again (1090 → 1091 → 1090).
+        let c = start(&first, "third".into()).unwrap();
+        assert!(fetch(&first).unwrap().ends_with("third"));
+        assert!(fetch(&second).unwrap().ends_with("second"));
+        assert_eq!(c.listen(), first);
+        drop(b);
+        assert!(fetch(&second).is_err(), "dropping stops the server");
     }
 }

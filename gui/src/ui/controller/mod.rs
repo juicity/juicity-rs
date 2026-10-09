@@ -7,12 +7,14 @@
 mod nodes;
 mod overview;
 mod persist;
+mod settings;
 
 pub use nodes::{DraftData, DraftError, DraftField, ListCommand, NodesSnapshot};
 pub use overview::{OverviewSnapshot, RuleJob};
 pub use persist::ConfigFile;
 #[cfg(test)]
 use persist::{DEBOUNCE, RETRY};
+pub use settings::{is_interval_preset, url_summary, SettingError, SettingKey, SettingsSnapshot};
 
 use crate::config::{AppConfig, ProxyProfile, Storage, SystemProxyMode};
 use crate::core::CoreManager;
@@ -36,6 +38,8 @@ pub trait Effects {
     fn apply_system_proxy(&mut self, config: &AppConfig) -> anyhow::Result<()>;
     fn copy_text(&mut self, text: &str) -> anyhow::Result<()>;
     fn paste_text(&mut self) -> anyhow::Result<String>;
+    /// Enable or disable starting at login.
+    fn set_autostart(&mut self, enabled: bool) -> anyhow::Result<()>;
 }
 
 /// The real effects: in-process core, `system_proxy.rs` and `arboard`.
@@ -74,6 +78,10 @@ impl Effects for NativeEffects {
 
     fn paste_text(&mut self) -> anyhow::Result<String> {
         Ok(self.clipboard()?.get_text()?)
+    }
+
+    fn set_autostart(&mut self, enabled: bool) -> anyhow::Result<()> {
+        crate::desktop::autostart::apply(enabled)
     }
 }
 
@@ -142,6 +150,8 @@ pub struct Changes {
     /// The editor draft was replaced (another node selected); its text
     /// fields must be reloaded.
     pub editor: bool,
+    /// The settings snapshot (values and the open sheet) must be pushed.
+    pub settings: bool,
 }
 
 impl Changes {
@@ -151,6 +161,7 @@ impl Changes {
         persist: false,
         nodes: false,
         editor: false,
+        settings: false,
     };
     pub const OVERVIEW: Self = Self {
         overview: true,
@@ -165,6 +176,10 @@ impl Changes {
         editor: true,
         ..Self::NONE
     };
+    pub const SETTINGS: Self = Self {
+        settings: true,
+        ..Self::NONE
+    };
 }
 
 impl std::ops::BitOr for Changes {
@@ -176,6 +191,7 @@ impl std::ops::BitOr for Changes {
             persist: self.persist || other.persist,
             nodes: self.nodes || other.nodes,
             editor: self.editor || other.editor,
+            settings: self.settings || other.settings,
         }
     }
 }
@@ -195,6 +211,8 @@ pub struct Controller {
     notice: Notice,
     notice_seq: u64,
     nodes: nodes::NodesState,
+    /// The open settings sheet; its draft is committed only by 完成.
+    sheet: Option<settings::SettingSheet>,
 }
 
 impl Controller {
@@ -211,6 +229,7 @@ impl Controller {
             notice: Notice::None,
             notice_seq: 0,
             nodes,
+            sheet: None,
         }
     }
 
@@ -243,13 +262,15 @@ impl Controller {
         }
     }
 
-    /// Startup side effects: PAC server, saved system proxy mode and the
-    /// startup-only rule overdue check.
-    pub fn startup(&mut self) -> (Changes, Option<RuleJob>) {
+    /// Startup side effects: PAC server, saved system proxy mode, the
+    /// startup connection setting and the startup-only rule overdue check.
+    pub fn startup(&mut self, now: Instant) -> (Changes, Option<RuleJob>) {
         let mut changes = Changes::OVERVIEW;
         if let Err(err) = restart_pac_server(&mut self.gui, true) {
             tracing::warn!("PAC server failed to start: {err:#}");
         }
+        // Start the core first, then re-apply the proxy (gpui order).
+        changes |= self.startup_connection(now);
         // The OS proxy is reset to Disable on exit, so re-apply the saved mode.
         if self.gui.config.system_proxy_mode != SystemProxyMode::Disable {
             if let Err(err) = self.effects.apply_system_proxy(&self.gui.config) {
@@ -334,7 +355,7 @@ impl Controller {
         }
         tracing::info!("config reloaded from disk: {reloaded:?}");
         self.gui.normalize_selected_index();
-        changes |= Changes::OVERVIEW | self.after_reload(edited);
+        changes |= Changes::OVERVIEW | Changes::SETTINGS | self.after_reload(edited);
         if reloaded.contains(&ConfigFile::App) {
             let config = &self.gui.config;
             let listen_changed = old.pac_listen != config.pac_listen;
@@ -376,6 +397,12 @@ pub mod testing {
         pub paste: String,
         /// Names of the profiles the core was started with.
         pub started: Vec<String>,
+        /// Autostart requests, in order.
+        pub autostart: Vec<bool>,
+        pub autostart_error: Option<String>,
+        /// When set, autostart entries are really written here.
+        #[cfg(target_os = "linux")]
+        pub autostart_dir: Option<PathBuf>,
     }
 
     /// Effects that only record what the controller asked for.
@@ -427,6 +454,20 @@ pub mod testing {
 
         fn paste_text(&mut self) -> anyhow::Result<String> {
             Ok(self.0.borrow().paste.clone())
+        }
+
+        fn set_autostart(&mut self, enabled: bool) -> anyhow::Result<()> {
+            let mut state = self.0.borrow_mut();
+            if let Some(err) = state.autostart_error.clone() {
+                anyhow::bail!("{err}");
+            }
+            state.autostart.push(enabled);
+            #[cfg(target_os = "linux")]
+            if let Some(dir) = &state.autostart_dir {
+                let exe = std::path::Path::new("/usr/bin/juicity-gui");
+                return crate::desktop::autostart::apply_in(dir, enabled, exe);
+            }
+            Ok(())
         }
     }
 

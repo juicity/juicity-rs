@@ -64,7 +64,9 @@ pub fn run() -> anyhow::Result<()> {
     bind::watch_config_dir(&config_dir);
     bind::startup();
 
-    // No tray yet: closing the window quits.
+    // No tray yet (M4): closing the window quits even with close-to-tray on,
+    // and hide-on-start still shows the window, as the gpui frontend does
+    // when no tray is available.
     window.window().on_close_requested(|| {
         let _ = slint::quit_event_loop();
         slint::CloseRequestResponse::HideWindow

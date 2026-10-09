@@ -1,0 +1,225 @@
+import { Theme, Icons } from "../theme.slint";
+import { AppState, SettingsStore, SettingField, StartupConnection, PacSource, Notice, Actions, MenuItem } from "../state.slint";
+import { Caption, HDivider, SettingRow, SettingSwitch, SettingValue, SettingsCard } from "../components/primitives.slint";
+import { PageHeader } from "../components/nav.slint";
+import { Banner, Sheet } from "../components/sheet.slint";
+import { PopupMenu } from "../components/menu.slint";
+import { ScrollArea } from "../components/scroll.slint";
+import { LabeledField } from "../components/field.slint";
+
+// Value with a chevron that opens a menu below it, right-aligned to the row.
+component MenuValue inherits HorizontalLayout {
+    in property <string> text;
+    in property <[MenuItem]> items;
+    callback selected(int);
+    horizontal-stretch: 0;
+    SettingValue { text: root.text; menu: true; clicked => { menu.show(); } }
+    Rectangle {
+        width: 0px;
+        menu := PopupMenu {
+            x: -self.menu-width;
+            width: 0px;
+            height: parent.height;
+            items: root.items;
+            selected(index) => { root.selected(index); }
+        }
+    }
+}
+
+// Value with a chevron that opens an edit sheet.
+component SheetValue inherits SettingValue {
+    in property <SettingField> field;
+    in property <bool> enabled: true;
+    horizontal-stretch: 0;
+    opacity: root.enabled ? 1 : 0.5;
+    clicked => { if root.enabled { Actions.open-setting(root.field); } }
+}
+
+export component SettingsPage inherits VerticalLayout {
+    private property <int> hours: SettingsStore.update-hours;
+    // Presets below must match INTERVAL_PRESETS in controller/settings.rs.
+    private property <bool> custom-hours: SettingsStore.update-custom;
+    private property <bool> online: SettingsStore.pac-source == PacSource.online;
+    pure function hours-text(value: int) -> string {
+        return value <= 0 ? @tr("Off") : @tr("Every {n} hour" | "Every {n} hours" % value);
+    }
+    spacing: 16px;
+    PageHeader { title: @tr("Settings"); }
+    if AppState.notice != Notice.none: Banner {
+        text: AppState.notice-text;
+        error: AppState.notice-error;
+        dismissed => { Actions.dismiss-notice(); }
+    }
+    Rectangle {
+        vertical-stretch: 1;
+        // The scroll bar gutter sits in the page's right padding, so cards
+        // keep the full page width.
+        ScrollArea {
+            x: 0px;
+            y: 0px;
+            width: parent.width + 10px;
+            height: parent.height;
+            content-height: cards.preferred-height;
+            cards := VerticalLayout {
+                // `parent` is the scroll area; leave out its 10 px gutter.
+                width: parent.width - 10px;
+                padding-bottom: 24px;
+                spacing: 16px;
+                SettingsCard {
+                    title: @tr("General");
+                    SettingRow {
+                        label: @tr("Start at login");
+                        SettingSwitch { on <=> SettingsStore.autostart; enabled: SettingsStore.autostart-supported; toggled(on) => { Actions.set-autostart(on); } }
+                    }
+                    HDivider { }
+                    SettingRow {
+                        label: @tr("Hide window on start");
+                        SettingSwitch { on <=> SettingsStore.hide-on-start; toggled(on) => { Actions.set-hide-on-start(on); } }
+                    }
+                    HDivider { }
+                    SettingRow {
+                        label: @tr("Minimize to tray on close");
+                        SettingSwitch { on <=> SettingsStore.close-to-tray; toggled(on) => { Actions.set-close-to-tray(on); } }
+                    }
+                    HDivider { }
+                    SettingRow {
+                        label: @tr("Connect on start");
+                        MenuValue {
+                            text: SettingsStore.startup-connection == StartupConnection.on ? @tr("On") : SettingsStore.startup-connection == StartupConnection.last ? @tr("Last state") : @tr("Off");
+                            items: [
+                                { text: @tr("Off"), checked: SettingsStore.startup-connection == StartupConnection.off, enabled: true },
+                                { text: @tr("On"), checked: SettingsStore.startup-connection == StartupConnection.on, enabled: true },
+                                { text: @tr("Last state"), checked: SettingsStore.startup-connection == StartupConnection.last, enabled: true },
+                            ];
+                            selected(index) => {
+                                Actions.set-startup-connection(index == 0 ? StartupConnection.off : index == 1 ? StartupConnection.on : StartupConnection.last);
+                            }
+                        }
+                    }
+                }
+                SettingsCard {
+                    title: @tr("Local proxy");
+                    SettingRow {
+                        label: @tr("Port");
+                        note: @tr("SOCKS5 and HTTP share this port");
+                        SheetValue { text: SettingsStore.mixed-port; field: SettingField.mixed-port; latin: true; }
+                    }
+                }
+                SettingsCard {
+                    title: "PAC";
+                    SettingRow {
+                        label: @tr("Source");
+                        MenuValue {
+                            text: root.online ? @tr("Online") : @tr("Local");
+                            items: [
+                                { text: @tr("Local"), checked: !root.online, enabled: true },
+                                { text: @tr("Online"), checked: root.online, enabled: true },
+                            ];
+                            selected(index) => { Actions.set-pac-source(index == 0 ? PacSource.local : PacSource.online); }
+                        }
+                    }
+                    HDivider { }
+                    SettingRow {
+                        label: @tr("Direct list");
+                        SheetValue { text: SettingsStore.direct-url; field: SettingField.direct-url; latin: true; }
+                    }
+                    HDivider { }
+                    SettingRow {
+                        label: @tr("Proxy list");
+                        SheetValue { text: SettingsStore.proxy-url; field: SettingField.proxy-url; latin: true; }
+                    }
+                    HDivider { }
+                    SettingRow {
+                        label: @tr("Auto update");
+                        MenuValue {
+                            text: root.hours-text(root.hours);
+                            // Presets, then the stored custom value (if any), then 自訂….
+                            items: root.custom-hours ? [
+                                { text: @tr("Off"), checked: false, enabled: true },
+                                { text: root.hours-text(6), checked: false, enabled: true },
+                                { text: root.hours-text(12), checked: false, enabled: true },
+                                { text: root.hours-text(24), checked: false, enabled: true },
+                                { text: root.hours-text(72), checked: false, enabled: true },
+                                { text: root.hours-text(168), checked: false, enabled: true },
+                                { text: root.hours-text(root.hours), checked: true, enabled: true },
+                                { text: @tr("Custom…"), checked: false, enabled: true },
+                            ] : [
+                                { text: @tr("Off"), checked: root.hours == 0, enabled: true },
+                                { text: root.hours-text(6), checked: root.hours == 6, enabled: true },
+                                { text: root.hours-text(12), checked: root.hours == 12, enabled: true },
+                                { text: root.hours-text(24), checked: root.hours == 24, enabled: true },
+                                { text: root.hours-text(72), checked: root.hours == 72, enabled: true },
+                                { text: root.hours-text(168), checked: root.hours == 168, enabled: true },
+                                { text: @tr("Custom…"), checked: false, enabled: true },
+                            ];
+                            selected(index) => {
+                                if index <= 5 {
+                                    Actions.set-update-hours(index == 0 ? 0 : index == 1 ? 6 : index == 2 ? 12 : index == 3 ? 24 : index == 4 ? 72 : 168);
+                                } else if index == (root.custom-hours ? 7 : 6) {
+                                    Actions.open-setting(SettingField.update-hours);
+                                }
+                            }
+                        }
+                    }
+                    HDivider { }
+                    SettingRow {
+                        label: @tr("PAC server");
+                        SheetValue { text: SettingsStore.pac-listen; field: SettingField.pac-listen; latin: true; }
+                    }
+                    HDivider { }
+                    SettingRow {
+                        label: @tr("Online PAC");
+                        SheetValue {
+                            text: SettingsStore.online-pac-url == "" ? @tr("Not set") : SettingsStore.online-pac-url;
+                            field: SettingField.online-pac-url;
+                            latin: SettingsStore.online-pac-url != "";
+                            enabled: root.online;
+                        }
+                    }
+                }
+                SettingsCard {
+                    title: @tr("About");
+                    HorizontalLayout {
+                        padding-top: 8px;
+                        padding-bottom: 8px;
+                        spacing: 12px;
+                        VerticalLayout { alignment: center; Image { source: Icons.logo; width: 32px; height: 32px; } }
+                        VerticalLayout {
+                            alignment: center;
+                            Text { text: "juicity"; font-family: Theme.latin; font-size: 16px; font-weight: 500; color: Theme.text; height: 22px; vertical-alignment: center; }
+                            Caption {
+                                text: @tr("Version {} · juicity core {} · shadowsocks-rust {}", SettingsStore.versions.gui, SettingsStore.versions.juicity, SettingsStore.versions.shadowsocks);
+                                font-family: Theme.latin;
+                            }
+                            Caption {
+                                text: @tr("Build {} ({})", SettingsStore.versions.tag, SettingsStore.versions.commit);
+                                font-family: Theme.latin;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Edits one settings value. The field loads the sheet draft when it is
+// created and when the serial changes (a new open), never while typing; 完成 commits, 取消, Esc or the scrim discard.
+export component SettingSheet inherits Sheet {
+    private property <SettingField> field: SettingsStore.sheet-field;
+    private property <int> serial: SettingsStore.sheet-serial;
+    changed serial => { input.text = SettingsStore.sheet-draft; }
+    open: true;
+    title: field == SettingField.mixed-port ? @tr("Local proxy port") : field == SettingField.direct-url ? @tr("Direct list") : field == SettingField.proxy-url ? @tr("Proxy list") : field == SettingField.update-hours ? @tr("Custom update interval") : field == SettingField.pac-listen ? @tr("PAC server") : @tr("Online PAC");
+    last-field-focused: input.has-focus;
+    cancelled => { Actions.cancel-setting(); }
+    completed => { Actions.commit-setting(); }
+    init => { input.focus(); }
+    input := LabeledField {
+        label: root.field == SettingField.mixed-port ? @tr("Port") : root.field == SettingField.update-hours ? @tr("Hours") : root.field == SettingField.pac-listen ? @tr("Address") : @tr("URL");
+        placeholder: root.field == SettingField.mixed-port ? "1080" : root.field == SettingField.update-hours ? "24" : root.field == SettingField.pac-listen ? "127.0.0.1:1090" : "https://";
+        error: SettingsStore.sheet-error;
+        init => { self.text = SettingsStore.sheet-draft; }
+        edited(text) => { Actions.edit-setting(text); }
+    }
+}

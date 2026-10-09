@@ -118,7 +118,8 @@ fn load_or_recover<T: Default>(path: &Path, load: impl FnOnce() -> anyhow::Resul
 /// Restart or update the PAC server with fresh rules from disk.
 ///
 /// If `force_restart` is `true` (e.g. the listen address changed), a new
-/// server is started even if one already exists.  Otherwise the existing
+/// server is started even if one already exists, and the old one is shut
+/// down; if binding fails, a server on another address keeps running.  Otherwise the existing
 /// server is updated in-place, or a new one is started if none exists.
 pub fn restart_pac_server(state: &mut GuiState, force_restart: bool) -> anyhow::Result<()> {
     let (direct, proxy) = pac::load_rules(&state.storage.paths().config_dir);
@@ -129,7 +130,22 @@ pub fn restart_pac_server(state: &mut GuiState, force_restart: bool) -> anyhow::
         &proxy,
     );
     if force_restart || state.pac_server.is_none() {
-        state.pac_server = Some(pac::start(&state.config.pac_listen, content)?);
+        let listen = &state.config.pac_listen;
+        // The same address must be released before it can be bound again;
+        // a different one is bound first so a failure keeps the old server.
+        if state
+            .pac_server
+            .as_ref()
+            .is_some_and(|server| server.listen() == listen)
+        {
+            if let Some(mut old) = state.pac_server.take() {
+                old.shutdown();
+            }
+        }
+        let server = pac::start(listen, content)?;
+        if let Some(mut old) = state.pac_server.replace(server) {
+            old.shutdown();
+        }
     } else if let Some(srv) = &state.pac_server {
         srv.update(content);
     }

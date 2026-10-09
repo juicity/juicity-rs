@@ -1,6 +1,6 @@
 use super::{
     fonts, prepare, AppState, Connection, MainWindow, NodeDraft, NodeRow, NodeStore, PacRule, Page,
-    Protocol, ProxyMode, Theme,
+    Protocol, ProxyMode, SettingsStore, StartupConnection, Theme, Versions,
 };
 use crate::i18n::UiLang;
 use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
@@ -15,6 +15,8 @@ use std::{
 const WIDTH: u32 = 1440;
 const HEIGHT: u32 = 960;
 const SCALE: f32 = 1.5;
+/// The settings mockup is 960 × 900 logical pixels.
+const SETTINGS_HEIGHT: u32 = 1350;
 
 struct HeadlessPlatform {
     window: Rc<MinimalSoftwareWindow>,
@@ -73,6 +75,23 @@ fn fixture(window: &MainWindow) {
         timeout: "5".into(),
         ..Default::default()
     });
+
+    let settings = window.global::<SettingsStore>();
+    settings.set_autostart(true);
+    settings.set_close_to_tray(true);
+    settings.set_startup_connection(StartupConnection::Last);
+    settings.set_mixed_port("1080".into());
+    settings.set_direct_url("Loyalsoldier · direct-list.txt".into());
+    settings.set_proxy_url("Loyalsoldier · proxy-list.txt".into());
+    settings.set_update_hours(24);
+    settings.set_pac_listen("127.0.0.1:1090".into());
+    settings.set_versions(Versions {
+        gui: "1.0.3".into(),
+        juicity: "1.0.3".into(),
+        shadowsocks: "1.24.0".into(),
+        tag: "v1.0.3".into(),
+        commit: "4c4f9f0".into(),
+    });
 }
 
 fn compare_mockup(
@@ -80,14 +99,15 @@ fn compare_mockup(
     output: &Path,
     pixels: &SharedPixelBuffer<Rgb8Pixel>,
 ) -> anyhow::Result<()> {
+    let (width, height) = (pixels.width(), pixels.height());
     let reference = image::open(path)?.to_rgb8();
     anyhow::ensure!(
-        reference.dimensions() == (WIDTH, HEIGHT),
+        reference.dimensions() == (width, height),
         "Mockup dimensions differ: {}",
         path.display()
     );
     let mut changed = 0usize;
-    let mut diff = image::RgbImage::new(WIDTH, HEIGHT);
+    let mut diff = image::RgbImage::new(width, height);
     for ((x, y, expected), actual) in reference.enumerate_pixels().zip(pixels.as_slice()) {
         let delta = [
             expected[0].abs_diff(actual.r),
@@ -103,7 +123,7 @@ fn compare_mockup(
     let report = format!(
         "Mockup diff {}: {:.4}% (max channel delta >24); diff {}",
         path.display(),
-        changed as f64 * 100.0 / (WIDTH * HEIGHT) as f64,
+        changed as f64 * 100.0 / (width * height) as f64,
         output.display()
     );
     std::fs::write(output.with_extension("txt"), &report)?;
@@ -112,7 +132,7 @@ fn compare_mockup(
 }
 
 #[test]
-#[ignore = "Set JUICITY_SHOTS=1 to render the overview and nodes fixtures"]
+#[ignore = "Set JUICITY_SHOTS=1 to render the overview, nodes and settings fixtures"]
 fn shots() -> anyhow::Result<()> {
     anyhow::ensure!(
         std::env::var("JUICITY_SHOTS").as_deref() == Ok("1"),
@@ -146,11 +166,15 @@ fn shots() -> anyhow::Result<()> {
             window.dispatch_event(WindowEvent::ScaleFactorChanged {
                 scale_factor: SCALE,
             });
-            window.set_size(PhysicalSize::new(WIDTH, HEIGHT));
             ui.show()?;
-            for (page, page_name) in [(Page::Overview, "overview"), (Page::Nodes, "nodes")] {
+            for (page, page_name, height) in [
+                (Page::Overview, "overview", HEIGHT),
+                (Page::Nodes, "nodes", HEIGHT),
+                (Page::Settings, "settings", SETTINGS_HEIGHT),
+            ] {
+                window.set_size(PhysicalSize::new(WIDTH, height));
                 ui.global::<AppState>().set_page(page);
-                let mut pixels = SharedPixelBuffer::<Rgb8Pixel>::new(WIDTH, HEIGHT);
+                let mut pixels = SharedPixelBuffer::<Rgb8Pixel>::new(WIDTH, height);
                 window.request_redraw();
                 anyhow::ensure!(
                     window.draw_if_needed(|renderer| {
@@ -165,7 +189,7 @@ fn shots() -> anyhow::Result<()> {
                     &path,
                     pixels.as_bytes(),
                     WIDTH,
-                    HEIGHT,
+                    height,
                     image::ColorType::Rgb8,
                 )?;
                 println!("Rendered {}", path.display());

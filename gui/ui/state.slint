@@ -87,6 +87,8 @@ export global NodeStore {
 }
 export global SettingsStore {
     in-out property <bool> autostart;
+    // False where starting at login is not implemented yet.
+    in-out property <bool> autostart-supported: true;
     in-out property <bool> hide-on-start;
     in-out property <bool> close-to-tray;
     in-out property <StartupConnection> startup-connection: StartupConnection.off;
@@ -94,10 +96,14 @@ export global SettingsStore {
     in-out property <string> direct-url;
     in-out property <string> proxy-url;
     in-out property <int> update-hours;
+    // update-hours is not a menu preset; shown as an extra checked item.
+    in-out property <bool> update-custom;
     in-out property <PacSource> pac-source: PacSource.local;
     in-out property <string> pac-listen;
     in-out property <string> online-pac-url;
     in-out property <Versions> versions;
+    // Bumped when a sheet opens; its text field loads sheet-draft only then.
+    in-out property <int> sheet-serial;
     in-out property <bool> sheet-open;
     in-out property <SettingField> sheet-field;
     in-out property <string> sheet-draft;
@@ -148,6 +154,9 @@ export global FieldText {
     out property <string> required-error: @tr("Required");
     out property <string> port-error: @tr("Enter a port from 1 to 65535");
     out property <string> timeout-error: @tr("Enter a whole number of seconds");
+    out property <string> listen-error: @tr("Enter an address as host:port");
+    out property <string> url-error: @tr("Enter a URL that starts with http:// or https://");
+    out property <string> hours-error: @tr("Enter a whole number of hours, 1 or more");
     public pure function new-node-name(index: int) -> string { return @tr("Node {}", index); }
 }
 export global TrayText {

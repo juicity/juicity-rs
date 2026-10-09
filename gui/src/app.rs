@@ -1,6 +1,6 @@
 use crate::config::{
-    method_to_index, AppConfig, ProfileStore, ProxyProfile, ProxyProtocol, RuntimeState,
-    StartupConnectionState, SystemProxyMode, SS_METHODS,
+    method_to_index, AppConfig, ProfileStore, ProxyProfile, ProxyProtocol, StartupConnectionState,
+    SystemProxyMode, SS_METHODS,
 };
 use crate::link;
 use crate::pac;
@@ -1022,7 +1022,7 @@ impl AppView {
         cx: &mut Context<Self>,
     ) {
         self.gui.runtime = state;
-        let _ = apply_autostart(&self.gui.runtime);
+        let _ = crate::desktop::autostart::apply(self.gui.runtime.auto_start);
         let _ = self.flush_and_record();
         cx.notify();
     }
@@ -1949,57 +1949,6 @@ fn chk(
 /// Thin horizontal separator line.
 fn separator(colors: widgets::Palette) -> impl IntoElement {
     div().h(px(1.)).w_full().bg(colors.border).my_1()
-}
-
-/// Apply or remove system auto-start for the application.
-#[allow(unused_variables)]
-fn apply_autostart(state: &RuntimeState) -> anyhow::Result<()> {
-    fn autostart_dir() -> std::path::PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        std::path::PathBuf::from(&home).join(".config/autostart")
-    }
-
-    if !state.auto_start {
-        #[cfg(target_os = "linux")]
-        {
-            let desktop_file = autostart_dir().join("io.juicity.gui.desktop");
-            if desktop_file.exists() {
-                let _ = std::fs::remove_file(&desktop_file);
-            }
-        }
-        return Ok(());
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let dir = autostart_dir();
-        std::fs::create_dir_all(&dir)?;
-
-        let exe =
-            std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("juicity-gui"));
-
-        let desktop_content = format!(
-            "[Desktop Entry]\n\
-             Type=Application\n\
-             Name=Juicity GUI\n\
-             Comment=Juicity GUI Client\n\
-             Exec={}\n\
-             Icon=io.juicity.gui\n\
-             Terminal=false\n\
-             Categories=Network;\n\
-             X-GNOME-Autostart-enabled=true\n",
-            exe.display()
-        );
-
-        let desktop_file = dir.join("io.juicity.gui.desktop");
-        std::fs::write(&desktop_file, desktop_content.as_bytes())?;
-        tracing::info!(
-            "autostart desktop file created at {}",
-            desktop_file.display()
-        );
-    }
-
-    Ok(())
 }
 
 pub fn run() -> anyhow::Result<()> {

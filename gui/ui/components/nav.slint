@@ -37,7 +37,7 @@ export component Sidebar inherits Rectangle {
         }
         SidebarRow { icon: Icons.activity; text: @tr("Overview"); active: AppState.page == Page.overview; clicked => { Actions.navigate(Page.overview); } }
         SidebarRow { icon: Icons.server; text: @tr("Nodes"); active: AppState.page == Page.nodes; clicked => { Actions.navigate(Page.nodes); } }
-        // Settings becomes reachable in its implementation milestone.
+        SidebarRow { icon: Icons.settings; text: @tr("Settings"); active: AppState.page == Page.settings; clicked => { Actions.navigate(Page.settings); } }
     }
 }
 

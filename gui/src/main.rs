@@ -20,6 +20,7 @@ mod app;
 mod config;
 #[cfg_attr(feature = "ui-slint", allow(dead_code))]
 mod core;
+mod desktop;
 mod i18n;
 #[cfg(feature = "ui-gpui")]
 mod icon;
@@ -52,6 +53,7 @@ mod ui;
 #[cfg_attr(feature = "ui-slint", allow(dead_code))]
 mod util;
 mod validate;
+mod version;
 #[cfg(feature = "ui-gpui")]
 mod widgets;
 
