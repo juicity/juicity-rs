@@ -5,7 +5,7 @@ export enum PacRule { bypass-china, gfw-list }
 export enum PacSource { local, online }
 export enum Protocol { juicity, shadowsocks }
 export enum StartupConnection { off, on, last }
-export enum Notice { none, imported, link-copied, start-failed, rules-updated, rules-failed, proxy-failed, save-failed, core-exited, no-node, missing-fields }
+export enum Notice { none, imported, link-copied, start-failed, rules-updated, rules-failed, proxy-failed, save-failed, core-exited, no-node, missing-fields, import-failed, export-failed, import-partial, export-invalid }
 export enum NodeField { name, protocol, server, port, uuid, password, method, sni, allow-insecure, pinned-certchain-sha256, congestion-control, plugin, plugin-options, plugin-args, timeout, group }
 export enum SettingField { mixed-port, direct-url, proxy-url, update-hours, pac-listen, online-pac-url }
 export enum NodeCommand { move-up, move-down, duplicate, delete }
@@ -56,10 +56,12 @@ export global AppState {
     in-out property <bool> rules-updating;
     in-out property <Notice> notice: Notice.none;
     in-out property <string> notice-detail;
+    // Second value of a notice (skipped links).
+    in-out property <string> notice-extra;
     in-out property <bool> notice-error;
     out property <string> connection-text: connection == Connection.running ? @tr("Connected · {}", active-name) : connection == Connection.starting ? @tr("Connecting…") : @tr("Disconnected");
     out property <string> proxy-text: proxy-mode == ProxyMode.pac ? @tr("System proxy · PAC") : proxy-mode == ProxyMode.global ? @tr("System proxy · Global") : @tr("System proxy · Off");
-    out property <string> notice-text: notice == Notice.imported ? @tr("Links imported") : notice == Notice.link-copied ? @tr("Link copied") : notice == Notice.start-failed ? @tr("Could not start proxy: {}", notice-detail) : notice == Notice.rules-updated ? @tr("Rules updated") : notice == Notice.rules-failed ? @tr("Could not update rules: {}", notice-detail) : notice == Notice.proxy-failed ? @tr("Could not set system proxy: {}", notice-detail) : notice == Notice.save-failed ? @tr("Could not save settings: {}", notice-detail) : notice == Notice.core-exited ? @tr("Proxy stopped: {}", notice-detail) : notice == Notice.no-node ? @tr("Add a node first") : notice == Notice.missing-fields ? @tr("Missing fields: {}", notice-detail) : "";
+    out property <string> notice-text: notice == Notice.imported ? @tr("Links imported") : notice == Notice.link-copied ? @tr("Link copied") : notice == Notice.start-failed ? @tr("Could not start proxy: {}", notice-detail) : notice == Notice.rules-updated ? @tr("Rules updated") : notice == Notice.rules-failed ? @tr("Could not update rules: {}", notice-detail) : notice == Notice.proxy-failed ? @tr("Could not set system proxy: {}", notice-detail) : notice == Notice.save-failed ? @tr("Could not save settings: {}", notice-detail) : notice == Notice.core-exited ? @tr("Proxy stopped: {}", notice-detail) : notice == Notice.no-node ? @tr("Add a node first") : notice == Notice.missing-fields ? @tr("Missing fields: {}", notice-detail) : notice == Notice.import-failed ? @tr("Could not import link: {}", notice-detail) : notice == Notice.export-failed ? @tr("Could not export link: {}", notice-detail) : notice == Notice.import-partial ? @tr("Links imported: {}, skipped: {}", notice-detail, notice-extra) : notice == Notice.export-invalid ? @tr("Fix the invalid fields before exporting") : "";
     out property <string> rules-updated-at: rules-age-days == 0 ? @tr("Today {}", rules-time) : rules-age-days == 1 ? @tr("Yesterday {}", rules-time) : rules-time;
 }
 export global NodeStore {
@@ -71,6 +73,17 @@ export global NodeStore {
     in-out property <bool> advanced-open;
     in-out property <NodeDraft> advanced-draft;
     in-out property <[string]> methods;
+    // Shadowsocks methods with the draft's method checked.
+    in-out property <[MenuItem]> method-items;
+    // Bumped whenever Rust replaces the draft; editor text fields reload only then.
+    in-out property <int> draft-serial;
+    // Bumped when the 進階設定 sheet opens; its text fields reload only then.
+    in-out property <int> advanced-serial;
+    in-out property <string> server-error;
+    in-out property <string> uuid-error;
+    in-out property <string> password-error;
+    in-out property <string> port-error;
+    in-out property <string> timeout-error;
 }
 export global SettingsStore {
     in-out property <bool> autostart;
@@ -123,6 +136,8 @@ export global Actions {
 }
 export global Fmt {
     pure callback elide-middle(string, length, length) -> string;
+    // One bullet per character, drawn like the mockup's masked value.
+    pure callback mask(string) -> string;
 }
 // Names of mandatory node fields, joined by Rust for the missing-fields notice.
 export global FieldText {
@@ -130,6 +145,10 @@ export global FieldText {
     out property <string> uuid: "UUID";
     out property <string> password: @tr("Password");
     out property <string> separator: @tr(", ");
+    out property <string> required-error: @tr("Required");
+    out property <string> port-error: @tr("Enter a port from 1 to 65535");
+    out property <string> timeout-error: @tr("Enter a whole number of seconds");
+    public pure function new-node-name(index: int) -> string { return @tr("Node {}", index); }
 }
 export global TrayText {
     out property <string> status: AppState.connection-text;

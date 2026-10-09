@@ -1,7 +1,9 @@
 import { Theme } from "theme.slint";
 import { Sidebar } from "components/nav.slint";
 import { OverviewPage } from "pages/overview.slint";
-import { AppState, NodeStore, SettingsStore, Actions, Fmt, TrayText } from "state.slint";
+import { NodesPage } from "pages/nodes.slint";
+import { AdvancedSheet } from "pages/node_editor.slint";
+import { Page, AppState, NodeStore, SettingsStore, Actions, Fmt, TrayText } from "state.slint";
 export { Theme, Icons } from "theme.slint";
 export { Page, Connection, ProxyMode, PacRule, PacSource, Protocol, StartupConnection, Notice, NodeField, SettingField, NodeCommand, NodeRow, NodeDraft, FieldError, MenuItem, Versions, AppState, NodeStore, SettingsStore, Actions, Fmt, TrayText, FieldText } from "state.slint";
 import { Field, LabeledField } from "components/field.slint";
@@ -25,7 +27,10 @@ export component MainWindow inherits Window {
             padding-right: 24px;
             padding-bottom: 24px;
             alignment: start;
-            OverviewPage { }
+            if AppState.page == Page.overview: OverviewPage { }
+            if AppState.page == Page.nodes: NodesPage { }
         }
     }
+    // Recreated on every open, so its fields start from the sheet draft.
+    if NodeStore.advanced-open: AdvancedSheet { }
 }

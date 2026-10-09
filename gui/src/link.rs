@@ -15,6 +15,8 @@ pub struct ImportedShareLink {
     pub uuid: String,
     pub sni: Option<String>,
     pub allow_insecure: bool,
+    pub pinned_certchain_sha256: Option<String>,
+    pub congestion_control: Option<String>,
     // Shadowsocks-specific
     pub method: String,
     pub plugin: Option<String>,
@@ -34,6 +36,8 @@ impl ImportedShareLink {
         profile.uuid = self.uuid.clone();
         profile.sni = self.sni.clone();
         profile.allow_insecure = self.allow_insecure;
+        profile.pinned_certchain_sha256 = self.pinned_certchain_sha256.clone();
+        profile.congestion_control = self.congestion_control.clone();
         if !self.method.is_empty() {
             profile.method = self.method.clone();
         }
@@ -85,6 +89,18 @@ fn export_juicity_link(profile: &ProxyProfile) -> anyhow::Result<String> {
     }
     if profile.allow_insecure {
         params.push("allowInsecure=1".to_string());
+    }
+    // Parameter names follow `juicity_common::link`.
+    for (key, value) in [
+        ("congestion_control", &profile.congestion_control),
+        ("pinned_certchain_sha256", &profile.pinned_certchain_sha256),
+    ] {
+        if let Some(value) = value.as_deref().filter(|v| !v.is_empty()) {
+            params.push(format!(
+                "{key}={}",
+                url::form_urlencoded::byte_serialize(value.as_bytes()).collect::<String>()
+            ));
+        }
     }
     if !params.is_empty() {
         s.push('?');
@@ -158,9 +174,17 @@ fn parse_juicity_link(raw: &str) -> anyhow::Result<ImportedShareLink> {
 
     let mut sni = None;
     let mut allow_insecure = false;
+    let mut pinned_certchain_sha256 = None;
+    let mut congestion_control = None;
     for (k, v) in url.query_pairs() {
         match k.as_ref() {
             "sni" => sni = Some(v.into_owned()),
+            "pinned_certchain_sha256" if !v.is_empty() => {
+                pinned_certchain_sha256 = Some(v.into_owned())
+            }
+            "congestion_control" => {
+                congestion_control = crate::config::normalize_congestion_control(&v)
+            }
             "allowInsecure" | "allow_insecure" => {
                 allow_insecure = v == "1" || v.to_lowercase() == "true";
             }
@@ -183,6 +207,8 @@ fn parse_juicity_link(raw: &str) -> anyhow::Result<ImportedShareLink> {
         uuid: percent_decode(&uuid),
         sni,
         allow_insecure,
+        pinned_certchain_sha256,
+        congestion_control,
         method: String::new(),
         plugin: None,
         plugin_opts: None,
@@ -256,6 +282,8 @@ fn parse_ss_sip002(raw: &str) -> anyhow::Result<ImportedShareLink> {
         uuid: String::new(),
         sni: None,
         allow_insecure: false,
+        pinned_certchain_sha256: None,
+        congestion_control: None,
         method,
         plugin,
         plugin_opts,
@@ -296,6 +324,8 @@ fn parse_ss_legacy(raw: &str) -> anyhow::Result<ImportedShareLink> {
         uuid: String::new(),
         sni: None,
         allow_insecure: false,
+        pinned_certchain_sha256: None,
+        congestion_control: None,
         method: method.to_string(),
         plugin: None,
         plugin_opts: None,
@@ -383,5 +413,39 @@ mod tests {
         let re = import_share_link(&link).unwrap();
         assert_eq!(re.server, "example.com");
         assert_eq!(re.uuid, "test-uuid");
+    }
+
+    #[test]
+    fn congestion_control_is_normalized_on_import() {
+        let parse = |cc: &str| {
+            import_share_link(&format!(
+                "juicity://u:p@example.com:443?congestion_control={cc}"
+            ))
+            .unwrap()
+            .congestion_control
+        };
+        assert_eq!(parse("NewReno").as_deref(), Some("new_reno"));
+        assert_eq!(parse("BBR").as_deref(), Some("bbr"));
+        assert_eq!(parse("vegas"), None);
+    }
+
+    #[test]
+    fn roundtrip_juicity_pinned_hash_and_congestion_control() {
+        let link = "juicity://u:p@example.com:443?sni=example.com&congestion_control=cubic\
+                    &pinned_certchain_sha256=aGFzaA%3D%3D#Tokyo";
+        let parsed = import_share_link(link).unwrap();
+        assert_eq!(parsed.congestion_control.as_deref(), Some("cubic"));
+        assert_eq!(parsed.pinned_certchain_sha256.as_deref(), Some("aGFzaA=="));
+        let mut profile = ProxyProfile::default();
+        parsed.apply_to(&mut profile);
+        let exported = export_share_link(&profile).unwrap();
+        assert!(exported.contains("congestion_control=cubic"), "{exported}");
+        assert!(
+            exported.contains("pinned_certchain_sha256=aGFzaA%3D%3D"),
+            "{exported}"
+        );
+        let mut again = ProxyProfile::default();
+        import_share_link(&exported).unwrap().apply_to(&mut again);
+        assert_eq!(again, profile);
     }
 }

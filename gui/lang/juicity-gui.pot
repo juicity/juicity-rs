@@ -2,7 +2,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: juicity-gui VERSION\n"
-"POT-Creation-Date: 2026-10-09 21:16+0000\n"
+"POT-Creation-Date: 2026-10-09 21:42+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -12,150 +12,183 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
-#: gui/ui/state.slint:60
+#: gui/ui/state.slint:62
 msgid "Connected · {}"
 msgstr ""
 
-#: gui/ui/state.slint:60
+#: gui/ui/state.slint:62
 msgid "Connecting…"
 msgstr ""
 
-#: gui/ui/state.slint:60
+#: gui/ui/state.slint:62
 msgid "Disconnected"
 msgstr ""
 
-#: gui/ui/state.slint:61
+#: gui/ui/state.slint:63
 msgid "System proxy · PAC"
 msgstr ""
 
-#: gui/ui/state.slint:61
+#: gui/ui/state.slint:63
 msgid "System proxy · Global"
 msgstr ""
 
-#: gui/ui/state.slint:61
+#: gui/ui/state.slint:63
 msgid "System proxy · Off"
 msgstr ""
 
-#: gui/ui/state.slint:62
+#: gui/ui/state.slint:64
 msgid "Links imported"
 msgstr ""
 
-#: gui/ui/state.slint:62
+#: gui/ui/state.slint:64
 msgid "Link copied"
 msgstr ""
 
-#: gui/ui/state.slint:62
+#: gui/ui/state.slint:64
 msgid "Could not start proxy: {}"
 msgstr ""
 
-#: gui/ui/state.slint:62
+#: gui/ui/state.slint:64
 msgid "Rules updated"
 msgstr ""
 
-#: gui/ui/state.slint:62
+#: gui/ui/state.slint:64
 msgid "Could not update rules: {}"
 msgstr ""
 
-#: gui/ui/state.slint:62
+#: gui/ui/state.slint:64
 msgid "Could not set system proxy: {}"
 msgstr ""
 
-#: gui/ui/state.slint:62
+#: gui/ui/state.slint:64
 msgid "Could not save settings: {}"
 msgstr ""
 
-#: gui/ui/state.slint:62
+#: gui/ui/state.slint:64
 msgid "Proxy stopped: {}"
 msgstr ""
 
-#: gui/ui/state.slint:62
+#: gui/ui/state.slint:64
 msgid "Add a node first"
 msgstr ""
 
-#: gui/ui/state.slint:62
+#: gui/ui/state.slint:64
 msgid "Missing fields: {}"
 msgstr ""
 
-#: gui/ui/state.slint:63
+#: gui/ui/state.slint:64
+msgid "Could not import link: {}"
+msgstr ""
+
+#: gui/ui/state.slint:64
+msgid "Could not export link: {}"
+msgstr ""
+
+#: gui/ui/state.slint:64
+msgid "Links imported: {}, skipped: {}"
+msgstr ""
+
+#: gui/ui/state.slint:64
+msgid "Fix the invalid fields before exporting"
+msgstr ""
+
+#: gui/ui/state.slint:65
 msgid "Today {}"
 msgstr ""
 
-#: gui/ui/state.slint:63
+#: gui/ui/state.slint:65
 msgid "Yesterday {}"
 msgstr ""
 
-#: gui/ui/state.slint:129
+#: gui/ui/state.slint:144 gui/ui/pages/node_editor.slint:64
 msgid "Server"
 msgstr ""
 
-#: gui/ui/state.slint:131
+#: gui/ui/state.slint:146 gui/ui/pages/node_editor.slint:87
 msgid "Password"
 msgstr ""
 
-#: gui/ui/state.slint:132
+#: gui/ui/state.slint:147
 msgid ", "
 msgstr ""
 
-#: gui/ui/state.slint:136
-msgid "Disconnect"
-msgstr ""
-
-#: gui/ui/state.slint:136
-msgid "Connect"
-msgstr ""
-
-#: gui/ui/state.slint:137 gui/ui/pages/overview.slint:24
-#: gui/ui/state.slint:137 gui/ui/pages/overview.slint:24
-msgid "System proxy"
-msgstr ""
-
-#: gui/ui/state.slint:138 gui/ui/pages/overview.slint:25
-#: gui/ui/state.slint:138 gui/ui/pages/overview.slint:25
-msgid "Off"
-msgstr ""
-
-#: gui/ui/state.slint:140 gui/ui/pages/overview.slint:25
-#: gui/ui/state.slint:140 gui/ui/pages/overview.slint:25
-msgid "Global"
-msgstr ""
-
-#: gui/ui/state.slint:141 gui/ui/pages/overview.slint:104
-msgid "Bypass mainland China"
-msgstr ""
-
-#: gui/ui/state.slint:142 gui/ui/pages/overview.slint:106
-msgid "Proxy GFW list only"
-msgstr ""
-
-#: gui/ui/state.slint:143 gui/ui/pages/overview.slint:111
-msgid "Update rules"
-msgstr ""
-
-#: gui/ui/state.slint:144
-msgid "Nodes"
-msgstr ""
-
-#: gui/ui/state.slint:145
-msgid "Import from clipboard"
-msgstr ""
-
-#: gui/ui/state.slint:146
-msgid "Open juicity"
-msgstr ""
-
-#: gui/ui/state.slint:147
-msgid "Nodes…"
-msgstr ""
-
 #: gui/ui/state.slint:148
-msgid "Settings…"
+msgid "Required"
 msgstr ""
 
 #: gui/ui/state.slint:149
-msgid "About juicity"
+msgid "Enter a port from 1 to 65535"
 msgstr ""
 
 #: gui/ui/state.slint:150
+msgid "Enter a whole number of seconds"
+msgstr ""
+
+#: gui/ui/state.slint:151
+msgid "Node {}"
+msgstr ""
+
+#: gui/ui/state.slint:155
+msgid "Disconnect"
+msgstr ""
+
+#: gui/ui/state.slint:155
+msgid "Connect"
+msgstr ""
+
+#: gui/ui/state.slint:156 gui/ui/pages/overview.slint:24
+#: gui/ui/state.slint:156 gui/ui/pages/overview.slint:24
+msgid "System proxy"
+msgstr ""
+
+#: gui/ui/state.slint:157 gui/ui/pages/overview.slint:25
+#: gui/ui/state.slint:157 gui/ui/pages/overview.slint:25
+msgid "Off"
+msgstr ""
+
+#: gui/ui/state.slint:159 gui/ui/pages/overview.slint:25
+#: gui/ui/state.slint:159 gui/ui/pages/overview.slint:25
+msgid "Global"
+msgstr ""
+
+#: gui/ui/state.slint:160 gui/ui/pages/overview.slint:104
+msgid "Bypass mainland China"
+msgstr ""
+
+#: gui/ui/state.slint:161 gui/ui/pages/overview.slint:106
+msgid "Proxy GFW list only"
+msgstr ""
+
+#: gui/ui/state.slint:162 gui/ui/pages/overview.slint:111
+msgid "Update rules"
+msgstr ""
+
+#: gui/ui/state.slint:163 gui/ui/components/nav.slint:39
+#: gui/ui/state.slint:163 gui/ui/components/nav.slint:39
+msgid "Nodes"
+msgstr ""
+
+#: gui/ui/state.slint:164
+msgid "Import from clipboard"
+msgstr ""
+
+#: gui/ui/state.slint:165
+msgid "Open juicity"
+msgstr ""
+
+#: gui/ui/state.slint:166
+msgid "Nodes…"
+msgstr ""
+
+#: gui/ui/state.slint:167
+msgid "Settings…"
+msgstr ""
+
+#: gui/ui/state.slint:168
+msgid "About juicity"
+msgstr ""
+
+#: gui/ui/state.slint:169
 msgid "Quit"
 msgstr ""
 
@@ -173,6 +206,102 @@ msgstr ""
 
 #: gui/ui/components/sheet.slint:41
 msgid "Done"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:44
+msgid "Reconnect to apply"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:45
+msgid "Basic"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:47
+msgid "Name"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:53
+msgid "Protocol"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:71
+msgid "Port"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:79
+msgid "Authentication"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:94
+msgid "Encryption method"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:104 gui/ui/pages/node_editor.slint:140
+msgid "Advanced settings"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:114
+msgid "Set as active"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:115 gui/ui/pages/nodes.slint:63
+msgid "Duplicate"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:116
+msgid "Export link"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:121 gui/ui/pages/nodes.slint:64
+msgid "Delete"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:154
+msgid "Allow insecure connections"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:161
+msgid "Pinned certificate chain SHA-256"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:167
+msgid "Congestion control"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:180
+msgid "Plugin"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:186
+msgid "Plugin options"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:192
+msgid "Plugin arguments"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:201
+msgid "Timeout (s)"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:208
+msgid "Group"
+msgstr ""
+
+#: gui/ui/pages/nodes.slint:16
+msgid "Import link"
+msgstr ""
+
+#: gui/ui/pages/nodes.slint:20
+msgid "Add node"
+msgstr ""
+
+#: gui/ui/pages/nodes.slint:61
+msgid "Move up"
+msgstr ""
+
+#: gui/ui/pages/nodes.slint:62
+msgid "Move down"
 msgstr ""
 
 #: gui/ui/pages/overview.slint:15

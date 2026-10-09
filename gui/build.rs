@@ -24,7 +24,9 @@ fn main() {
             slint_build::CompilerConfiguration::new()
                 // slint-build sets the domain to CARGO_PKG_NAME (juicity-gui).
                 .with_default_translation_context(slint_build::DefaultTranslationContext::None)
-                .with_bundled_translations("lang"),
+                .with_bundled_translations("lang")
+                // Element lookup in the behavior tests needs debug info.
+                .with_debug_info(std::env::var("PROFILE").as_deref() == Ok("debug")),
         )
         .expect("Failed to compile Slint UI");
         return;

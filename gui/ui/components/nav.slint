@@ -36,7 +36,8 @@ export component Sidebar inherits Rectangle {
             Text { text: "juicity"; font-family: Theme.latin; font-size: 14px; font-weight: 500; color: Theme.text; vertical-alignment: center; }
         }
         SidebarRow { icon: Icons.activity; text: @tr("Overview"); active: AppState.page == Page.overview; clicked => { Actions.navigate(Page.overview); } }
-        // Nodes and Settings become reachable in their implementation milestones.
+        SidebarRow { icon: Icons.server; text: @tr("Nodes"); active: AppState.page == Page.nodes; clicked => { Actions.navigate(Page.nodes); } }
+        // Settings becomes reachable in its implementation milestone.
     }
 }
 

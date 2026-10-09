@@ -1,0 +1,373 @@
+//! Nodes page callbacks and snapshot sync.
+
+use super::{read, update};
+use crate::config::{ProxyProtocol, SS_METHODS};
+use crate::ui::controller::{DraftData, DraftError, DraftField, ListCommand, NodesSnapshot};
+use crate::ui::{
+    Actions, FieldError, FieldText, MainWindow, MenuItem, NodeCommand, NodeDraft, NodeField,
+    NodeRow, NodeStore, Protocol,
+};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
+
+fn field_from(field: NodeField) -> DraftField {
+    match field {
+        NodeField::Name => DraftField::Name,
+        NodeField::Protocol => DraftField::Protocol,
+        NodeField::Server => DraftField::Server,
+        NodeField::Port => DraftField::Port,
+        NodeField::Uuid => DraftField::Uuid,
+        NodeField::Password => DraftField::Password,
+        NodeField::Method => DraftField::Method,
+        NodeField::Sni => DraftField::Sni,
+        NodeField::AllowInsecure => DraftField::AllowInsecure,
+        NodeField::PinnedCertchainSha256 => DraftField::PinnedCertchainSha256,
+        NodeField::CongestionControl => DraftField::CongestionControl,
+        NodeField::Plugin => DraftField::Plugin,
+        NodeField::PluginOptions => DraftField::PluginOptions,
+        NodeField::PluginArgs => DraftField::PluginArgs,
+        NodeField::Timeout => DraftField::Timeout,
+        NodeField::Group => DraftField::Group,
+    }
+}
+
+fn field_to(field: DraftField) -> NodeField {
+    match field {
+        DraftField::Name => NodeField::Name,
+        DraftField::Protocol => NodeField::Protocol,
+        DraftField::Server => NodeField::Server,
+        DraftField::Port => NodeField::Port,
+        DraftField::Uuid => NodeField::Uuid,
+        DraftField::Password => NodeField::Password,
+        DraftField::Method => NodeField::Method,
+        DraftField::Sni => NodeField::Sni,
+        DraftField::AllowInsecure => NodeField::AllowInsecure,
+        DraftField::PinnedCertchainSha256 => NodeField::PinnedCertchainSha256,
+        DraftField::CongestionControl => NodeField::CongestionControl,
+        DraftField::Plugin => NodeField::Plugin,
+        DraftField::PluginOptions => NodeField::PluginOptions,
+        DraftField::PluginArgs => NodeField::PluginArgs,
+        DraftField::Timeout => NodeField::Timeout,
+        DraftField::Group => NodeField::Group,
+    }
+}
+
+fn command_from(command: NodeCommand) -> ListCommand {
+    match command {
+        NodeCommand::MoveUp => ListCommand::MoveUp,
+        NodeCommand::MoveDown => ListCommand::MoveDown,
+        NodeCommand::Duplicate => ListCommand::Duplicate,
+        NodeCommand::Delete => ListCommand::Delete,
+    }
+}
+
+fn protocol_to(protocol: ProxyProtocol) -> Protocol {
+    match protocol {
+        ProxyProtocol::Juicity => Protocol::Juicity,
+        ProxyProtocol::Shadowsocks => Protocol::Shadowsocks,
+    }
+}
+
+fn draft_to(draft: &DraftData) -> NodeDraft {
+    NodeDraft {
+        name: draft.name.as_str().into(),
+        protocol: protocol_to(draft.protocol),
+        server: draft.server.as_str().into(),
+        port: draft.port.as_str().into(),
+        uuid: draft.uuid.as_str().into(),
+        password: draft.password.as_str().into(),
+        method: draft.method.as_str().into(),
+        sni: draft.sni.as_str().into(),
+        allow_insecure: draft.allow_insecure,
+        pinned_certchain_sha256: draft.pinned_certchain_sha256.as_str().into(),
+        congestion_control: draft.congestion_control.as_str().into(),
+        plugin: draft.plugin.as_str().into(),
+        plugin_options: draft.plugin_options.as_str().into(),
+        plugin_args: draft.plugin_args.as_str().into(),
+        timeout: draft.timeout.as_str().into(),
+        group: draft.group.as_str().into(),
+    }
+}
+
+/// Row index from Slint; negative means none.
+fn index(row: i32) -> Option<usize> {
+    usize::try_from(row).ok()
+}
+
+pub fn wire(ui: &MainWindow) {
+    let methods: Vec<SharedString> = SS_METHODS.iter().map(|m| (*m).into()).collect();
+    ui.global::<NodeStore>()
+        .set_methods(ModelRc::new(VecModel::from(methods)));
+    let actions = ui.global::<Actions>();
+    actions.on_select_node(|row| {
+        if let Some(i) = index(row) {
+            update(|c, _| c.select_node(i));
+        }
+    });
+    let weak = ui.as_weak();
+    actions.on_add_node(move || {
+        let Some(ui) = weak.upgrade() else { return };
+        let count = read(|c| c.node_count()).unwrap_or(0);
+        let number = i32::try_from(count + 1).unwrap_or(i32::MAX);
+        let name = ui.global::<FieldText>().invoke_new_node_name(number);
+        update(move |c, now| c.add_node(name.into(), now));
+    });
+    actions.on_import_links(|| update(|c, now| c.import_links(now)));
+    actions.on_node_command(|row, command| {
+        if let Some(i) = index(row) {
+            update(|c, now| c.node_command(i, command_from(command), now));
+        }
+    });
+    actions.on_edit_node(|field, value| {
+        update(|c, now| c.edit_node(field_from(field), &value, now));
+    });
+    actions.on_set_active_node(|| update(|c, now| c.set_active_node(now)));
+    actions.on_export_link(|| update(|c, _| c.export_link()));
+    actions.on_open_advanced(|| update(|c, _| c.open_advanced()));
+    actions.on_edit_advanced(|field, value| {
+        update(|c, _| c.edit_advanced(field_from(field), &value));
+    });
+    actions.on_commit_advanced(|| update(|c, now| c.commit_advanced(now)));
+    actions.on_cancel_advanced(|| update(|c, _| c.cancel_advanced()));
+}
+
+/// Update `model` in place so repeaters keep their instances (an open
+/// context menu stays attached to its row).
+fn sync_model<T: Clone + PartialEq + 'static>(
+    model: ModelRc<T>,
+    rows: Vec<T>,
+) -> Option<ModelRc<T>> {
+    let Some(vec) = model.as_any().downcast_ref::<VecModel<T>>() else {
+        return Some(ModelRc::new(VecModel::from(rows)));
+    };
+    for (i, row) in rows.iter().enumerate() {
+        if i >= vec.row_count() {
+            vec.push(row.clone());
+        } else if vec.row_data(i).as_ref() != Some(row) {
+            vec.set_row_data(i, row.clone());
+        }
+    }
+    while vec.row_count() > rows.len() {
+        vec.remove(vec.row_count() - 1);
+    }
+    None
+}
+
+/// Push the nodes snapshot. The draft is always current (a page that is
+/// rebuilt loads it); the editor text fields reload only when `editor`
+/// bumps the serial (another node, a menu choice, a committed sheet, a
+/// reload of the edited node), never while the user types.
+pub fn sync(ui: &MainWindow, snapshot: &NodesSnapshot, editor: bool) {
+    let store = ui.global::<NodeStore>();
+    let rows = snapshot
+        .rows
+        .iter()
+        .enumerate()
+        .map(|(i, row)| NodeRow {
+            id: i.to_string().into(),
+            name: row.name.as_str().into(),
+            address: row.address.as_str().into(),
+            protocol: protocol_to(row.protocol),
+            in_use: row.in_use,
+            group: row.group.as_str().into(),
+        })
+        .collect();
+    if let Some(model) = sync_model(store.get_rows(), rows) {
+        store.set_rows(model);
+    }
+    store.set_selected(i32::try_from(snapshot.selected).unwrap_or(-1));
+    store.set_draft(draft_to(&snapshot.draft));
+    if editor {
+        store.set_draft_serial(store.get_draft_serial().wrapping_add(1));
+    }
+    let methods = SS_METHODS
+        .iter()
+        .map(|method| MenuItem {
+            text: (*method).into(),
+            checked: *method == snapshot.draft.method,
+            enabled: true,
+        })
+        .collect();
+    if let Some(model) = sync_model(store.get_method_items(), methods) {
+        store.set_method_items(model);
+    }
+
+    let text = ui.global::<FieldText>();
+    let message = |error: DraftError| match error {
+        DraftError::Required => text.get_required_error(),
+        DraftError::Port => text.get_port_error(),
+        DraftError::Timeout => text.get_timeout_error(),
+    };
+    let error_for = |wanted: DraftField| {
+        snapshot
+            .errors
+            .iter()
+            .find(|(field, _)| *field == wanted)
+            .map(|(_, error)| message(*error))
+            .unwrap_or_default()
+    };
+    store.set_server_error(error_for(DraftField::Server));
+    store.set_uuid_error(error_for(DraftField::Uuid));
+    store.set_password_error(error_for(DraftField::Password));
+    store.set_port_error(error_for(DraftField::Port));
+    store.set_timeout_error(error_for(DraftField::Timeout));
+    let errors: Vec<FieldError> = snapshot
+        .errors
+        .iter()
+        .map(|(field, error)| FieldError {
+            field: field_to(*field),
+            message: message(*error),
+        })
+        .collect();
+    store.set_errors(ModelRc::new(VecModel::from(errors)));
+    store.set_reconnect_required(snapshot.reconnect_required);
+    match &snapshot.advanced {
+        Some(sheet) => {
+            store.set_advanced_draft(draft_to(sheet));
+            // Sheet fields load once when it opens, never on later syncs.
+            if !store.get_advanced_open() {
+                store.set_advanced_serial(store.get_advanced_serial().wrapping_add(1));
+                store.set_advanced_open(true);
+            }
+        }
+        None => store.set_advanced_open(false),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::controller::testing::{controller, temp_dir};
+    use super::super::{install, shutdown, update};
+    use super::*;
+    use crate::ui::{AppState, Page};
+    use i_slint_backend_testing::ElementHandle;
+    use std::time::Duration;
+
+    const DEBOUNCE_WAIT: Duration = Duration::from_millis(450);
+
+    fn setup(name: &str) -> (MainWindow, std::path::PathBuf) {
+        i_slint_backend_testing::init_no_event_loop();
+        let dir = temp_dir(name);
+        let (c, _) = controller(&dir);
+        let ui = MainWindow::new().unwrap();
+        install(&ui, c);
+        ui.global::<AppState>().set_page(Page::Nodes);
+        ui.show().unwrap();
+        // Run change handlers so the page and its fields exist.
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        (ui, dir)
+    }
+
+    fn field(ui: &MainWindow, label: &str) -> ElementHandle {
+        ElementHandle::find_by_accessible_label(ui, label)
+            .find(|element| element.type_name().is_some_and(|name| name == "TextInput"))
+            .unwrap_or_else(|| panic!("no field labelled {label}"))
+    }
+
+    fn teardown(dir: &std::path::Path) {
+        shutdown();
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn typing_is_saved_after_the_debounce() {
+        let (ui, dir) = setup("bind-nodes-save");
+        assert_eq!(field(&ui, "Name").accessible_value().unwrap(), "Tokyo 01");
+        field(&ui, "Name").set_accessible_value("Osaka 01");
+        assert_eq!(ui.global::<AppState>().get_active_name(), "Osaka 01");
+        assert!(!std::fs::read_to_string(dir.join("profiles.json"))
+            .unwrap()
+            .contains("Osaka 01"));
+        std::thread::sleep(DEBOUNCE_WAIT);
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(500));
+        let saved = std::fs::read_to_string(dir.join("profiles.json")).unwrap();
+        assert!(saved.contains("Osaka 01"), "{saved}");
+        assert!(!dir.join("profiles.tmp").exists());
+        teardown(&dir);
+    }
+
+    #[test]
+    fn edits_survive_leaving_and_reopening_the_page() {
+        let (ui, dir) = setup("bind-nodes-page");
+        field(&ui, "Name").set_accessible_value("Osaka 01");
+        field(&ui, "Port").set_accessible_value("70000");
+        ui.global::<AppState>().set_page(Page::Overview);
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        assert!(ElementHandle::find_by_accessible_label(&ui, "Port")
+            .next()
+            .is_none());
+        ui.global::<AppState>().set_page(Page::Nodes);
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        assert_eq!(field(&ui, "Name").accessible_value().unwrap(), "Osaka 01");
+        assert_eq!(field(&ui, "Port").accessible_value().unwrap(), "70000");
+        teardown(&dir);
+    }
+
+    #[test]
+    fn invalid_port_shows_an_error_and_is_not_saved() {
+        let (ui, dir) = setup("bind-nodes-port");
+        let before = std::fs::read_to_string(dir.join("profiles.json")).unwrap();
+        field(&ui, "Port").set_accessible_value("70000");
+        let store = ui.global::<NodeStore>();
+        assert_eq!(store.get_port_error(), "Enter a port from 1 to 65535");
+        std::thread::sleep(DEBOUNCE_WAIT);
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(500));
+        assert_eq!(
+            std::fs::read_to_string(dir.join("profiles.json")).unwrap(),
+            before
+        );
+        teardown(&dir);
+    }
+
+    #[test]
+    fn sheet_cancel_discards_and_done_commits() {
+        let (ui, dir) = setup("bind-nodes-sheet");
+        let actions = ui.global::<Actions>();
+        let store = ui.global::<NodeStore>();
+        actions.invoke_open_advanced();
+        assert!(store.get_advanced_open());
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        field(&ui, "SNI").set_accessible_value("front.example.com");
+        assert_eq!(store.get_advanced_draft().sni, "front.example.com");
+        // Other sheet edits and background syncs keep the typed text.
+        field(&ui, "Group").set_accessible_value("JP");
+        actions.invoke_toggle_connection();
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        assert_eq!(
+            field(&ui, "SNI").accessible_value().unwrap(),
+            "front.example.com"
+        );
+        actions.invoke_cancel_advanced();
+        assert!(!store.get_advanced_open());
+        assert_eq!(store.get_draft().sni, "");
+        // The closed sheet is gone; reopening starts from the saved value.
+        assert!(ElementHandle::find_by_accessible_label(&ui, "SNI")
+            .next()
+            .is_none());
+        actions.invoke_open_advanced();
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        assert_eq!(field(&ui, "SNI").accessible_value().unwrap(), "");
+        actions.invoke_edit_advanced(NodeField::Sni, "front.example.com".into());
+        actions.invoke_commit_advanced();
+        assert!(!store.get_advanced_open());
+        assert_eq!(store.get_draft().sni, "front.example.com");
+        teardown(&dir);
+    }
+
+    #[test]
+    fn background_sync_keeps_the_field_being_edited() {
+        let (ui, dir) = setup("bind-nodes-background");
+        let serial = ui.global::<NodeStore>().get_draft_serial();
+        field(&ui, "Port").set_accessible_value("70000");
+        // Core state, a reload of another file and a list update arrive.
+        ui.global::<Actions>().invoke_toggle_connection();
+        std::fs::write(dir.join("runtime.json"), r#"{ "close_to_tray": false }"#).unwrap();
+        update(|c, now| c.on_files_changed(now));
+        ui.global::<Actions>()
+            .invoke_edit_node(NodeField::Name, "Tokyo 02".into());
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        assert_eq!(ui.global::<NodeStore>().get_draft_serial(), serial);
+        assert_eq!(field(&ui, "Port").accessible_value().unwrap(), "70000");
+        assert!(ui.global::<NodeStore>().get_reconnect_required());
+        teardown(&dir);
+    }
+}

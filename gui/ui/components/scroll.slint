@@ -6,6 +6,7 @@ export component ScrollArea inherits Rectangle {
     private property <length> drag-start-scroll;
     clip: true;
     view := Flickable {
+        x: 0px;
         width: parent.width - 10px;
         height: parent.height;
         content-width: self.width;

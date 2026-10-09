@@ -82,6 +82,11 @@ pub fn sync(ui: &MainWindow, snapshot: &OverviewSnapshot) {
 pub fn sync_notice(ui: &MainWindow, notice: &CtlNotice) {
     let (kind, detail) = match notice {
         CtlNotice::None => (Notice::None, String::new()),
+        CtlNotice::Imported => (Notice::Imported, String::new()),
+        CtlNotice::ImportFailed(d) => (Notice::ImportFailed, d.clone()),
+        CtlNotice::ImportPartial(added, _) => (Notice::ImportPartial, added.to_string()),
+        CtlNotice::ExportFailed(d) => (Notice::ExportFailed, d.clone()),
+        CtlNotice::ExportInvalid => (Notice::ExportInvalid, String::new()),
         CtlNotice::LinkCopied => (Notice::LinkCopied, String::new()),
         CtlNotice::StartFailed(d) => (Notice::StartFailed, d.clone()),
         CtlNotice::RulesUpdated => (Notice::RulesUpdated, String::new()),
@@ -95,6 +100,11 @@ pub fn sync_notice(ui: &MainWindow, notice: &CtlNotice) {
     let state = ui.global::<AppState>();
     state.set_notice(kind);
     state.set_notice_detail(detail.into());
+    let extra = match notice {
+        CtlNotice::ImportPartial(_, skipped) => skipped.to_string(),
+        _ => String::new(),
+    };
+    state.set_notice_extra(extra.into());
     state.set_notice_error(notice.is_error());
 }
 

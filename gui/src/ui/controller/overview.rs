@@ -105,8 +105,9 @@ impl Controller {
         if self.connected {
             self.effects.stop_core(&mut self.gui.core_manager);
             self.connected = false;
+            self.nodes.started_with = None;
             self.gui.runtime.was_running = false;
-            return Changes::OVERVIEW | self.mark_dirty(ConfigFile::Runtime, now);
+            return Changes::OVERVIEW | Changes::NODES | self.mark_dirty(ConfigFile::Runtime, now);
         }
         if let Err(err) = self.flush_all(now) {
             let retry = Changes {
@@ -115,6 +116,12 @@ impl Controller {
             };
             return self.set_notice(Notice::SaveFailed(format!("{err:#}"))) | retry;
         }
+        self.start_active(now)
+    }
+
+    /// Start (or restart, when connected) the core with the active node.
+    /// A node with missing fields leaves a running core untouched.
+    pub(super) fn start_active(&mut self, now: Instant) -> Changes {
         let Some(profile) = self.gui.selected_profile().cloned() else {
             return self.set_notice(Notice::NoNode);
         };
@@ -129,8 +136,10 @@ impl Controller {
         {
             Ok(()) => {
                 self.connected = true;
+                self.nodes.started_with = Some(profile);
                 self.gui.runtime.was_running = true;
-                let mut changes = Changes::OVERVIEW | self.mark_dirty(ConfigFile::Runtime, now);
+                let mut changes =
+                    Changes::OVERVIEW | Changes::NODES | self.mark_dirty(ConfigFile::Runtime, now);
                 if matches!(
                     self.notice,
                     Notice::StartFailed(_)
@@ -142,7 +151,17 @@ impl Controller {
                 }
                 changes
             }
-            Err(err) => self.set_notice(Notice::StartFailed(format!("{err:#}"))),
+            Err(err) => {
+                // A failed restart leaves no core running.
+                let mut changes = Changes::OVERVIEW | Changes::NODES;
+                if self.connected {
+                    self.connected = false;
+                    self.nodes.started_with = None;
+                    self.gui.runtime.was_running = false;
+                    changes |= self.mark_dirty(ConfigFile::Runtime, now);
+                }
+                changes | self.set_notice(Notice::StartFailed(format!("{err:#}")))
+            }
         }
     }
 
@@ -232,7 +251,8 @@ impl Controller {
         match self.effects.poll_core(&mut self.gui.core_manager) {
             Some(reason) => {
                 self.connected = false;
-                Changes::OVERVIEW | self.set_notice(Notice::CoreExited(reason))
+                self.nodes.started_with = None;
+                Changes::OVERVIEW | Changes::NODES | self.set_notice(Notice::CoreExited(reason))
             }
             None => Changes::NONE,
         }

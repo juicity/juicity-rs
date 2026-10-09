@@ -21,6 +21,7 @@ fn prepare(window: &MainWindow, language: UiLang) -> anyhow::Result<()> {
         .global::<Theme>()
         .set_cjk(fonts::cjk_family(language).into());
     window.global::<Fmt>().on_elide_middle(fmt::elide_middle);
+    window.global::<Fmt>().on_mask(fmt::mask);
     Ok(())
 }
 

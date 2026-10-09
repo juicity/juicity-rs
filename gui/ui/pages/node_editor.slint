@@ -1,0 +1,217 @@
+import { Theme, Icons } from "../theme.slint";
+import { NodeStore, NodeField, NodeCommand, Protocol, Actions, MenuItem } from "../state.slint";
+import { Card, Button, Caption, HDivider, Icon, GroupLabel, SettingRow, SettingSwitch } from "../components/primitives.slint";
+import { LabeledField } from "../components/field.slint";
+import { PopupMenu } from "../components/menu.slint";
+import { Sheet } from "../components/sheet.slint";
+
+// Text field that Rust rewrites only when `serial` changes (another node,
+// a menu choice, an opened sheet), never while the user types.
+component DraftField inherits LabeledField {
+    in property <string> value;
+    in property <int> serial: NodeStore.draft-serial;
+    init => { self.text = self.value; }
+    changed serial => { self.text = self.value; }
+}
+
+// Read-only field that opens a menu of choices.
+component MenuField inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <[MenuItem]> items;
+    callback selected(int);
+    LabeledField {
+        label: root.label;
+        text: root.value;
+        read-only: true;
+        icon: Icons.chevron-down;
+        has-icon: true;
+    }
+    TouchArea { clicked => { menu.show(); } }
+    menu := PopupMenu {
+        items: root.items;
+        menu-width: root.width;
+        selected(index) => { root.selected(index); }
+    }
+}
+
+export component NodeEditor inherits Card {
+    private property <bool> juicity: NodeStore.draft.protocol == Protocol.juicity;
+    private property <bool> can-delete: NodeStore.rows.length > 1;
+    VerticalLayout {
+        padding: 20px;
+        spacing: 8px;
+        if NodeStore.reconnect-required: Caption { text: @tr("Reconnect to apply"); }
+        GroupLabel { text: @tr("Basic"); }
+        DraftField {
+            label: @tr("Name");
+            value: NodeStore.draft.name;
+            latin: false;
+            edited(text) => { Actions.edit-node(NodeField.name, text); }
+        }
+        MenuField {
+            label: @tr("Protocol");
+            value: root.juicity ? "juicity" : "shadowsocks";
+            items: [
+                { text: "juicity", checked: root.juicity, enabled: true },
+                { text: "shadowsocks", checked: !root.juicity, enabled: true },
+            ];
+            selected(index) => { Actions.edit-node(NodeField.protocol, index == 0 ? "juicity" : "shadowsocks"); }
+        }
+        HorizontalLayout {
+            spacing: 10px;
+            DraftField {
+                label: @tr("Server");
+                value: NodeStore.draft.server;
+                error: NodeStore.server-error;
+                horizontal-stretch: 1;
+                edited(text) => { Actions.edit-node(NodeField.server, text); }
+            }
+            DraftField {
+                label: @tr("Port");
+                value: NodeStore.draft.port;
+                width: 96px;
+                edited(text) => { Actions.edit-node(NodeField.port, text); }
+            }
+        }
+        if NodeStore.port-error != "": Caption { text: NodeStore.port-error; color: Theme.red; }
+        Rectangle { height: 4px; }
+        GroupLabel { text: @tr("Authentication"); }
+        if root.juicity: DraftField {
+            label: "UUID";
+            value: NodeStore.draft.uuid;
+            error: NodeStore.uuid-error;
+            edited(text) => { Actions.edit-node(NodeField.uuid, text); }
+        }
+        DraftField {
+            label: @tr("Password");
+            value: NodeStore.draft.password;
+            error: NodeStore.password-error;
+            password: true;
+            edited(text) => { Actions.edit-node(NodeField.password, text); }
+        }
+        if !root.juicity: MenuField {
+            label: @tr("Encryption method");
+            value: NodeStore.draft.method;
+            items: NodeStore.method-items;
+            selected(index) => { Actions.edit-node(NodeField.method, NodeStore.methods[index]); }
+        }
+        VerticalLayout {
+            HDivider { }
+            Rectangle {
+                height: 40px;
+                HorizontalLayout {
+                    Text { text: @tr("Advanced settings"); font-size: 14px; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+                    VerticalLayout { alignment: center; Icon { source: Icons.chevron-right; colorize: Theme.secondary; } }
+                }
+                TouchArea { clicked => { Actions.open-advanced(); } }
+            }
+            HDivider { }
+        }
+        Rectangle { min-height: 4px; vertical-stretch: 1; }
+        HorizontalLayout {
+            spacing: 8px;
+            Button { text: @tr("Set as active"); clicked => { Actions.set-active-node(); } }
+            Button { text: @tr("Duplicate"); clicked => { Actions.node-command(NodeStore.selected, NodeCommand.duplicate); } }
+            Button { text: @tr("Export link"); clicked => { Actions.export-link(); } }
+            Rectangle { horizontal-stretch: 1; }
+            Rectangle {
+                width: delete-text.preferred-width;
+                delete-text := Text {
+                    text: @tr("Delete");
+                    font-size: 13px;
+                    color: Theme.red;
+                    vertical-alignment: center;
+                    opacity: root.can-delete ? 1 : 0.5;
+                }
+                TouchArea {
+                    enabled: root.can-delete;
+                    clicked => { Actions.node-command(NodeStore.selected, NodeCommand.delete); }
+                }
+            }
+        }
+    }
+}
+
+// 進階設定 sheet. Its fields load when it opens; only 完成 commits it.
+export component AdvancedSheet inherits Sheet {
+    private property <bool> juicity: NodeStore.advanced-draft.protocol == Protocol.juicity;
+    open: true;
+    title: @tr("Advanced settings");
+    last-field-focused: group.has-focus;
+    cancelled => { Actions.cancel-advanced(); }
+    completed => { Actions.commit-advanced(); }
+    init => { self.focus(); }
+    if root.juicity: VerticalLayout {
+        spacing: 12px;
+        DraftField {
+            label: "SNI";
+            serial: NodeStore.advanced-serial;
+            value: NodeStore.advanced-draft.sni;
+            edited(text) => { Actions.edit-advanced(NodeField.sni, text); }
+        }
+        SettingRow {
+            label: @tr("Allow insecure connections");
+            SettingSwitch {
+                init => { self.on = NodeStore.advanced-draft.allow-insecure; }
+                toggled(on) => { Actions.edit-advanced(NodeField.allow-insecure, on ? "true" : "false"); }
+            }
+        }
+        DraftField {
+            label: @tr("Pinned certificate chain SHA-256");
+            serial: NodeStore.advanced-serial;
+            value: NodeStore.advanced-draft.pinned-certchain-sha256;
+            edited(text) => { Actions.edit-advanced(NodeField.pinned-certchain-sha256, text); }
+        }
+        MenuField {
+            label: @tr("Congestion control");
+            value: NodeStore.advanced-draft.congestion-control;
+            items: [
+                { text: "bbr", checked: NodeStore.advanced-draft.congestion-control == "bbr", enabled: true },
+                { text: "cubic", checked: NodeStore.advanced-draft.congestion-control == "cubic", enabled: true },
+                { text: "new_reno", checked: NodeStore.advanced-draft.congestion-control == "new_reno", enabled: true },
+            ];
+            selected(index) => { Actions.edit-advanced(NodeField.congestion-control, index == 0 ? "bbr" : index == 1 ? "cubic" : "new_reno"); }
+        }
+    }
+    if !root.juicity: VerticalLayout {
+        spacing: 12px;
+        DraftField {
+            label: @tr("Plugin");
+            serial: NodeStore.advanced-serial;
+            value: NodeStore.advanced-draft.plugin;
+            edited(text) => { Actions.edit-advanced(NodeField.plugin, text); }
+        }
+        DraftField {
+            label: @tr("Plugin options");
+            serial: NodeStore.advanced-serial;
+            value: NodeStore.advanced-draft.plugin-options;
+            edited(text) => { Actions.edit-advanced(NodeField.plugin-options, text); }
+        }
+        DraftField {
+            label: @tr("Plugin arguments");
+            serial: NodeStore.advanced-serial;
+            value: NodeStore.advanced-draft.plugin-args;
+            edited(text) => { Actions.edit-advanced(NodeField.plugin-args, text); }
+        }
+    }
+    HorizontalLayout {
+        spacing: 10px;
+        DraftField {
+            label: @tr("Timeout (s)");
+            serial: NodeStore.advanced-serial;
+            value: NodeStore.advanced-draft.timeout;
+            width: 96px;
+            edited(text) => { Actions.edit-advanced(NodeField.timeout, text); }
+        }
+        group := DraftField {
+            label: @tr("Group");
+            serial: NodeStore.advanced-serial;
+            value: NodeStore.advanced-draft.group;
+            latin: false;
+            horizontal-stretch: 1;
+            edited(text) => { Actions.edit-advanced(NodeField.group, text); }
+        }
+    }
+    if NodeStore.timeout-error != "": Caption { text: NodeStore.timeout-error; color: Theme.red; }
+}

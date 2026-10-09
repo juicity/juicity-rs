@@ -1,4 +1,7 @@
-use super::{fonts, prepare, AppState, Connection, MainWindow, PacRule, ProxyMode, Theme};
+use super::{
+    fonts, prepare, AppState, Connection, MainWindow, NodeDraft, NodeRow, NodeStore, PacRule, Page,
+    Protocol, ProxyMode, Theme,
+};
 use crate::i18n::UiLang;
 use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
 use slint::platform::{Platform, PlatformError, WindowAdapter, WindowEvent};
@@ -39,6 +42,37 @@ fn fixture(window: &MainWindow) {
     state.set_pac_rule(PacRule::BypassChina);
     state.set_rules_age_days(0);
     state.set_rules_time("09:42".into());
+
+    let row = |name: &str, address: &str, protocol| NodeRow {
+        id: name.into(),
+        name: name.into(),
+        address: address.into(),
+        protocol,
+        in_use: name == "東京 01",
+        group: "".into(),
+    };
+    let rows = vec![
+        row("東京 01", "tokyo.example.com:443", Protocol::Juicity),
+        row("東京 02", "tokyo2.example.com:443", Protocol::Juicity),
+        row("大阪 01", "osaka.example.com:443", Protocol::Juicity),
+        row("香港 01", "hk.example.com:8388", Protocol::Shadowsocks),
+        row("新加坡 01", "sg.example.com:443", Protocol::Juicity),
+    ];
+    let nodes = window.global::<NodeStore>();
+    nodes.set_rows(slint::ModelRc::new(slint::VecModel::from(rows)));
+    nodes.set_selected(0);
+    nodes.set_draft(NodeDraft {
+        name: "東京 01".into(),
+        protocol: Protocol::Juicity,
+        server: "tokyo.example.com".into(),
+        port: "443".into(),
+        uuid: "8f3c2a71-5b9e-4d0a-9c6f-2e7b1d4a6c90".into(),
+        password: "correct-pass".into(),
+        method: "chacha20-ietf-poly1305".into(),
+        congestion_control: "bbr".into(),
+        timeout: "5".into(),
+        ..Default::default()
+    });
 }
 
 fn compare_mockup(
@@ -78,7 +112,7 @@ fn compare_mockup(
 }
 
 #[test]
-#[ignore = "Set JUICITY_SHOTS=1 to render the six overview fixtures"]
+#[ignore = "Set JUICITY_SHOTS=1 to render the overview and nodes fixtures"]
 fn shots() -> anyhow::Result<()> {
     anyhow::ensure!(
         std::env::var("JUICITY_SHOTS").as_deref() == Ok("1"),
@@ -109,36 +143,39 @@ fn shots() -> anyhow::Result<()> {
                 );
                 assert_eq!(ui.global::<AppState>().get_rules_updated_at(), "今天 09:42");
             }
-            let mut pixels = SharedPixelBuffer::<Rgb8Pixel>::new(WIDTH, HEIGHT);
             window.dispatch_event(WindowEvent::ScaleFactorChanged {
                 scale_factor: SCALE,
             });
             window.set_size(PhysicalSize::new(WIDTH, HEIGHT));
             ui.show()?;
-            window.request_redraw();
-            anyhow::ensure!(
-                window.draw_if_needed(|renderer| {
-                    renderer.render(pixels.make_mut_slice(), WIDTH as usize);
-                }),
-                "Headless window did not render"
-            );
-            let theme = if dark { "dark" } else { "light" };
-            let filename = format!("overview--{theme}--{}.png", language.slint_tag());
-            let path = output.join(&filename);
-            image::save_buffer(
-                &path,
-                pixels.as_bytes(),
-                WIDTH,
-                HEIGHT,
-                image::ColorType::Rgb8,
-            )?;
-            println!("Rendered {}", path.display());
-            if language == UiLang::ZhTw {
-                compare_mockup(
-                    &root.join(format!("tests/mockup/overview--{theme}--zh-TW.png")),
-                    &output.join(format!("diff--overview--{theme}--zh_TW.png")),
-                    &pixels,
+            for (page, page_name) in [(Page::Overview, "overview"), (Page::Nodes, "nodes")] {
+                ui.global::<AppState>().set_page(page);
+                let mut pixels = SharedPixelBuffer::<Rgb8Pixel>::new(WIDTH, HEIGHT);
+                window.request_redraw();
+                anyhow::ensure!(
+                    window.draw_if_needed(|renderer| {
+                        renderer.render(pixels.make_mut_slice(), WIDTH as usize);
+                    }),
+                    "Headless window did not render"
+                );
+                let theme = if dark { "dark" } else { "light" };
+                let filename = format!("{page_name}--{theme}--{}.png", language.slint_tag());
+                let path = output.join(&filename);
+                image::save_buffer(
+                    &path,
+                    pixels.as_bytes(),
+                    WIDTH,
+                    HEIGHT,
+                    image::ColorType::Rgb8,
                 )?;
+                println!("Rendered {}", path.display());
+                if language == UiLang::ZhTw {
+                    compare_mockup(
+                        &root.join(format!("tests/mockup/{page_name}--{theme}--zh-TW.png")),
+                        &output.join(format!("diff--{page_name}--{theme}--zh_TW.png")),
+                        &pixels,
+                    )?;
+                }
             }
             ui.hide()?;
         }

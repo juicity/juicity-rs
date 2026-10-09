@@ -439,12 +439,23 @@ fn build_juicity_config(
         password: profile.password.clone(),
         sni,
         allow_insecure: profile.allow_insecure,
+        pinned_certchain_sha256: non_empty(&profile.pinned_certchain_sha256)
+            .unwrap_or_default()
+            .to_string(),
+        // The client maps anything other than cubic/new_reno to BBR.
+        congestion_control: non_empty(&profile.congestion_control)
+            .unwrap_or("bbr")
+            .to_string(),
         listen: config.mixed_listen.clone(),
         log_level: "info".to_string(),
         ..Default::default()
     };
     juicity_config.validate_for_client()?;
     Ok(juicity_config)
+}
+
+fn non_empty(value: &Option<String>) -> Option<&str> {
+    value.as_deref().map(str::trim).filter(|v| !v.is_empty())
 }
 
 /// Build the shadowsocks-rust local configuration for `profile`.
@@ -590,6 +601,25 @@ mod tests {
         assert_eq!(config.server, "juicity.example.com:443");
         assert_eq!(config.sni, "juicity.example.com");
         assert_eq!(config.listen, "127.0.0.1:1080");
+    }
+
+    #[test]
+    fn juicity_config_maps_pinned_hash_and_congestion_control() {
+        let mut profile = ProxyProfile {
+            server: "juicity.example.com".to_string(),
+            uuid: "6ba7b810-9dad-11d1-80b4-00c04fd430c8".to_string(),
+            password: "secret".to_string(),
+            ..Default::default()
+        };
+        let config = build_juicity_config(&AppConfig::default(), &profile).unwrap();
+        assert_eq!(config.congestion_control, "bbr");
+        assert_eq!(config.pinned_certchain_sha256, "");
+
+        profile.congestion_control = Some("cubic".to_string());
+        profile.pinned_certchain_sha256 = Some("aGFzaA".to_string());
+        let config = build_juicity_config(&AppConfig::default(), &profile).unwrap();
+        assert_eq!(config.congestion_control, "cubic");
+        assert_eq!(config.pinned_certchain_sha256, "aGFzaA");
     }
 
     #[test]

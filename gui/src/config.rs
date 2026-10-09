@@ -136,6 +136,12 @@ pub struct ProxyProfile {
     pub uuid: String,
     pub sni: Option<String>,
     pub allow_insecure: bool,
+    /// SHA-256 of the server certificate chain (hex or base64).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned_certchain_sha256: Option<String>,
+    /// `bbr` (default), `cubic` or `new_reno`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub congestion_control: Option<String>,
 
     // ── Shadowsocks-specific ─────────────────────────────────────────────
     pub method: String,
@@ -152,6 +158,17 @@ pub struct ProxyProfile {
     pub config_path: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub link: Option<String>,
+}
+
+/// Canonical congestion control name; `None` for unknown values, which the
+/// core runs as BBR.
+pub fn normalize_congestion_control(value: &str) -> Option<String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "bbr" => Some("bbr".to_string()),
+        "cubic" => Some("cubic".to_string()),
+        "newreno" | "new_reno" => Some("new_reno".to_string()),
+        _ => None,
+    }
 }
 
 impl ProxyProfile {
@@ -179,6 +196,8 @@ impl Default for ProxyProfile {
             uuid: String::new(),
             sni: None,
             allow_insecure: false,
+            pinned_certchain_sha256: None,
+            congestion_control: None,
             method: "chacha20-ietf-poly1305".to_string(),
             plugin: None,
             plugin_opts: None,
@@ -444,6 +463,51 @@ impl Storage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn profiles_without_new_fields_load_unchanged() {
+        let store: ProfileStore = serde_json::from_str(
+            r#"{ "profiles": [{ "name": "Tokyo 01", "protocol": "juicity",
+                "server": "tokyo.example.com", "server_port": 443, "password": "p",
+                "uuid": "u", "sni": "front.example.com", "allow_insecure": true,
+                "method": "chacha20-ietf-poly1305", "plugin": null, "plugin_opts": null,
+                "plugin_args": null, "timeout": 5, "group": "JP" }] }"#,
+        )
+        .unwrap();
+        let p = &store.profiles[0];
+        assert_eq!(p.name, "Tokyo 01");
+        assert_eq!(p.sni.as_deref(), Some("front.example.com"));
+        assert!(p.allow_insecure);
+        assert_eq!(p.group.as_deref(), Some("JP"));
+        assert_eq!(p.pinned_certchain_sha256, None);
+        assert_eq!(p.congestion_control, None);
+        // Unset fields are not written, so older readers see the same file.
+        let saved = serde_json::to_string(&store).unwrap();
+        assert!(!saved.contains("pinned_certchain_sha256"));
+        assert!(!saved.contains("congestion_control"));
+    }
+
+    #[test]
+    fn congestion_control_is_normalized() {
+        assert_eq!(
+            normalize_congestion_control(" BBR ").as_deref(),
+            Some("bbr")
+        );
+        assert_eq!(
+            normalize_congestion_control("Cubic").as_deref(),
+            Some("cubic")
+        );
+        assert_eq!(
+            normalize_congestion_control("NewReno").as_deref(),
+            Some("new_reno")
+        );
+        assert_eq!(
+            normalize_congestion_control("new_reno").as_deref(),
+            Some("new_reno")
+        );
+        assert_eq!(normalize_congestion_control("vegas"), None);
+        assert_eq!(normalize_congestion_control(""), None);
+    }
 
     #[test]
     fn mixed_listen_defaults_to_1080() {

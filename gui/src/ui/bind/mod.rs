@@ -6,6 +6,7 @@
 //! pushed (`SYNCING`) or while the controller is borrowed are ignored.
 //! Other threads reach the controller through [`post`].
 
+mod nodes;
 mod overview;
 
 use super::controller::{Changes, Controller, RuleJob};
@@ -38,12 +39,13 @@ pub fn install(ui: &MainWindow, controller: Controller) {
     CONTROLLER.with(|c| *c.borrow_mut() = Some(controller));
     WINDOW.with(|w| *w.borrow_mut() = Some(ui.as_weak()));
     overview::wire(ui);
+    nodes::wire(ui);
     POLL_TIMER.with(|timer| {
         timer.start(slint::TimerMode::Repeated, POLL_INTERVAL, || {
             update(|c, _| c.poll_core());
         })
     });
-    apply(Changes::OVERVIEW);
+    apply(Changes::OVERVIEW | Changes::EDITOR);
 }
 
 /// Run startup side effects (PAC server, saved proxy mode, overdue rules).
@@ -112,6 +114,11 @@ fn apply(changes: Changes) {
     if changes.overview {
         if let Some(snapshot) = read(|c| c.overview()) {
             sync(|| overview::sync(&ui, &snapshot));
+        }
+    }
+    if changes.nodes || changes.editor {
+        if let Some(snapshot) = read(|c| c.nodes()) {
+            sync(|| nodes::sync(&ui, &snapshot, changes.editor));
         }
     }
     if changes.notice {
@@ -202,7 +209,7 @@ pub fn watch_config_dir(dir: &std::path::Path) {
 #[cfg(test)]
 mod tests {
     use super::super::controller::testing::{controller, temp_dir, FakeEffects};
-    use super::super::{AppState, Connection, NodeDraft, NodeStore, Notice, Page};
+    use super::super::{AppState, Connection, NodeStore, Notice, Page};
     use super::*;
 
     fn setup(name: &str) -> (MainWindow, FakeEffects, std::path::PathBuf) {
@@ -279,11 +286,8 @@ mod tests {
         actions.invoke_toggle_connection();
         // UI-only state the user is working with.
         ui.global::<AppState>().set_page(Page::Overview);
-        let draft = NodeDraft {
-            name: "typing…".into(),
-            ..Default::default()
-        };
-        ui.global::<NodeStore>().set_draft(draft.clone());
+        // Editor text is reloaded only when the draft serial changes.
+        let serial = ui.global::<NodeStore>().get_draft_serial();
         fake.0.borrow_mut().exit_reason = Some("Juicity core exited".into());
         // A re-entrant callback while the controller is borrowed is ignored.
         update(|c, _| {
@@ -294,7 +298,7 @@ mod tests {
         assert_eq!(state.get_connection(), Connection::Stopped);
         assert_eq!(state.get_notice(), Notice::CoreExited);
         assert!(state.get_notice_error());
-        assert_eq!(ui.global::<NodeStore>().get_draft(), draft);
+        assert_eq!(ui.global::<NodeStore>().get_draft_serial(), serial);
         teardown(&dir);
     }
 

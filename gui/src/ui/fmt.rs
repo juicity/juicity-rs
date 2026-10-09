@@ -12,6 +12,11 @@ fn em_width(ch: char) -> f32 {
     }
 }
 
+/// One bullet per character for a hidden password.
+pub fn mask(text: SharedString) -> SharedString {
+    "•".repeat(text.chars().count()).into()
+}
+
 pub fn elide_middle(text: SharedString, width: f32, font_size: f32) -> SharedString {
     if font_size <= 0.0 {
         return text;

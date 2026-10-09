@@ -4,9 +4,11 @@
 //! touches Slint types. Every mutation returns [`Changes`] so the bind layer
 //! knows which snapshots to push into the UI after the borrow is released.
 
+mod nodes;
 mod overview;
 mod persist;
 
+pub use nodes::{DraftData, DraftError, DraftField, ListCommand, NodesSnapshot};
 pub use overview::{OverviewSnapshot, RuleJob};
 pub use persist::ConfigFile;
 #[cfg(test)]
@@ -33,6 +35,7 @@ pub trait Effects {
     fn poll_core(&mut self, core: &mut CoreManager) -> Option<String>;
     fn apply_system_proxy(&mut self, config: &AppConfig) -> anyhow::Result<()>;
     fn copy_text(&mut self, text: &str) -> anyhow::Result<()>;
+    fn paste_text(&mut self) -> anyhow::Result<String>;
 }
 
 /// The real effects: in-process core, `system_proxy.rs` and `arboard`.
@@ -65,12 +68,21 @@ impl Effects for NativeEffects {
     }
 
     fn copy_text(&mut self, text: &str) -> anyhow::Result<()> {
+        self.clipboard()?.set_text(text)?;
+        Ok(())
+    }
+
+    fn paste_text(&mut self) -> anyhow::Result<String> {
+        Ok(self.clipboard()?.get_text()?)
+    }
+}
+
+impl NativeEffects {
+    fn clipboard(&mut self) -> anyhow::Result<&mut arboard::Clipboard> {
         if self.clipboard.is_none() {
             self.clipboard = Some(arboard::Clipboard::new()?);
         }
-        let clipboard = self.clipboard.as_mut().expect("clipboard was just created");
-        clipboard.set_text(text)?;
-        Ok(())
+        Ok(self.clipboard.as_mut().expect("clipboard was just created"))
     }
 }
 
@@ -79,6 +91,13 @@ impl Effects for NativeEffects {
 pub enum Notice {
     #[default]
     None,
+    Imported,
+    ImportFailed(String),
+    /// Links added and lines skipped.
+    ImportPartial(usize, usize),
+    ExportFailed(String),
+    /// The editor has invalid fields.
+    ExportInvalid,
     LinkCopied,
     StartFailed(String),
     RulesUpdated,
@@ -101,6 +120,9 @@ impl Notice {
                 | Self::CoreExited(_)
                 | Self::NoNode
                 | Self::MissingFields(_)
+                | Self::ImportFailed(_)
+                | Self::ExportFailed(_)
+                | Self::ExportInvalid
         )
     }
 }
@@ -115,6 +137,11 @@ pub struct Changes {
     pub notice: bool,
     /// A config file became dirty; (re)arm the save timer.
     pub persist: bool,
+    /// The node list, errors and sheet state must be pushed again.
+    pub nodes: bool,
+    /// The editor draft was replaced (another node selected); its text
+    /// fields must be reloaded.
+    pub editor: bool,
 }
 
 impl Changes {
@@ -122,11 +149,21 @@ impl Changes {
         overview: false,
         notice: false,
         persist: false,
+        nodes: false,
+        editor: false,
     };
     pub const OVERVIEW: Self = Self {
         overview: true,
-        notice: false,
-        persist: false,
+        ..Self::NONE
+    };
+    pub const NODES: Self = Self {
+        nodes: true,
+        ..Self::NONE
+    };
+    pub const EDITOR: Self = Self {
+        nodes: true,
+        editor: true,
+        ..Self::NONE
     };
 }
 
@@ -137,6 +174,8 @@ impl std::ops::BitOr for Changes {
             overview: self.overview || other.overview,
             notice: self.notice || other.notice,
             persist: self.persist || other.persist,
+            nodes: self.nodes || other.nodes,
+            editor: self.editor || other.editor,
         }
     }
 }
@@ -155,12 +194,14 @@ pub struct Controller {
     rules_updating: bool,
     notice: Notice,
     notice_seq: u64,
+    nodes: nodes::NodesState,
 }
 
 impl Controller {
     pub fn new(storage: Storage, effects: Box<dyn Effects>) -> Self {
         let (gui, loaded) = GuiState::load_tracked(storage);
         let persist = Persist::new(&loaded);
+        let nodes = nodes::NodesState::new(&gui);
         Self {
             gui,
             effects,
@@ -169,6 +210,7 @@ impl Controller {
             rules_updating: false,
             notice: Notice::None,
             notice_seq: 0,
+            nodes,
         }
     }
 
@@ -281,6 +323,7 @@ impl Controller {
     /// files, reload clean files that changed on disk.
     pub fn on_files_changed(&mut self, now: Instant) -> Changes {
         let old = self.gui.config.clone();
+        let edited = self.edited_profile();
         let reloaded = self.persist.reload_changed(&mut self.gui, now);
         let mut changes = Changes {
             persist: self.persist.delay(now).is_some(),
@@ -291,7 +334,7 @@ impl Controller {
         }
         tracing::info!("config reloaded from disk: {reloaded:?}");
         self.gui.normalize_selected_index();
-        changes |= Changes::OVERVIEW;
+        changes |= Changes::OVERVIEW | self.after_reload(edited);
         if reloaded.contains(&ConfigFile::App) {
             let config = &self.gui.config;
             let listen_changed = old.pac_listen != config.pac_listen;
@@ -329,6 +372,10 @@ pub mod testing {
         pub running: bool,
         pub proxy_modes: Vec<SystemProxyMode>,
         pub copied: Vec<String>,
+        /// Clipboard text returned to an import.
+        pub paste: String,
+        /// Names of the profiles the core was started with.
+        pub started: Vec<String>,
     }
 
     /// Effects that only record what the controller asked for.
@@ -340,13 +387,15 @@ pub mod testing {
             &mut self,
             _core: &mut CoreManager,
             _config: &AppConfig,
-            _profile: &ProxyProfile,
+            profile: &ProxyProfile,
         ) -> anyhow::Result<()> {
             let mut state = self.0.borrow_mut();
-            if let Some(err) = &state.start_error {
+            if let Some(err) = state.start_error.clone() {
+                state.running = false;
                 anyhow::bail!("{err}");
             }
             state.running = true;
+            state.started.push(profile.name.clone());
             Ok(())
         }
 
@@ -374,6 +423,10 @@ pub mod testing {
         fn copy_text(&mut self, text: &str) -> anyhow::Result<()> {
             self.0.borrow_mut().copied.push(text.to_string());
             Ok(())
+        }
+
+        fn paste_text(&mut self) -> anyhow::Result<String> {
+            Ok(self.0.borrow().paste.clone())
         }
     }
 

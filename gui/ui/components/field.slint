@@ -1,8 +1,11 @@
 import { Theme, Icons } from "../theme.slint";
 import { Caption, Icon } from "primitives.slint";
+import { Fmt } from "../state.slint";
 
 export component Field inherits VerticalLayout {
     in-out property <string> text;
+    // Accessible name of the input.
+    in property <string> label;
     in property <string> placeholder;
     in property <string> error;
     in property <bool> latin: true;
@@ -11,6 +14,8 @@ export component Field inherits VerticalLayout {
     in property <image> icon;
     in property <bool> has-icon: false;
     private property <bool> reveal;
+    // At rest a hidden password shows small bullets; editing uses the input's own mask.
+    private property <bool> masked: root.password && !root.reveal && !input.has-focus;
     out property <bool> has-focus <=> input.has-focus;
     callback edited(string);
     callback accepted;
@@ -35,7 +40,15 @@ export component Field inherits VerticalLayout {
                     color: Theme.secondary;
                     vertical-alignment: center;
                 }
+                if root.masked: Text {
+                    text: Fmt.mask(root.text);
+                    font-family: root.latin ? Theme.latin : Theme.cjk;
+                    font-size: 14px;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
                 input := TextInput {
+                    opacity: root.masked ? 0 : 1;
                     text <=> root.text;
                     font-family: root.latin ? Theme.latin : Theme.cjk;
                     font-size: 14px;
@@ -44,6 +57,16 @@ export component Field inherits VerticalLayout {
                     single-line: true;
                     read-only: root.read-only;
                     input-type: root.password && !root.reveal ? InputType.password : InputType.text;
+                    accessible-role: text-input;
+                    accessible-label: root.label;
+                    accessible-value: root.password ? "" : self.text;
+                    accessible-read-only: root.read-only;
+                    accessible-action-set-value(value) => {
+                        if !root.read-only {
+                            self.text = value;
+                            root.edited(value);
+                        }
+                    }
                     edited => { root.edited(self.text); }
                     accepted => { root.accepted(); }
                 }
@@ -82,6 +105,7 @@ export component LabeledField inherits VerticalLayout {
     Caption { text: root.label; }
     field := Field {
         text <=> root.text;
+        label: root.label;
         placeholder: root.placeholder;
         error: root.error;
         latin: root.latin;
