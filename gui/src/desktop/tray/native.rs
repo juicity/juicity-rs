@@ -163,6 +163,7 @@ fn build_menu(menu: &TrayMenu) -> Menu {
     let connect = item(&text.connect, TrayEvent::ToggleConnection);
     let open = item(&text.open, TrayEvent::Open);
     let edit_nodes = item(&text.edit_nodes, TrayEvent::ShowNodes);
+    let logs = item(&text.logs, TrayEvent::ShowLogs);
     let settings = item(&text.settings, TrayEvent::ShowSettings);
     let about = item(&text.about, TrayEvent::ShowAbout);
     let quit = item(&text.quit, TrayEvent::Quit);
@@ -171,7 +172,7 @@ fn build_menu(menu: &TrayMenu) -> Menu {
         PredefinedMenuItem::separator(),
     );
     let root = Menu::new();
-    let entries: [&dyn IsMenuItem; 11] = [
+    let entries: [&dyn IsMenuItem; 12] = [
         &status,
         &connect,
         &proxy,
@@ -179,6 +180,7 @@ fn build_menu(menu: &TrayMenu) -> Menu {
         &sep1,
         &open,
         &edit_nodes,
+        &logs,
         &settings,
         &about,
         &sep2,

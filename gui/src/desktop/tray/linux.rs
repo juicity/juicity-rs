@@ -212,6 +212,7 @@ impl ksni::Tray for SniTray {
             MenuItem::Separator,
             item(&text.open, TrayEvent::Open),
             item(&text.edit_nodes, TrayEvent::ShowNodes),
+            item(&text.logs, TrayEvent::ShowLogs),
             item(&text.settings, TrayEvent::ShowSettings),
             item(&text.about, TrayEvent::ShowAbout),
             MenuItem::Separator,

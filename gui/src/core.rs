@@ -70,7 +70,10 @@ impl FlowCounters {
     }
 
     fn get(&self) -> (u64, u64) {
-        (self.tx.load(Ordering::Relaxed), self.rx.load(Ordering::Relaxed))
+        (
+            self.tx.load(Ordering::Relaxed),
+            self.rx.load(Ordering::Relaxed),
+        )
     }
 
     fn stop(&self) {
@@ -101,7 +104,6 @@ impl CoreManager {
     /// reads the counters its local server pushes over the flow-statistics
     /// socket.  The last known value is returned when a fresh reading is
     /// momentarily unavailable.
-    #[allow(dead_code)] // Used by the Slint logs page (next milestone).
     pub fn traffic(&mut self) -> Option<(u64, u64)> {
         let running = self.running.as_mut()?;
         let reading = match &running.client {

@@ -136,6 +136,9 @@ msgstr "Открыть juicity"
 msgid "Nodes…"
 msgstr "Узлы…"
 
+msgid "View Logs…"
+msgstr "Журнал…"
+
 msgid "Settings…"
 msgstr "Настройки…"
 
@@ -148,6 +151,9 @@ msgstr "Выйти"
 msgid "Overview"
 msgstr "Обзор"
 
+msgid "Logs"
+msgstr "Журнал"
+
 msgid "Settings"
 msgstr "Настройки"
 
@@ -159,6 +165,33 @@ msgstr "Отмена"
 
 msgid "Done"
 msgstr "Готово"
+
+msgid "No traffic yet"
+msgstr "Трафика пока нет"
+
+msgid "{n} earlier line dropped"
+msgid_plural "{n} earlier lines dropped"
+msgstr[0] "Отброшена {n} ранняя строка"
+msgstr[1] "Отброшены {n} ранние строки"
+msgstr[2] "Отброшено {n} ранних строк"
+
+msgid "Follow"
+msgstr "Следить"
+
+msgid "Clear"
+msgstr "Очистить"
+
+msgid "Download"
+msgstr "Загрузка"
+
+msgid "Upload"
+msgstr "Отдача"
+
+msgid "Downloaded"
+msgstr "Загружено"
+
+msgid "Uploaded"
+msgstr "Отдано"
 
 msgid "Reconnect to apply"
 msgstr "Переподключитесь, чтобы применить"

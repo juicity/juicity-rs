@@ -61,7 +61,7 @@ pub struct TrafficMonitor {
 }
 
 impl TrafficMonitor {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             data: Mutex::new(Data {
                 samples: VecDeque::new(),
@@ -277,7 +277,10 @@ mod tests {
         let mut cumulative = 0u64;
         for step in 1..HISTORY + 10 {
             cumulative += 10;
-            monitor.record_at(Some((cumulative, cumulative)), t0 + Duration::from_secs(step as u64));
+            monitor.record_at(
+                Some((cumulative, cumulative)),
+                t0 + Duration::from_secs(step as u64),
+            );
         }
         assert_eq!(monitor.snapshot().samples.len(), HISTORY);
     }

@@ -44,6 +44,7 @@ impl Controller {
             TrayEvent::ToggleWindow
             | TrayEvent::Open
             | TrayEvent::ShowNodes
+            | TrayEvent::ShowLogs
             | TrayEvent::ShowSettings
             | TrayEvent::ShowAbout
             | TrayEvent::Quit => Changes::NONE,
@@ -133,7 +134,12 @@ mod tests {
         assert_eq!(c.gui.config.pac_rule_mode, PacRuleMode::ProxyGfw);
         let _ = c.on_tray(TrayEvent::ToggleConnection, now);
         assert!(!fake.0.borrow().running);
-        for event in [TrayEvent::Open, TrayEvent::ShowAbout, TrayEvent::Quit] {
+        for event in [
+            TrayEvent::Open,
+            TrayEvent::ShowLogs,
+            TrayEvent::ShowAbout,
+            TrayEvent::Quit,
+        ] {
             assert_eq!(c.on_tray(event, now).0, Changes::NONE);
         }
         let _ = std::fs::remove_dir_all(&dir);

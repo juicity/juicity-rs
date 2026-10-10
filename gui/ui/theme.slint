@@ -1,6 +1,7 @@
 import { Palette } from "std-widgets.slint";
 import "../fonts/NotoSans-Regular.ttf";
 import "../fonts/NotoSans-Medium.ttf";
+import "../fonts/NotoSansMono-Regular.ttf";
 
 export global Theme {
     in-out property <bool> dark: Palette.color-scheme == ColorScheme.dark;
@@ -22,8 +23,12 @@ export global Theme {
     out property <length> chevron-inset: 5.3px;
     out property <color> green: dark ? #30D158 : #34C759;
     out property <color> red: dark ? #FF453A : #FF3B30;
+    out property <color> orange: dark ? #FF9F0A : #FF9500;
     in-out property <string> cjk: "Noto Sans CJK TC";
     out property <string> latin: "Noto Sans";
+    out property <string> mono: "Noto Sans Mono";
+    // Noto Sans Mono advance: 600 / 1000 em for every glyph.
+    out property <float> mono-advance: 0.6;
     // Noto Sans Regular: space + middle dot + space = 788 / 1000 em.
     out property <float> separator-advance: 0.788;
 }
@@ -46,4 +51,5 @@ export global Icons {
     out property <image> chevron-right: @image-url("../icons/chevron-right.svg");
     out property <image> check: @image-url("../icons/check.svg");
     out property <image> eye: @image-url("../icons/eye.svg");
+    out property <image> logs: @image-url("../icons/scroll-text.svg");
 }

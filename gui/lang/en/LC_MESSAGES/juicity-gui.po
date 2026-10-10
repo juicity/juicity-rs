@@ -1,197 +1,201 @@
 msgid ""
 msgstr ""
-"POT-Creation-Date: 2026-10-10 07:24+0000\n"
+"POT-Creation-Date: 2026-10-10 08:13+0000\n"
 "Language: en\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: gui/ui/state.slint:64
+#: gui/ui/state.slint:68
 msgid "Connected · {}"
 msgstr "Connected · {}"
 
-#: gui/ui/state.slint:64
+#: gui/ui/state.slint:68
 msgid "Connecting…"
 msgstr "Connecting…"
 
-#: gui/ui/state.slint:64
+#: gui/ui/state.slint:68
 msgid "Disconnected"
 msgstr "Disconnected"
 
-#: gui/ui/state.slint:65
+#: gui/ui/state.slint:69
 msgid "System proxy · PAC"
 msgstr "System proxy · PAC"
 
-#: gui/ui/state.slint:65
+#: gui/ui/state.slint:69
 msgid "System proxy · Global"
 msgstr "System proxy · Global"
 
-#: gui/ui/state.slint:65
+#: gui/ui/state.slint:69
 msgid "System proxy · Off"
 msgstr "System proxy · Off"
 
-#: gui/ui/state.slint:66
+#: gui/ui/state.slint:70
 msgid "Links imported"
 msgstr "Links imported"
 
-#: gui/ui/state.slint:66
+#: gui/ui/state.slint:70
 msgid "Link copied"
 msgstr "Link copied"
 
-#: gui/ui/state.slint:66
+#: gui/ui/state.slint:70
 msgid "Could not start proxy: {}"
 msgstr "Could not start proxy: {}"
 
-#: gui/ui/state.slint:66
+#: gui/ui/state.slint:70
 msgid "Rules updated"
 msgstr "Rules updated"
 
-#: gui/ui/state.slint:66
+#: gui/ui/state.slint:70
 msgid "Could not update rules: {}"
 msgstr "Could not update rules: {}"
 
-#: gui/ui/state.slint:66
+#: gui/ui/state.slint:70
 msgid "Could not set system proxy: {}"
 msgstr "Could not set system proxy: {}"
 
-#: gui/ui/state.slint:66
+#: gui/ui/state.slint:70
 msgid "Could not save settings: {}"
 msgstr "Could not save settings: {}"
 
-#: gui/ui/state.slint:66
+#: gui/ui/state.slint:70
 msgid "Proxy stopped: {}"
 msgstr "Proxy stopped: {}"
 
-#: gui/ui/state.slint:66
+#: gui/ui/state.slint:70
 msgid "Add a node first"
 msgstr "Add a node first"
 
-#: gui/ui/state.slint:66
+#: gui/ui/state.slint:70
 msgid "Missing fields: {}"
 msgstr "Missing fields: {}"
 
-#: gui/ui/state.slint:66
+#: gui/ui/state.slint:70
 msgid "Could not import link: {}"
 msgstr "Could not import link: {}"
 
-#: gui/ui/state.slint:66
+#: gui/ui/state.slint:70
 msgid "Could not export link: {}"
 msgstr "Could not export link: {}"
 
-#: gui/ui/state.slint:66
+#: gui/ui/state.slint:70
 msgid "Links imported: {}, skipped: {}"
 msgstr "Links imported: {}, skipped: {}"
 
-#: gui/ui/state.slint:66
+#: gui/ui/state.slint:70
 msgid "Fix the invalid fields before exporting"
 msgstr "Fix the invalid fields before exporting"
 
-#: gui/ui/state.slint:67
+#: gui/ui/state.slint:71
 msgid "Today {}"
 msgstr "Today {}"
 
-#: gui/ui/state.slint:67
+#: gui/ui/state.slint:71
 msgid "Yesterday {}"
 msgstr "Yesterday {}"
 
-#: gui/ui/state.slint:155 gui/ui/pages/node_editor.slint:64
+#: gui/ui/state.slint:179 gui/ui/pages/node_editor.slint:64
 msgid "Server"
 msgstr "Server"
 
-#: gui/ui/state.slint:157 gui/ui/pages/node_editor.slint:87
+#: gui/ui/state.slint:181 gui/ui/pages/node_editor.slint:87
 msgid "Password"
 msgstr "Password"
 
-#: gui/ui/state.slint:158
+#: gui/ui/state.slint:182
 msgid ", "
 msgstr ", "
 
-#: gui/ui/state.slint:159
+#: gui/ui/state.slint:183
 msgid "Required"
 msgstr "Required"
 
-#: gui/ui/state.slint:160
+#: gui/ui/state.slint:184
 msgid "Enter a port from 1 to 65535"
 msgstr "Enter a port from 1 to 65535"
 
-#: gui/ui/state.slint:161
+#: gui/ui/state.slint:185
 msgid "Enter a whole number of seconds"
 msgstr "Enter a whole number of seconds"
 
-#: gui/ui/state.slint:162
+#: gui/ui/state.slint:186
 msgid "Enter an address as host:port"
 msgstr "Enter an address as host:port"
 
-#: gui/ui/state.slint:163
+#: gui/ui/state.slint:187
 msgid "Enter a URL that starts with http:// or https://"
 msgstr "Enter a URL that starts with http:// or https://"
 
-#: gui/ui/state.slint:164
+#: gui/ui/state.slint:188
 msgid "Enter a whole number of hours, 1 or more"
 msgstr "Enter a whole number of hours, 1 or more"
 
-#: gui/ui/state.slint:165
+#: gui/ui/state.slint:189
 msgid "Node {}"
 msgstr "Node {}"
 
-#: gui/ui/state.slint:170
+#: gui/ui/state.slint:194
 msgid "Disconnect"
 msgstr "Disconnect"
 
-#: gui/ui/state.slint:170
+#: gui/ui/state.slint:194
 msgid "Connect"
 msgstr "Connect"
 
-#: gui/ui/state.slint:171 gui/ui/pages/overview.slint:24
+#: gui/ui/state.slint:195 gui/ui/pages/overview.slint:24
 msgid "System proxy"
 msgstr "System proxy"
 
-#: gui/ui/state.slint:172 gui/ui/pages/overview.slint:25
+#: gui/ui/state.slint:196 gui/ui/pages/overview.slint:25
 #: gui/ui/pages/settings.slint:53 gui/ui/pages/settings.slint:114
 #: gui/ui/pages/settings.slint:171
 msgid "Off"
 msgstr "Off"
 
-#: gui/ui/state.slint:174 gui/ui/pages/overview.slint:25
+#: gui/ui/state.slint:198 gui/ui/pages/overview.slint:25
 msgid "Global"
 msgstr "Global"
 
-#: gui/ui/state.slint:175 gui/ui/pages/overview.slint:104
+#: gui/ui/state.slint:199 gui/ui/pages/overview.slint:104
 msgid "Bypass mainland China"
 msgstr "Bypass mainland China"
 
-#: gui/ui/state.slint:176 gui/ui/pages/overview.slint:106
+#: gui/ui/state.slint:200 gui/ui/pages/overview.slint:106
 msgid "Proxy GFW list only"
 msgstr "Proxy GFW list only"
 
-#: gui/ui/state.slint:177 gui/ui/pages/overview.slint:111
+#: gui/ui/state.slint:201 gui/ui/pages/overview.slint:111
 msgid "Update rules"
 msgstr "Update rules"
 
-#: gui/ui/state.slint:178 gui/ui/components/nav.slint:39
+#: gui/ui/state.slint:202 gui/ui/components/nav.slint:39
 msgid "Nodes"
 msgstr "Nodes"
 
-#: gui/ui/state.slint:179
+#: gui/ui/state.slint:203
 msgid "Import from clipboard"
 msgstr "Import from clipboard"
 
-#: gui/ui/state.slint:180
+#: gui/ui/state.slint:204
 msgid "Open juicity"
 msgstr "Open juicity"
 
-#: gui/ui/state.slint:181
+#: gui/ui/state.slint:205
 msgid "Nodes…"
 msgstr "Nodes…"
 
-#: gui/ui/state.slint:182
+#: gui/ui/state.slint:206
+msgid "View Logs…"
+msgstr "View Logs…"
+
+#: gui/ui/state.slint:207
 msgid "Settings…"
 msgstr "Settings…"
 
-#: gui/ui/state.slint:183
+#: gui/ui/state.slint:208
 msgid "About juicity"
 msgstr "About juicity"
 
-#: gui/ui/state.slint:184
+#: gui/ui/state.slint:209
 msgid "Quit"
 msgstr "Quit"
 
@@ -199,7 +203,11 @@ msgstr "Quit"
 msgid "Overview"
 msgstr "Overview"
 
-#: gui/ui/components/nav.slint:40 gui/ui/pages/settings.slint:56
+#: gui/ui/components/nav.slint:40 gui/ui/pages/logs.slint:79
+msgid "Logs"
+msgstr "Logs"
+
+#: gui/ui/components/nav.slint:41 gui/ui/pages/settings.slint:56
 msgid "Settings"
 msgstr "Settings"
 
@@ -214,6 +222,40 @@ msgstr "Cancel"
 #: gui/ui/components/sheet.slint:41
 msgid "Done"
 msgstr "Done"
+
+#: gui/ui/pages/logs.slint:56
+msgid "No traffic yet"
+msgstr "No traffic yet"
+
+#: gui/ui/pages/logs.slint:82
+msgid "{n} earlier line dropped"
+msgid_plural "{n} earlier lines dropped"
+msgstr[0] "{n} earlier line dropped"
+msgstr[1] "{n} earlier lines dropped"
+
+#: gui/ui/pages/logs.slint:86
+msgid "Follow"
+msgstr "Follow"
+
+#: gui/ui/pages/logs.slint:91
+msgid "Clear"
+msgstr "Clear"
+
+#: gui/ui/pages/logs.slint:105
+msgid "Download"
+msgstr "Download"
+
+#: gui/ui/pages/logs.slint:106
+msgid "Upload"
+msgstr "Upload"
+
+#: gui/ui/pages/logs.slint:107
+msgid "Downloaded"
+msgstr "Downloaded"
+
+#: gui/ui/pages/logs.slint:108
+msgid "Uploaded"
+msgstr "Uploaded"
 
 #: gui/ui/pages/node_editor.slint:44
 msgid "Reconnect to apply"

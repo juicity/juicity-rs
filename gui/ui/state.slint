@@ -1,4 +1,4 @@
-export enum Page { overview, nodes, settings }
+export enum Page { overview, nodes, logs, settings }
 export enum Connection { stopped, starting, running }
 export enum ProxyMode { off, pac, global }
 export enum PacRule { bypass-china, gfw-list }
@@ -38,6 +38,10 @@ export struct NodeDraft {
 }
 export struct FieldError { field: NodeField, message: string }
 export struct MenuItem { text: string, checked: bool, enabled: bool }
+// One captured log line; the text stays English.
+export struct LogRow { time: string, level: string, target: string, message: string }
+// One chart slot (0 = oldest of HISTORY); heights are fractions of half the chart.
+export struct TrafficBar { slot: int, down: float, up: float }
 export struct Versions { gui: string, juicity: string, shadowsocks: string, tag: string, commit: string }
 
 export global AppState {
@@ -113,6 +117,24 @@ export global SettingsStore {
     in-out property <string> sheet-draft;
     in-out property <string> sheet-error;
 }
+export global LogStore {
+    in-out property <[LogRow]> rows;
+    in-out property <int> dropped;
+    // On: the list sticks to the newest line.
+    in-out property <bool> follow: true;
+    // Most characters in a row's target plus message, for the scroll width.
+    in-out property <int> max-chars;
+    // Bumped when rows are replaced, so a following list scrolls to the tail.
+    in-out property <int> serial;
+    in-out property <[TrafficBar]> bars;
+    // Number of chart slots (traffic::HISTORY).
+    in-out property <int> slots: 60;
+    in-out property <bool> has-traffic;
+    in-out property <string> down-speed;
+    in-out property <string> up-speed;
+    in-out property <string> down-total;
+    in-out property <string> up-total;
+}
 export global Actions {
     callback navigate(Page);
     callback toggle-connection;
@@ -143,6 +165,8 @@ export global Actions {
     callback edit-setting(string);
     callback commit-setting;
     callback cancel-setting;
+    callback set-log-follow(bool);
+    callback clear-logs;
     callback quit;
 }
 export global Fmt {
@@ -179,6 +203,7 @@ export global TrayText {
     out property <string> import-clipboard: @tr("Import from clipboard");
     out property <string> open: @tr("Open juicity");
     out property <string> edit-nodes: @tr("Nodes…");
+    out property <string> logs: @tr("View Logs…");
     out property <string> settings: @tr("Settings…");
     out property <string> about: @tr("About juicity");
     out property <string> quit: @tr("Quit");

@@ -4,12 +4,16 @@
 //! touches Slint types. Every mutation returns [`Changes`] so the bind layer
 //! knows which snapshots to push into the UI after the borrow is released.
 
+mod logs;
 mod nodes;
 mod overview;
 mod persist;
 mod settings;
 mod tray;
 
+#[cfg(test)]
+pub use logs::traffic_view;
+pub use logs::{LogsSnapshot, TrafficView};
 pub use nodes::{DraftData, DraftError, DraftField, ListCommand, NodesSnapshot};
 pub use overview::{OverviewSnapshot, RuleJob};
 pub use persist::ConfigFile;
@@ -41,6 +45,8 @@ pub trait Effects {
     fn paste_text(&mut self) -> anyhow::Result<String>;
     /// Enable or disable starting at login.
     fn set_autostart(&mut self, enabled: bool) -> anyhow::Result<()>;
+    /// Cumulative `(tx, rx)` byte counters of the running core.
+    fn traffic(&mut self, core: &mut CoreManager) -> Option<(u64, u64)>;
 }
 
 /// The real effects: in-process core, `system_proxy.rs` and `arboard`.
@@ -83,6 +89,10 @@ impl Effects for NativeEffects {
 
     fn set_autostart(&mut self, enabled: bool) -> anyhow::Result<()> {
         crate::desktop::autostart::apply(enabled)
+    }
+
+    fn traffic(&mut self, core: &mut CoreManager) -> Option<(u64, u64)> {
+        core.traffic()
     }
 }
 
@@ -153,6 +163,10 @@ pub struct Changes {
     pub editor: bool,
     /// The settings snapshot (values and the open sheet) must be pushed.
     pub settings: bool,
+    /// The log lines, dropped count or Follow changed.
+    pub logs: bool,
+    /// New traffic samples for the chart and statistics.
+    pub traffic: bool,
 }
 
 impl Changes {
@@ -163,6 +177,8 @@ impl Changes {
         nodes: false,
         editor: false,
         settings: false,
+        logs: false,
+        traffic: false,
     };
     pub const OVERVIEW: Self = Self {
         overview: true,
@@ -181,6 +197,14 @@ impl Changes {
         settings: true,
         ..Self::NONE
     };
+    pub const LOGS: Self = Self {
+        logs: true,
+        ..Self::NONE
+    };
+    pub const TRAFFIC: Self = Self {
+        traffic: true,
+        ..Self::NONE
+    };
 }
 
 impl std::ops::BitOr for Changes {
@@ -193,6 +217,8 @@ impl std::ops::BitOr for Changes {
             nodes: self.nodes || other.nodes,
             editor: self.editor || other.editor,
             settings: self.settings || other.settings,
+            logs: self.logs || other.logs,
+            traffic: self.traffic || other.traffic,
         }
     }
 }
@@ -214,6 +240,8 @@ pub struct Controller {
     nodes: nodes::NodesState,
     /// The open settings sheet; its draft is committed only by 完成.
     sheet: Option<settings::SettingSheet>,
+    /// Log and traffic sources plus the Logs page state.
+    logs: logs::LogsState,
 }
 
 impl Controller {
@@ -231,6 +259,7 @@ impl Controller {
             notice_seq: 0,
             nodes,
             sheet: None,
+            logs: logs::LogsState::new(),
         }
     }
 
@@ -400,6 +429,10 @@ pub mod testing {
         /// Autostart requests, in order.
         pub autostart: Vec<bool>,
         pub autostart_error: Option<String>,
+        /// Counters returned to the traffic sampler.
+        pub traffic: Option<(u64, u64)>,
+        /// How often the traffic counters were read.
+        pub traffic_reads: usize,
         /// When set, autostart entries are really written here.
         #[cfg(target_os = "linux")]
         pub autostart_dir: Option<PathBuf>,
@@ -468,6 +501,12 @@ pub mod testing {
                 return crate::desktop::autostart::apply_in(dir, enabled, exe);
             }
             Ok(())
+        }
+
+        fn traffic(&mut self, _core: &mut CoreManager) -> Option<(u64, u64)> {
+            let mut state = self.0.borrow_mut();
+            state.traffic_reads += 1;
+            state.traffic
         }
     }
 

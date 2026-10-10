@@ -1,7 +1,7 @@
 //! Tray, window visibility, close-to-tray and activation by a second launch.
 
 use super::super::{Actions, AppState, MainWindow, Page, TrayText};
-use super::{read, spawn_rules, update_with, WINDOW};
+use super::{logs, read, spawn_rules, update_with, WINDOW};
 use crate::desktop::single_instance::Activation;
 use crate::desktop::tray::{Sink, Tray, TrayEvent, TrayLabels, TrayMenu};
 use slint::ComponentHandle;
@@ -42,6 +42,7 @@ fn menu(ui: &MainWindow) -> Option<TrayMenu> {
         import_clipboard: text.get_import_clipboard().into(),
         open: text.get_open().into(),
         edit_nodes: text.get_edit_nodes().into(),
+        logs: text.get_logs().into(),
         settings: text.get_settings().into(),
         about: text.get_about().into(),
         quit: text.get_quit().into(),
@@ -115,6 +116,7 @@ fn handle(event: TrayEvent) {
         TrayEvent::ToggleWindow => toggle_window(),
         TrayEvent::Open => show_window(None),
         TrayEvent::ShowNodes => show_window(Some(Page::Nodes)),
+        TrayEvent::ShowLogs => show_window(Some(Page::Logs)),
         // About is the last section of the settings page.
         TrayEvent::ShowSettings => show_window(Some(Page::Settings)),
         TrayEvent::ShowAbout => {
@@ -150,6 +152,7 @@ fn show_window(page: Option<Page>) {
         return;
     }
     ui.window().set_minimized(false);
+    logs::update_refresh();
     // No effect on Wayland, where the compositor decides focus.
     use slint::winit_030::WinitWindowAccessor;
     ui.window().with_winit_window(|w| w.focus_window());
@@ -163,6 +166,7 @@ fn toggle_window() {
         if let Err(err) = ui.hide() {
             tracing::warn!("could not hide the window: {err}");
         }
+        logs::stop();
     } else {
         show_window(None);
     }
@@ -293,8 +297,12 @@ mod tests {
         handle(TrayEvent::ShowNodes);
         assert_eq!(ui.global::<AppState>().get_page(), Page::Nodes);
         assert!(ui.window().is_visible());
+        handle(TrayEvent::ShowLogs);
+        assert_eq!(ui.global::<AppState>().get_page(), Page::Logs);
+        assert!(logs::refreshing());
         handle(TrayEvent::ToggleWindow);
         assert!(!ui.window().is_visible());
+        assert!(!logs::refreshing());
         handle(TrayEvent::ShowAbout);
         assert_eq!(ui.global::<AppState>().get_page(), Page::Settings);
         assert!(ui.window().is_visible());

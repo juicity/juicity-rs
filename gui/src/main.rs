@@ -11,12 +11,10 @@ mod core;
 mod desktop;
 mod i18n;
 mod link;
-#[allow(dead_code)] // Used by the Slint logs page (next milestone).
 mod logging;
 mod pac;
 mod state;
 mod system_proxy;
-#[allow(dead_code)] // Used by the Slint logs page (next milestone).
 mod traffic;
 mod ui;
 mod util;

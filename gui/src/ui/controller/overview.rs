@@ -103,6 +103,8 @@ impl Controller {
     /// Start the selected node (flushing config first) or stop the core.
     pub fn toggle_connection(&mut self, now: Instant) -> Changes {
         if self.connected {
+            // Totals and history stay; the next counters start a new baseline.
+            self.logs.traffic.reset();
             self.effects.stop_core(&mut self.gui.core_manager);
             self.connected = false;
             self.nodes.started_with = None;
@@ -130,6 +132,8 @@ impl Controller {
             return self.set_notice(Notice::MissingFields(missing));
         }
         let config = self.gui.config.clone();
+        // A new core restarts its byte counters.
+        self.logs.traffic.reset();
         match self
             .effects
             .start_core(&mut self.gui.core_manager, &config, &profile)
@@ -243,8 +247,10 @@ impl Controller {
         }
     }
 
-    /// Poll timer: detect a core that exited on its own.
+    /// Poll timer: sample the traffic counters, then detect a core that
+    /// exited on its own.
     pub fn poll_core(&mut self) -> Changes {
+        self.sample_traffic();
         if !self.connected {
             return Changes::NONE;
         }

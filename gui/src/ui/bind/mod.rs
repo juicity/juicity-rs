@@ -7,6 +7,7 @@
 //! Other threads reach the controller through [`post`].
 
 mod desktop;
+pub(super) mod logs;
 mod nodes;
 mod overview;
 mod settings;
@@ -46,8 +47,10 @@ pub fn install(ui: &MainWindow, controller: Controller) {
     overview::wire(ui);
     nodes::wire(ui);
     settings::wire(ui);
+    logs::wire(ui);
     POLL_TIMER.with(|timer| {
         timer.start(slint::TimerMode::Repeated, POLL_INTERVAL, || {
+            // Samples traffic whether or not the Logs page is shown.
             update(|c, _| c.poll_core());
         })
     });
@@ -67,6 +70,7 @@ pub fn shutdown() {
     POLL_TIMER.with(|t| t.stop());
     SAVE_TIMER.with(|t| t.stop());
     NOTICE_TIMER.with(|t| t.stop());
+    logs::stop();
     WATCHER.with(|w| w.borrow_mut().take());
     desktop::stop();
     LANGUAGE.set(None);
@@ -146,6 +150,16 @@ fn apply(changes: Changes) {
     if changes.settings {
         if let Some(snapshot) = read(|c| c.settings()) {
             sync(|| settings::sync(&ui, &snapshot));
+        }
+    }
+    if changes.logs {
+        if let Some(snapshot) = read(|c| c.logs()) {
+            sync(|| logs::sync_logs(&ui, &snapshot));
+        }
+    }
+    if changes.traffic {
+        if let Some(view) = read(|c| c.traffic_view()) {
+            sync(|| logs::sync_traffic(&ui, &view));
         }
     }
     if changes.notice {

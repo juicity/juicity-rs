@@ -36,3 +36,74 @@ export component ScrollArea inherits Rectangle {
         }
     }
 }
+
+// Scrolls both ways with thin bars. Named ListView so that the compiler
+// instantiates only the visible rows of a `for` placed inside it.
+export component ListView inherits Rectangle {
+    out property <length> visible-width <=> view.width;
+    out property <length> visible-height <=> view.height;
+    in-out property <length> content-width <=> view.content-width;
+    in-out property <length> content-height <=> view.content-height;
+    in-out property <length> content-x <=> view.content-x;
+    in-out property <length> content-y <=> view.content-y;
+    // The user moved the content (wheel, drag or a bar).
+    callback scrolled;
+    private property <bool> horizontal: root.content-width > view.width;
+    private property <length> v-thumb: max(24px, view.height * view.height / max(1px, root.content-height));
+    private property <length> h-thumb: max(24px, view.width * view.width / max(1px, root.content-width));
+    private property <length> drag-start;
+    clip: true;
+    view := Flickable {
+        x: 0px;
+        y: 0px;
+        width: parent.width - 10px;
+        height: parent.height - (root.horizontal ? 10px : 0px);
+        interactive: true;
+        flicked => { root.scrolled(); }
+        @children
+    }
+    if root.content-height > view.height: Rectangle {
+        x: parent.width - 10px;
+        width: 10px;
+        height: view.height;
+        Rectangle {
+            x: 4px;
+            y: -root.content-y / (root.content-height - view.height) * (view.height - root.v-thumb);
+            width: 4px;
+            height: root.v-thumb;
+            border-radius: 2px;
+            background: Theme.secondary;
+        }
+        TouchArea {
+            changed pressed => { if self.pressed { root.drag-start = root.content-y; } }
+            moved => {
+                if self.pressed {
+                    root.content-y = clamp(root.drag-start - (self.mouse-y - self.pressed-y) * (root.content-height - view.height) / (view.height - root.v-thumb), view.height - root.content-height, 0px);
+                    root.scrolled();
+                }
+            }
+        }
+    }
+    if root.horizontal: Rectangle {
+        y: parent.height - 10px;
+        width: view.width;
+        height: 10px;
+        Rectangle {
+            y: 4px;
+            x: -root.content-x / (root.content-width - view.width) * (view.width - root.h-thumb);
+            height: 4px;
+            width: root.h-thumb;
+            border-radius: 2px;
+            background: Theme.secondary;
+        }
+        TouchArea {
+            changed pressed => { if self.pressed { root.drag-start = root.content-x; } }
+            moved => {
+                if self.pressed {
+                    root.content-x = clamp(root.drag-start - (self.mouse-x - self.pressed-x) * (root.content-width - view.width) / (view.width - root.h-thumb), view.width - root.content-width, 0px);
+                    root.scrolled();
+                }
+            }
+        }
+    }
+}

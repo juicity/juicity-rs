@@ -1,8 +1,11 @@
+use super::controller::{traffic_view, LogsSnapshot};
 use super::{
-    fonts, prepare, AppState, Connection, MainWindow, NodeDraft, NodeRow, NodeStore, PacRule, Page,
-    Protocol, ProxyMode, SettingsStore, StartupConnection, Theme, Versions,
+    bind, fonts, prepare, AppState, Connection, MainWindow, NodeDraft, NodeRow, NodeStore, PacRule,
+    Page, Protocol, ProxyMode, SettingsStore, StartupConnection, Theme, Versions,
 };
 use crate::i18n::UiLang;
+use crate::logging::LogLine;
+use crate::traffic::{Speed, TrafficSnapshot};
 use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
 use slint::platform::{Platform, PlatformError, WindowAdapter, WindowEvent};
 use slint::{ComponentHandle, PhysicalSize, Rgb8Pixel, SharedPixelBuffer};
@@ -95,6 +98,56 @@ fn fixture(window: &MainWindow) {
         tag: "v1.0.3".into(),
         commit: "4c4f9f0".into(),
     });
+    logs_fixture(window);
+}
+
+/// Fixed log lines and traffic history for the Logs page.
+fn logs_fixture(window: &MainWindow) {
+    use tracing::Level;
+    let line = |time: &str, level, target: &str, message: &str| LogLine {
+        time: time.into(),
+        level,
+        target: target.into(),
+        message: message.into(),
+    };
+    let lines = vec![
+        line("00:00:00", Level::INFO, "juicity_gui", "juicity-gui 1.0.3 starting"),
+        line("00:00:00", Level::INFO, "juicity_gui::pac", "PAC server listening on 127.0.0.1:1090"),
+        line("00:00:01", Level::INFO, "juicity_gui::core", "starting in-process Juicity core for profile Tokyo 01"),
+        line("00:00:01", Level::INFO, "juicity_client", "listening on 127.0.0.1:1080 (SOCKS5 / HTTP)"),
+        line("00:00:01", Level::DEBUG, "juicity_client::quic", "handshake with tokyo.example.com:443 done in 84 ms, congestion control bbr"),
+        line("00:00:02", Level::INFO, "juicity_gui::system_proxy", "system proxy set to PAC http://127.0.0.1:1090/pac"),
+        line("00:00:09", Level::INFO, "juicity_gui::pac", "fetched https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/direct-list.txt (118243 rules) in 1.42 s"),
+        line("00:01:15", Level::WARN, "juicity_client::quic", "connection to tokyo.example.com:443 lost: timed out; reconnecting"),
+        line("00:01:16", Level::INFO, "juicity_client::quic", "connected to tokyo.example.com:443"),
+        line("00:03:40", Level::DEBUG, "juicity_client::relay", "tcp 127.0.0.1:52144 -> www.example.org:443 closed, up=18.2 KB down=1.4 MB"),
+        line("00:04:02", Level::ERROR, "juicity_client::relay", "udp relay for 1.1.1.1:53 failed: stream reset by peer"),
+        line("00:05:27", Level::INFO, "juicity_client::relay", "tcp 127.0.0.1:52210 -> api.example.net:443 opened"),
+        line("00:05:28", Level::INFO, "juicity_client::relay", "tcp 127.0.0.1:52211 -> cdn.example.net:443 opened"),
+        line("00:06:51", Level::WARN, "juicity_gui::pac", "online PAC file unreachable, serving the local rules"),
+        line("00:07:03", Level::INFO, "juicity_client::relay", "tcp 127.0.0.1:52240 -> www.example.org:443 opened"),
+    ];
+    let samples: Vec<Speed> = (0..44u32)
+        .map(|i| Speed {
+            down: f64::from((i * 37) % 11) * 96_000.0 + 12_000.0,
+            up: f64::from((i * 23) % 7) * 60_000.0 + 8_000.0,
+        })
+        .collect();
+    let traffic = TrafficSnapshot {
+        peak_down: samples.iter().map(|s| s.down).fold(0.0, f64::max),
+        peak_up: samples.iter().map(|s| s.up).fold(0.0, f64::max),
+        current: *samples.last().unwrap(),
+        samples,
+        total_down: 186_413_056,
+        total_up: 21_495_808,
+    };
+    let snapshot = LogsSnapshot {
+        version: 1,
+        lines,
+        dropped: 120,
+        follow: true,
+    };
+    bind::logs::sync_fixture(window, &snapshot, &traffic_view(&traffic));
 }
 
 fn compare_mockup(
@@ -225,6 +278,7 @@ fn shots() -> anyhow::Result<()> {
             for (page, page_name, height) in [
                 (Page::Overview, "overview", HEIGHT),
                 (Page::Nodes, "nodes", HEIGHT),
+                (Page::Logs, "logs", HEIGHT),
                 (Page::Settings, "settings", SETTINGS_HEIGHT),
             ] {
                 window.set_size(PhysicalSize::new(WIDTH, height));
@@ -257,7 +311,8 @@ fn shots() -> anyhow::Result<()> {
                         &pixels,
                     )?);
                 }
-                if language == UiLang::ZhTw {
+                // The Logs page has no mockup.
+                if language == UiLang::ZhTw && page != Page::Logs {
                     compare_mockup(
                         &root.join(format!("tests/mockup/{page_name}--{theme}--zh-TW.png")),
                         &output.join(format!("diff--{page_name}--{theme}--zh_TW.png")),

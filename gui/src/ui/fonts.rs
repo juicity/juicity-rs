@@ -124,7 +124,11 @@ pub fn register_screenshot_fonts() -> anyhow::Result<()> {
         register(&path)?;
     }
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fonts");
-    for name in ["NotoSans-Regular.ttf", "NotoSans-Medium.ttf"] {
+    for name in [
+        "NotoSans-Regular.ttf",
+        "NotoSans-Medium.ttf",
+        "NotoSansMono-Regular.ttf",
+    ] {
         register(&root.join(name))?;
     }
     Ok(())

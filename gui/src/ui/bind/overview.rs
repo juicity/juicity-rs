@@ -1,6 +1,6 @@
 //! Overview callbacks and snapshot sync.
 
-use super::{spawn_rules, update, update_with};
+use super::{logs, spawn_rules, update, update_with};
 use crate::config::{PacRuleMode, SystemProxyMode};
 use crate::ui::controller::{Notice as CtlNotice, OverviewSnapshot};
 use crate::ui::{Actions, AppState, Connection, FieldText, MainWindow, Notice, PacRule, ProxyMode};
@@ -44,6 +44,7 @@ pub fn wire(ui: &MainWindow) {
         if let Some(ui) = weak.upgrade() {
             ui.global::<AppState>().set_page(page);
         }
+        logs::update_refresh();
     });
     actions.on_toggle_connection(|| update(|c, now| c.toggle_connection(now)));
     actions.on_set_proxy_mode(|mode| update(|c, now| c.set_proxy_mode(proxy_mode_from(mode), now)));
