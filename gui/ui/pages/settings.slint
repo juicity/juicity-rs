@@ -40,6 +40,15 @@ export component SettingsPage inherits VerticalLayout {
     // Presets below must match INTERVAL_PRESETS in controller/settings.rs.
     private property <bool> custom-hours: SettingsStore.update-custom;
     private property <bool> online: SettingsStore.pac-source == PacSource.online;
+    private property <bool> reveal: AppState.reveal-about;
+    function reveal-about() {
+        if AppState.reveal-about {
+            AppState.reveal-about = false;
+            scroll.scroll-y = min(0px, scroll.height - cards.preferred-height);
+        }
+    }
+    init => { root.reveal-about(); }
+    changed reveal => { root.reveal-about(); }
     pure function hours-text(value: int) -> string {
         return value <= 0 ? @tr("Off") : @tr("Every {n} hour" | "Every {n} hours" % value);
     }
@@ -54,7 +63,7 @@ export component SettingsPage inherits VerticalLayout {
         vertical-stretch: 1;
         // The scroll bar gutter sits in the page's right padding, so cards
         // keep the full page width.
-        ScrollArea {
+        scroll := ScrollArea {
             x: 0px;
             y: 0px;
             width: parent.width + 10px;

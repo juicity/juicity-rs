@@ -6,7 +6,7 @@ edition.workspace = true
 [features]
 default = ["ui-gpui"]
 ui-gpui = ["dep:gpui-kit"]
-ui-slint = ["dep:slint", "dep:slint-build", "dep:arboard", "dep:chrono"]
+ui-slint = ["dep:slint", "dep:slint-build", "dep:arboard", "dep:chrono", "dep:zbus", "dep:windows-sys"]
 
 [dependencies]
 juicity-common = { path = "../common" }
@@ -40,10 +40,15 @@ sys-locale = "0.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { version = "0.3", default-features = false, features = ["async-io"] }
+# Single instance for the Slint UI (D-Bus name + org.freedesktop.Application);
+# the same version ksni already uses.
+zbus = { version = "5", optional = true, default-features = false, features = ["async-io", "blocking-api"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # Reads the DWM accent colour from the registry for system theming.
 windows-registry = "0.5"
+# Single instance for the Slint UI: named mutex, named pipe, foreground rights.
+windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Pipes", "Win32_System_RemoteDesktop", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 tray-icon = "0.24"

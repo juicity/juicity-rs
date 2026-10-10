@@ -42,6 +42,8 @@ export struct Versions { gui: string, juicity: string, shadowsocks: string, tag:
 
 export global AppState {
     in-out property <Page> page: Page.overview;
+    // Set by the tray's About item; the settings page scrolls to About and clears it.
+    in-out property <bool> reveal-about;
     in-out property <Connection> connection: Connection.stopped;
     in-out property <string> active-name;
     in-out property <string> active-address;
@@ -161,6 +163,7 @@ export global FieldText {
 }
 export global TrayText {
     out property <string> status: AppState.connection-text;
+    out property <string> proxy-status: AppState.proxy-text;
     out property <string> connect: AppState.connection == Connection.running ? @tr("Disconnect") : @tr("Connect");
     out property <string> system-proxy: @tr("System proxy");
     out property <string> off: @tr("Off");

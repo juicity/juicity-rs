@@ -6,9 +6,12 @@
 //! pushed (`SYNCING`) or while the controller is borrowed are ignored.
 //! Other threads reach the controller through [`post`].
 
+mod desktop;
 mod nodes;
 mod overview;
 mod settings;
+
+pub use desktop::{request_activation, show_initial, start_tray, window_ready};
 
 use super::controller::{Changes, Controller, RuleJob};
 use super::MainWindow;
@@ -64,6 +67,7 @@ pub fn shutdown() {
     SAVE_TIMER.with(|t| t.stop());
     NOTICE_TIMER.with(|t| t.stop());
     WATCHER.with(|w| w.borrow_mut().take());
+    desktop::stop();
     if let Some(mut controller) = CONTROLLER.with(|c| c.borrow_mut().take()) {
         controller.shutdown();
     }
@@ -141,6 +145,9 @@ fn apply(changes: Changes) {
                 }
             });
         }
+    }
+    if changes.overview || changes.nodes {
+        desktop::push_tray(&ui, false);
     }
     if changes.persist {
         if let Some(Some(delay)) = read(|c| c.save_delay(Instant::now())) {

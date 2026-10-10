@@ -187,7 +187,10 @@ mod tests {
         let (ui, fake, dir) = setup("bind-settings-switches");
         let actions = ui.global::<Actions>();
         let store = ui.global::<SettingsStore>();
-        assert_eq!(store.get_autostart_supported(), cfg!(target_os = "linux"));
+        assert_eq!(
+            store.get_autostart_supported(),
+            crate::desktop::autostart::SUPPORTED
+        );
         #[cfg(target_os = "linux")]
         {
             actions.invoke_set_autostart(true);

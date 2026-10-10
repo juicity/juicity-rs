@@ -1,14 +1,28 @@
 //! Start the GUI with the desktop session.
 //!
-//! Linux writes an XDG autostart entry; Windows and macOS follow in M4.
+//! Linux writes an XDG autostart entry, Windows a value under the user's
+//! `Run` key and macOS a LaunchAgent.
 
 #[cfg(target_os = "linux")]
 use std::ffi::OsString;
 #[cfg(target_os = "linux")]
 use std::path::{Path, PathBuf};
 
-/// Whether this platform can start the GUI at login yet.
-pub const SUPPORTED: bool = cfg!(target_os = "linux");
+/// Whether this platform can start the GUI at login.
+pub const SUPPORTED: bool = cfg!(any(
+    target_os = "linux",
+    target_os = "windows",
+    target_os = "macos"
+));
+
+/// Windows: the per-user `Run` key and our value name.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub const RUN_VALUE: &str = "juicity";
+/// macOS: LaunchAgent file name in `~/Library/LaunchAgents`.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub const LAUNCH_AGENT: &str = "io.juicity.gui.plist";
 
 /// Name of the autostart entry, matching the application id.
 #[cfg(target_os = "linux")]
@@ -26,11 +40,86 @@ pub fn apply(enabled: bool) -> anyhow::Result<()> {
             &exe,
         )
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    {
+        let exe = std::env::current_exe()?;
+        let key = windows_registry::CURRENT_USER.create(RUN_KEY)?;
+        if enabled {
+            key.set_string(RUN_VALUE, run_command(&exe))?;
+            tracing::info!("autostart enabled in HKCU\\{RUN_KEY}");
+        } else if key.get_string(RUN_VALUE).is_ok() {
+            key.remove_value(RUN_VALUE)?;
+            tracing::info!("autostart removed from HKCU\\{RUN_KEY}");
+        }
+        Ok(())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let exe = std::env::current_exe()?;
+        let home = std::env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("HOME is not set"))?;
+        let dir = std::path::PathBuf::from(home).join("Library/LaunchAgents");
+        apply_launch_agent(&dir, enabled, &exe)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
         let _ = enabled;
         Ok(())
     }
+}
+
+/// Windows `Run` value: the quoted executable path.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub fn run_command(exe: &std::path::Path) -> String {
+    format!("\"{}\"", exe.display())
+}
+
+/// Write or remove the LaunchAgent in `dir`.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn apply_launch_agent(
+    dir: &std::path::Path,
+    enabled: bool,
+    exe: &std::path::Path,
+) -> anyhow::Result<()> {
+    let file = dir.join(LAUNCH_AGENT);
+    if !enabled {
+        match std::fs::remove_file(&file) {
+            Ok(()) => tracing::info!("autostart agent removed from {}", file.display()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(err.into()),
+        }
+        return Ok(());
+    }
+    std::fs::create_dir_all(dir)?;
+    std::fs::write(&file, launch_agent(exe))?;
+    tracing::info!("autostart agent created at {}", file.display());
+    Ok(())
+}
+
+/// LaunchAgent plist that runs `exe` at login.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn launch_agent(exe: &std::path::Path) -> String {
+    let exe = exe
+        .to_string_lossy()
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \
+         \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+         <plist version=\"1.0\">\n\
+         <dict>\n\
+         \t<key>Label</key>\n\
+         \t<string>io.juicity.gui</string>\n\
+         \t<key>ProgramArguments</key>\n\
+         \t<array>\n\
+         \t\t<string>{exe}</string>\n\
+         \t</array>\n\
+         \t<key>RunAtLoad</key>\n\
+         \t<true/>\n\
+         </dict>\n\
+         </plist>\n"
+    )
 }
 
 /// [`apply`] with explicit environment values. Disabling also removes an
@@ -137,6 +226,47 @@ fn exec_argument(arg: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod builder_tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn run_value_is_the_quoted_exe() {
+        assert_eq!(
+            run_command(Path::new(r"C:\Program Files\juicity\juicity-gui.exe")),
+            r#""C:\Program Files\juicity\juicity-gui.exe""#
+        );
+        assert_eq!(RUN_KEY, r"Software\Microsoft\Windows\CurrentVersion\Run");
+    }
+
+    #[test]
+    fn launch_agent_runs_the_exe_at_load() {
+        let plist = launch_agent(Path::new("/Applications/juicity.app/Contents/MacOS/a&b<c>"));
+        assert!(plist.contains("<string>io.juicity.gui</string>"), "{plist}");
+        assert!(plist.contains("<key>RunAtLoad</key>\n\t<true/>"), "{plist}");
+        assert!(
+            plist.contains("<array>\n\t\t<string>/Applications/juicity.app/Contents/MacOS/a&amp;b&lt;c&gt;</string>\n\t</array>"),
+            "{plist}"
+        );
+    }
+
+    #[test]
+    fn launch_agent_is_created_then_removed() {
+        let dir = std::env::temp_dir().join(format!("juicity-agent-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let exe = Path::new("/Applications/juicity.app/Contents/MacOS/juicity-gui");
+        apply_launch_agent(&dir, true, exe).unwrap();
+        assert!(std::fs::read_to_string(dir.join(LAUNCH_AGENT))
+            .unwrap()
+            .contains("juicity-gui</string>"));
+        apply_launch_agent(&dir, false, exe).unwrap();
+        assert!(!dir.join(LAUNCH_AGENT).exists());
+        apply_launch_agent(&dir, false, exe).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(all(test, target_os = "linux"))]

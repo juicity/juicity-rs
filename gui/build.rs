@@ -32,7 +32,6 @@ fn main() {
                 .with_debug_info(std::env::var("PROFILE").as_deref() == Ok("debug")),
         )
         .expect("Failed to compile Slint UI");
-        return;
     }
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
@@ -53,11 +52,12 @@ fn main() {
 
         // For tray: also write raw ARGB32 big-endian (StatusNotifierItem format).
         // tiny-skia stores pixels as premultiplied RGBA; convert to ARGB big-endian.
-        #[cfg(feature = "ui-gpui")]
         if matches!(size, 16 | 32 | 48) {
             let argb: Vec<u8> = pixmap
                 .data()
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .flat_map(|p| [p[3], p[0], p[1], p[2]]) // RGBA → ARGB
                 .collect();
             let raw_path = format!("{out_dir}/tray_{size}_argb.raw");

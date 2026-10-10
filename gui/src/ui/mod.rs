@@ -8,6 +8,7 @@ mod fonts;
 mod shots;
 
 use crate::config::Storage;
+use crate::desktop::single_instance;
 use crate::i18n::{self, UiLang};
 use controller::{Controller, NativeEffects};
 use slint::ComponentHandle;
@@ -49,7 +50,17 @@ pub fn run() -> anyhow::Result<()> {
         backend
     };
     backend.select()?;
-    slint::set_xdg_app_id("io.juicity.gui")?;
+    slint::set_xdg_app_id(crate::desktop::tray::APP_ID)?;
+    // Before any side effect: a second launch shows the first window and exits.
+    let on_activate = Box::new(|| {
+        if let Err(err) = slint::invoke_from_event_loop(bind::request_activation) {
+            tracing::warn!("event loop is gone: {err}");
+        }
+    });
+    let _instance = match single_instance::acquire(on_activate) {
+        single_instance::Startup::Primary(instance) => instance,
+        single_instance::Startup::Secondary => return Ok(()),
+    };
     let language = i18n::detect();
     fonts::register_medium(language)?;
     let window = MainWindow::new().map_err(|err| renderer_error(software, err))?;
@@ -63,18 +74,13 @@ pub fn run() -> anyhow::Result<()> {
     );
     bind::watch_config_dir(&config_dir);
     bind::startup();
+    bind::start_tray();
 
-    // No tray yet (M4): closing the window quits even with close-to-tray on,
-    // and hide-on-start still shows the window, as the gpui frontend does
-    // when no tray is available.
-    window.window().on_close_requested(|| {
-        let _ = slint::quit_event_loop();
-        slint::CloseRequestResponse::HideWindow
-    });
-    if let Err(err) = window.show() {
+    if let Err(err) = bind::show_initial(&window) {
         bind::shutdown();
         return Err(renderer_error(software, err));
     }
+    bind::window_ready();
     let result = slint::run_event_loop_until_quit();
     bind::shutdown();
     result.map_err(|err| renderer_error(software, err))

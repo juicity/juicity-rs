@@ -8,6 +8,7 @@ mod nodes;
 mod overview;
 mod persist;
 mod settings;
+mod tray;
 
 pub use nodes::{DraftData, DraftError, DraftField, ListCommand, NodesSnapshot};
 pub use overview::{OverviewSnapshot, RuleJob};
