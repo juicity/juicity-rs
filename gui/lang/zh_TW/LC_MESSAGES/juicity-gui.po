@@ -208,8 +208,8 @@ msgid "Import from clipboard"
 msgstr "從剪貼簿匯入"
 
 #: gui/ui/state.slint:214
-msgid "Open juicity"
-msgstr "開啟 juicity"
+msgid "Open Juicity GUI"
+msgstr "開啟 Juicity GUI"
 
 #: gui/ui/state.slint:215
 msgid "Nodes…"
@@ -224,8 +224,8 @@ msgid "Settings…"
 msgstr "設定…"
 
 #: gui/ui/state.slint:218
-msgid "About juicity"
-msgstr "關於 juicity"
+msgid "About Juicity GUI"
+msgstr "關於 Juicity GUI"
 
 #: gui/ui/state.slint:219
 msgid "Quit"

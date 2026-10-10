@@ -154,8 +154,8 @@ msgstr "Узлы"
 msgid "Import from clipboard"
 msgstr "Импорт из буфера обмена"
 
-msgid "Open juicity"
-msgstr "Открыть juicity"
+msgid "Open Juicity GUI"
+msgstr "Открыть Juicity GUI"
 
 msgid "Nodes…"
 msgstr "Узлы…"
@@ -166,8 +166,8 @@ msgstr "Журнал…"
 msgid "Settings…"
 msgstr "Настройки…"
 
-msgid "About juicity"
-msgstr "О juicity"
+msgid "About Juicity GUI"
+msgstr "О Juicity GUI"
 
 msgid "Quit"
 msgstr "Выйти"
