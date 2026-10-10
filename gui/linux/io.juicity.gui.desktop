@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Juicity GUI
+Comment=Juicity proxy client
+Exec=juicity-gui
+Icon=io.juicity.gui
+Terminal=false
+Categories=Network;
+StartupWMClass=io.juicity.gui

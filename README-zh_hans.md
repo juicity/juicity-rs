@@ -1,6 +1,16 @@
+<div align="center">
+
+<img src="gui/icon.svg" width="96" alt="Juicity">
+
 # Juicity-RS
 
-> **语言：** [English](README.md) | [简体中文](README-zh_hans.md)
+**以 Rust 实现的 Juicity 客户端、服务端与桌面图形界面。**
+
+[English](README.md) · 简体中文
+
+[特性](#特性) • [图形界面](#图形界面) • [构建](#构建) • [配置](#配置) • [使用](#使用) • [协议](#协议)
+
+</div>
 
 [Juicity](https://github.com/juicity/juicity) 协议的 Rust 实现——一个基于 QUIC 的代理，通过**UDP over Stream** 改进了 TUIC 的 UDP 处理方式，将 UDP 流量复用/承载于双向 QUIC 流上。
 
@@ -16,6 +26,14 @@
 - **分享链接与二维码** —— `juicity://` URI 生成、终端 ANSI 二维码以及 PNG 导出
 - **双栈服务端** —— `:port` 简写绑定 `[::]:port`，并设置 `IPV6_V6ONLY=false`
 - **密码内存安全** —— 客户端密码存储在 `Zeroizing<String>` 中，析构时清零
+
+## 图形界面
+
+<img src="docs/images/gui-overview-zh.png" alt="概览页，浅色与深色主题" width="100%">
+
+`gui/` 是基于 Slint 的原生桌面应用，支持 Linux、Windows 与 macOS。它在自身进程内运行 Juicity 与 Shadowsocks 客户端，管理节点与分享链接，设置系统代理（关闭、PAC 或全局），显示网速、流量与日志，关闭窗口后在托盘中继续运行。界面支持英文、简体中文、繁体中文与俄文，提供浅色与深色主题。构建与运行方法见 [GUI 说明](gui/README.md)。
+
+<img src="docs/images/gui-nodes-zh.png" alt="节点页，浅色与深色主题" width="100%">
 
 ## 项目结构
 

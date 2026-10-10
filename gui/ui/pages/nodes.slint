@@ -1,0 +1,80 @@
+import { Icons } from "../theme.slint";
+import { AppState, NodeStore, NodeCommand, Notice, Protocol, Actions } from "../state.slint";
+import { Card, Button, NodeListRow } from "../components/primitives.slint";
+import { PageHeader } from "../components/nav.slint";
+import { Banner } from "../components/sheet.slint";
+import { PopupMenu } from "../components/menu.slint";
+import { ScrollArea } from "../components/scroll.slint";
+import { NodeEditor } from "node_editor.slint";
+
+export component NodesPage inherits VerticalLayout {
+    spacing: 16px;
+    PageHeader {
+        title: @tr("Nodes");
+        VerticalLayout {
+            alignment: center;
+            Button { text: @tr("Import link"); icon: Icons.paste; has-icon: true; clicked => { Actions.import-links(); } }
+        }
+        VerticalLayout {
+            alignment: center;
+            Button { text: @tr("Add node"); icon: Icons.plus; has-icon: true; clicked => { Actions.add-node(); } }
+        }
+    }
+    if AppState.notice != Notice.none: Banner {
+        text: AppState.notice-text;
+        error: AppState.notice-error;
+        dismissed => { Actions.dismiss-notice(); }
+    }
+    HorizontalLayout {
+        spacing: 16px;
+        vertical-stretch: 1;
+        // Both columns share any width beyond the minimum window.
+        Card {
+            min-width: 300px;
+            preferred-width: 300px;
+            horizontal-stretch: 1;
+            ScrollArea {
+                x: 8px;
+                y: 8px;
+                // Rows span the card minus 8 px padding; the 10 px scroll bar
+                // gutter overlaps the right padding.
+                width: parent.width - 6px;
+                height: parent.height - 16px;
+                content-height: max(0px, NodeStore.rows.length * 54px - 2px);
+                VerticalLayout {
+                    spacing: 2px;
+                    alignment: start;
+                    for row[index] in NodeStore.rows: Rectangle {
+                        height: 52px;
+                        NodeListRow {
+                            name: row.name;
+                            address: row.address;
+                            in-use: row.in-use;
+                            tag: row.protocol == Protocol.shadowsocks ? "shadowsocks" : "";
+                            selected: index == NodeStore.selected;
+                            clicked => { Actions.select-node(index); }
+                            context-menu => {
+                                Actions.select-node(index);
+                                menu.show();
+                            }
+                        }
+                        menu := PopupMenu {
+                            x: 12px;
+                            menu-width: 160px;
+                            items: [
+                                { text: @tr("Move up"), checked: false, enabled: index > 0 },
+                                { text: @tr("Move down"), checked: false, enabled: index < NodeStore.rows.length - 1 },
+                                { text: @tr("Duplicate"), checked: false, enabled: true },
+                                { text: @tr("Delete"), checked: false, enabled: NodeStore.rows.length > 1 },
+                            ];
+                            selected(item) => {
+                                Actions.node-command(index, item == 0 ? NodeCommand.move-up : item == 1 ? NodeCommand.move-down : item == 2 ? NodeCommand.duplicate : NodeCommand.delete);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        NodeEditor { min-width: 396px; preferred-width: 396px; horizontal-stretch: 1; }
+    }
+}

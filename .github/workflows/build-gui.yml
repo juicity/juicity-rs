@@ -4,7 +4,7 @@
 # Called via workflow_call from test-gui.yml / release.yml.
 # The caller is responsible for running build-package.yml first
 # (this workflow consumes the juicity-offline-source artifact).
-# Builds the juicity-gui (GPUI) app for Linux / Windows (x86_64 + aarch64,
+# Builds the juicity-gui (Slint) app for Linux / Windows (x86_64 + aarch64,
 # gnullvm + MSVC) / macOS.
 # ============================================
 
@@ -105,18 +105,16 @@ jobs:
         run: tar -xzf juicity-offline-source.tar.gz
 
       # ── Install dependencies ─────────────────────────────────────────────
-      # GPUI needs libxkbcommon + libxkbcommon-x11, libwayland-client, libxcb
-      # and fontconfig (via zed-font-kit) at build time. The x11 development
-      # files live in a separate package (libxkbcommon-x11-dev) on
-      # Debian/Ubuntu. Vulkan (blade) is dlopen'd at runtime, not linked, so
-      # no vulkan dev packages are needed to build. macOS uses Metal and Windows uses native Win32/Direct3D, so
-      # no extra packages are needed.
+      # Slint loads Wayland, X11 (libxcb), xkbcommon and OpenGL with dlopen at
+      # runtime, so only the Fontconfig development files are needed to build.
+      # The Noto fonts are used by the tests. macOS and Windows need no extra
+      # packages.
 
-      - name: Install GPUI build deps (Linux)
+      - name: Install Slint build deps (Linux)
         if: matrix.os == 'linux'
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev libfontconfig1-dev
+          sudo apt-get install -y pkg-config libfontconfig1-dev fonts-noto-cjk fonts-noto-cjk-extra fonts-noto-core
 
       - name: Install Rust toolchain (Linux/macOS)
         if: matrix.os != 'windows'
@@ -195,6 +193,18 @@ jobs:
           PKG_NAME="juicity-gui-${{ matrix.name }}"
           mkdir -p "${PKG_NAME}"
           cp "target/${{ matrix.target }}/release/juicity-gui"    "${PKG_NAME}/"
+          # Desktop entry and theme icons, laid out like their install paths
+          # under /usr or ~/.local, so launchers and Wayland compositors can
+          # resolve the io.juicity.gui app id.
+          mkdir -p "${PKG_NAME}/share/applications"
+          cp gui/linux/io.juicity.gui.desktop "${PKG_NAME}/share/applications/"
+          for size in 16 32 48 64 128 256 512; do
+            dir="${PKG_NAME}/share/icons/hicolor/${size}x${size}/apps"
+            mkdir -p "${dir}"
+            cp "$(find "target/${{ matrix.target }}/release/build" -path "*/juicity-gui-*/out/${size}.png" | head -n 1)" "${dir}/io.juicity.gui.png"
+          done
+          mkdir -p "${PKG_NAME}/share/icons/hicolor/scalable/apps"
+          cp gui/icon.svg "${PKG_NAME}/share/icons/hicolor/scalable/apps/io.juicity.gui.svg"
 
       - name: Prepare .app bundle (macOS)
         if: matrix.os == 'macos'

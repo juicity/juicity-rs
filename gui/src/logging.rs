@@ -32,6 +32,8 @@ pub struct LogLine {
     /// Severity of the event.
     pub level: Level,
     /// Rendered message, including any structured fields.
+    /// Module path of the event, e.g. `juicity_gui::core`.
+    pub target: String,
     pub message: String,
 }
 
@@ -49,7 +51,7 @@ pub struct LogBuffer {
 }
 
 impl LogBuffer {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             buffer: Mutex::new(Buffer {
                 lines: VecDeque::new(),
@@ -60,10 +62,11 @@ impl LogBuffer {
         }
     }
 
-    fn push(&self, level: Level, message: String) {
+    pub(crate) fn push(&self, level: Level, target: &str, message: String) {
         let line = LogLine {
             time: elapsed(self.start),
             level,
+            target: target.to_string(),
             message,
         };
         {
@@ -110,7 +113,12 @@ impl LogBuffer {
 /// Format an elapsed duration as `HH:MM:SS`.
 fn elapsed(start: Instant) -> String {
     let secs = start.elapsed().as_secs();
-    format!("{:02}:{:02}:{:02}", secs / 3600, (secs / 60) % 60, secs % 60)
+    format!(
+        "{:02}:{:02}:{:02}",
+        secs / 3600,
+        (secs / 60) % 60,
+        secs % 60
+    )
 }
 
 fn global() -> &'static Arc<LogBuffer> {
@@ -150,7 +158,9 @@ impl<S: Subscriber> Layer<S> for CaptureLayer {
         } else {
             visitor.message
         };
-        self.buffer.push(*event.metadata().level(), message);
+        let metadata = event.metadata();
+        self.buffer
+            .push(*metadata.level(), metadata.target(), message);
     }
 }
 
@@ -217,19 +227,22 @@ mod tests {
     fn buffer_retains_newest_lines_and_reports_drops() {
         let buffer = LogBuffer::new();
         for i in 0..MAX_LINES + 5 {
-            buffer.push(Level::INFO, format!("line {i}"));
+            buffer.push(Level::INFO, "test", format!("line {i}"));
         }
         let lines = buffer.snapshot();
         assert_eq!(lines.len(), MAX_LINES);
         assert_eq!(buffer.dropped(), 5);
-        assert_eq!(lines.last().unwrap().message, format!("line {}", MAX_LINES + 4));
+        assert_eq!(
+            lines.last().unwrap().message,
+            format!("line {}", MAX_LINES + 4)
+        );
         assert_eq!(lines.first().unwrap().message, "line 5");
     }
 
     #[test]
     fn clear_empties_the_buffer_and_bumps_the_version() {
         let buffer = LogBuffer::new();
-        buffer.push(Level::WARN, "boom".to_string());
+        buffer.push(Level::WARN, "test", "boom".to_string());
         let before = buffer.version();
         buffer.clear();
         assert!(buffer.snapshot().is_empty());

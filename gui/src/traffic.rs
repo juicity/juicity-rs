@@ -61,7 +61,7 @@ pub struct TrafficMonitor {
 }
 
 impl TrafficMonitor {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             data: Mutex::new(Data {
                 samples: VecDeque::new(),
@@ -152,8 +152,14 @@ impl TrafficMonitor {
         data.previous = None;
         data.pending = (0, 0);
         data.last_sample = None;
+        // A visible speed drops to zero: readers must see a new version.
+        let changed = data.current != Speed::default();
         data.current = Speed::default();
         data.active = false;
+        drop(data);
+        if changed {
+            self.version.fetch_add(1, Ordering::Release);
+        }
     }
 
     /// Snapshot of everything the UI needs to draw.
@@ -277,7 +283,10 @@ mod tests {
         let mut cumulative = 0u64;
         for step in 1..HISTORY + 10 {
             cumulative += 10;
-            monitor.record_at(Some((cumulative, cumulative)), t0 + Duration::from_secs(step as u64));
+            monitor.record_at(
+                Some((cumulative, cumulative)),
+                t0 + Duration::from_secs(step as u64),
+            );
         }
         assert_eq!(monitor.snapshot().samples.len(), HISTORY);
     }
@@ -299,6 +308,27 @@ mod tests {
         let after = monitor.snapshot();
         assert!(after.current.down > 0.0);
         assert!(after.total_down > before.total_down);
+    }
+
+    #[test]
+    fn reset_publishes_the_zero_speed() {
+        let monitor = TrafficMonitor::new();
+        let t0 = Instant::now();
+        monitor.record_at(Some((0, 0)), t0);
+        monitor.record_at(Some((4096, 4096)), t0 + Duration::from_secs(1));
+        let before = monitor.snapshot();
+        assert!(before.current.down > 0.0);
+        let version = monitor.version();
+        monitor.reset();
+        assert!(monitor.version() > version, "the visible speed changed");
+        let after = monitor.snapshot();
+        assert_eq!(after.current, Speed::default());
+        assert_eq!(after.total_down, before.total_down);
+        assert_eq!(after.samples.len(), before.samples.len());
+        // Nothing visible changes on a second reset.
+        let version = monitor.version();
+        monitor.reset();
+        assert_eq!(monitor.version(), version);
     }
 
     #[test]

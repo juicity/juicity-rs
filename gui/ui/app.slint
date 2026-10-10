@@ -1,0 +1,88 @@
+import { Theme, Icons } from "theme.slint";
+import { Sidebar } from "components/nav.slint";
+import { OverviewPage } from "pages/overview.slint";
+import { NodesPage } from "pages/nodes.slint";
+import { AdvancedSheet } from "pages/node_editor.slint";
+import { SettingsPage, SettingSheet } from "pages/settings.slint";
+import { LogsPage } from "pages/logs.slint";
+import { Page, AppState, NodeStore, SettingsStore, Actions, Fmt, TrayText } from "state.slint";
+export { Theme, Icons } from "theme.slint";
+export { Page, Connection, ProxyMode, PacRule, PacSource, Protocol, StartupConnection, Notice, NodeField, SettingField, NodeCommand, NodeRow, NodeDraft, LogRow, FieldError, MenuItem, Versions, AppState, NodeStore, SettingsStore, LogStore, TrafficStore, Actions, Fmt, TrayText, FieldText } from "state.slint";
+import { Field, LabeledField } from "components/field.slint";
+import { PopupMenu } from "components/menu.slint";
+import { Sheet, Banner, Prompt } from "components/sheet.slint";
+import { ScrollArea } from "components/scroll.slint";
+
+export component MainWindow inherits Window {
+    title: "Juicity GUI";
+    // Window and taskbar icon on Windows and X11; Wayland uses the app id.
+    icon: Icons.logo;
+    min-width: 960px;
+    min-height: 640px;
+    preferred-width: 960px;
+    preferred-height: 640px;
+    background: Theme.window;
+    default-font-family: Theme.cjk;
+    default-font-size: 14px;
+    forward-focus: keys;
+    keys := FocusScope {
+        capture-key-pressed(event) => {
+            // Cmd-Q is the accelerator of Quit in the macOS application
+            // menu (desktop/tray/native.rs), so it is not handled here.
+            // Ctrl/Cmd+S saves nodes while the Nodes page has no sheet open.
+            if event.modifiers.control && event.text.to-lowercase() == "s" && AppState.page == Page.nodes && !NodeStore.advanced-open && !AppState.save-prompt {
+                Actions.save-nodes();
+                return accept;
+            }
+            return reject;
+        }
+        HorizontalLayout {
+            Sidebar { }
+            VerticalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-bottom: 24px;
+                if AppState.page == Page.nodes: NodesPage { }
+                // Other pages sit outside this layout; an empty column would
+                // cap the window's maximum height at its minimum.
+                if AppState.page != Page.nodes: Rectangle { }
+            }
+        }
+        // Recreated on every open, so its fields start from the sheet draft.
+        // Outside the layout so its scroll area can fill the window height
+        // without a layout binding loop; geometry matches the page column.
+        if AppState.page == Page.settings: SettingsPage {
+            x: 224px;
+            y: 0px;
+            width: root.width - 248px;
+            // The scroll content carries the 24 px bottom padding.
+            height: root.height;
+        }
+        // Placed like the settings page, so its content scrolls.
+        if AppState.page == Page.overview: OverviewPage {
+            x: 224px;
+            y: 0px;
+            width: root.width - 248px;
+            height: root.height;
+        }
+        // Placed like the settings page; the log card fills the window height.
+        if AppState.page == Page.logs: LogsPage {
+            x: 224px;
+            y: 0px;
+            width: root.width - 248px;
+            height: root.height;
+        }
+        if NodeStore.advanced-open: AdvancedSheet { }
+        if SettingsStore.sheet-open: SettingSheet { }
+        // Shown before closing or quitting with unsaved node edits.
+        if AppState.save-prompt: Prompt {
+            title: @tr("Save changes to your nodes?");
+            body: @tr("Your node edits have not been saved.");
+            accept-text: @tr("Save");
+            discard-text: @tr("Don't Save");
+            accepted => { Actions.prompt-save(); }
+            discarded => { Actions.prompt-discard(); }
+            cancelled => { Actions.prompt-cancel(); }
+        }
+    }
+}

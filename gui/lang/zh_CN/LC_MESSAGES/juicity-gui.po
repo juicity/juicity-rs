@@ -1,0 +1,562 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-10-10 08:32+0000\n"
+"Language: zh_CN\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: gui/ui/app.slint:74
+msgid "Save changes to your nodes?"
+msgstr "要保存节点的更改吗？"
+
+#: gui/ui/app.slint:75
+msgid "Your node edits have not been saved."
+msgstr "节点的修改尚未保存。"
+
+#: gui/ui/app.slint:76 gui/ui/pages/node_editor.slint:145
+msgid "Save"
+msgstr "保存"
+
+#: gui/ui/app.slint:77
+msgid "Don't Save"
+msgstr "不保存"
+
+#: gui/ui/state.slint:70
+msgid "Connected · {}"
+msgstr "已连接 · {}"
+
+#: gui/ui/state.slint:70
+msgid "Connecting…"
+msgstr "正在连接…"
+
+#: gui/ui/state.slint:70
+msgid "Disconnected"
+msgstr "未连接"
+
+#: gui/ui/state.slint:71
+msgid "System proxy · PAC"
+msgstr "系统代理 · PAC"
+
+#: gui/ui/state.slint:71
+msgid "System proxy · Global"
+msgstr "系统代理 · 全局"
+
+#: gui/ui/state.slint:71
+msgid "System proxy · Off"
+msgstr "系统代理 · 关闭"
+
+#: gui/ui/state.slint:72
+msgid "Links imported"
+msgstr "已导入链接"
+
+#: gui/ui/state.slint:72
+msgid "Link copied"
+msgstr "已复制链接"
+
+#: gui/ui/state.slint:72
+msgid "Could not start proxy: {}"
+msgstr "无法启动代理：{}"
+
+#: gui/ui/state.slint:72
+msgid "Rules updated"
+msgstr "已更新规则"
+
+#: gui/ui/state.slint:72
+msgid "Could not update rules: {}"
+msgstr "无法更新规则：{}"
+
+#: gui/ui/state.slint:72
+msgid "Could not set system proxy: {}"
+msgstr "无法设置系统代理：{}"
+
+#: gui/ui/state.slint:72
+msgid "Could not save settings: {}"
+msgstr "无法保存设置：{}"
+
+#: gui/ui/state.slint:72
+msgid "Proxy stopped: {}"
+msgstr "代理已停止：{}"
+
+#: gui/ui/state.slint:72
+msgid "Add a node first"
+msgstr "请先添加节点"
+
+#: gui/ui/state.slint:72
+msgid "Missing fields: {}"
+msgstr "缺少字段：{}"
+
+#: gui/ui/state.slint:72
+msgid "Could not import link: {}"
+msgstr "无法导入链接：{}"
+
+#: gui/ui/state.slint:72
+msgid "Could not export link: {}"
+msgstr "无法导出链接：{}"
+
+#: gui/ui/state.slint:72
+msgid "Links imported: {}, skipped: {}"
+msgstr "已导入 {} 个链接，跳过 {} 个"
+
+#: gui/ui/state.slint:72
+msgid "Fix the invalid fields before exporting"
+msgstr "请先修正无效的字段再导出"
+
+#: gui/ui/state.slint:72
+msgid "Could not save nodes: {}"
+msgstr "无法保存节点：{}"
+
+#: gui/ui/state.slint:72
+msgid "Fix the invalid fields before saving"
+msgstr "请先修正无效的字段再保存"
+
+#: gui/ui/state.slint:72
+msgid "Missing fields in {}: {}"
+msgstr "{} 缺少字段：{}"
+
+#: gui/ui/state.slint:72
+msgid "Nodes were changed outside juicity; saving will overwrite that change"
+msgstr "节点文件已被其他程序修改，保存会覆盖该修改"
+
+#: gui/ui/state.slint:73
+msgid "Today {}"
+msgstr "今天 {}"
+
+#: gui/ui/state.slint:73
+msgid "Yesterday {}"
+msgstr "昨天 {}"
+
+#: gui/ui/state.slint:189 gui/ui/pages/node_editor.slint:70
+msgid "Server"
+msgstr "服务器"
+
+#: gui/ui/state.slint:191 gui/ui/pages/node_editor.slint:93
+msgid "Password"
+msgstr "密码"
+
+#: gui/ui/state.slint:192
+msgid ", "
+msgstr "、"
+
+#: gui/ui/state.slint:193
+msgid "Required"
+msgstr "必填"
+
+#: gui/ui/state.slint:194
+msgid "Enter a port from 1 to 65535"
+msgstr "请输入 1 至 65535 之间的端口"
+
+#: gui/ui/state.slint:195
+msgid "Enter a whole number of seconds"
+msgstr "请输入整数秒数"
+
+#: gui/ui/state.slint:196
+msgid "Enter an address as host:port"
+msgstr "请按“主机:端口”格式输入地址"
+
+#: gui/ui/state.slint:197
+msgid "Enter a URL that starts with http:// or https://"
+msgstr "请输入以 http:// 或 https:// 开头的网址"
+
+#: gui/ui/state.slint:198
+msgid "Enter a whole number of hours, 1 or more"
+msgstr "请输入不小于 1 的整数小时数"
+
+#: gui/ui/state.slint:199
+msgid "Node {}"
+msgstr "节点 {}"
+
+#: gui/ui/state.slint:204
+msgid "Disconnect"
+msgstr "断开连接"
+
+#: gui/ui/state.slint:204
+msgid "Connect"
+msgstr "连接"
+
+#: gui/ui/state.slint:205 gui/ui/pages/overview.slint:24
+msgid "System proxy"
+msgstr "系统代理"
+
+#: gui/ui/state.slint:206 gui/ui/pages/overview.slint:25
+#: gui/ui/pages/settings.slint:53 gui/ui/pages/settings.slint:114
+#: gui/ui/pages/settings.slint:171
+msgid "Off"
+msgstr "关闭"
+
+#: gui/ui/state.slint:208 gui/ui/pages/overview.slint:25
+msgid "Global"
+msgstr "全局"
+
+#: gui/ui/state.slint:209 gui/ui/pages/overview.slint:104
+msgid "Bypass mainland China"
+msgstr "绕过中国大陆"
+
+#: gui/ui/state.slint:210 gui/ui/pages/overview.slint:106
+msgid "Proxy GFW list only"
+msgstr "仅代理 GFW 列表"
+
+#: gui/ui/state.slint:211 gui/ui/pages/overview.slint:111
+msgid "Update rules"
+msgstr "更新规则"
+
+#: gui/ui/state.slint:212 gui/ui/components/nav.slint:39
+msgid "Nodes"
+msgstr "节点"
+
+#: gui/ui/state.slint:213
+msgid "Import from clipboard"
+msgstr "从剪贴板导入"
+
+#: gui/ui/state.slint:214
+msgid "Open Juicity GUI"
+msgstr "打开 Juicity GUI"
+
+#: gui/ui/state.slint:215
+msgid "Nodes…"
+msgstr "节点…"
+
+#: gui/ui/state.slint:216
+msgid "Logs…"
+msgstr "日志…"
+
+#: gui/ui/state.slint:217
+msgid "Settings…"
+msgstr "设置…"
+
+#: gui/ui/state.slint:218
+msgid "About Juicity GUI"
+msgstr "关于 Juicity GUI"
+
+#: gui/ui/state.slint:219
+msgid "Quit"
+msgstr "退出"
+
+#: gui/ui/components/nav.slint:38 gui/ui/pages/overview.slint:10
+msgid "Overview"
+msgstr "概览"
+
+#: gui/ui/components/nav.slint:40 gui/ui/pages/logs.slint:79
+msgid "Logs"
+msgstr "日志"
+
+#: gui/ui/components/nav.slint:41 gui/ui/pages/settings.slint:56
+msgid "Settings"
+msgstr "设置"
+
+#: gui/ui/components/primitives.slint:382
+msgid "In use"
+msgstr "使用中"
+
+#: gui/ui/components/sheet.slint:40 gui/ui/components/sheet.slint:84
+msgid "Cancel"
+msgstr "取消"
+
+#: gui/ui/components/sheet.slint:41
+msgid "Done"
+msgstr "完成"
+
+#: gui/ui/pages/overview.slint:136
+msgid "Traffic"
+msgstr "流量"
+
+#: gui/ui/components/traffic.slint:143
+msgid "Speed"
+msgstr "网速"
+
+#: gui/ui/components/traffic.slint:46
+msgid "No traffic yet"
+msgstr "暂无流量"
+
+#: gui/ui/pages/logs.slint:84
+msgid "{n} earlier line dropped"
+msgid_plural "{n} earlier lines dropped"
+msgstr[0] "已丢弃 {n} 行较早的日志"
+
+#: gui/ui/pages/logs.slint:90
+msgid "Follow"
+msgstr "跟随最新"
+
+#: gui/ui/pages/logs.slint:96
+msgid "Clear"
+msgstr "清空"
+
+#: gui/ui/components/traffic.slint:59
+msgid "Download"
+msgstr "下载"
+
+#: gui/ui/components/traffic.slint:60
+msgid "Upload"
+msgstr "上传"
+
+#: gui/ui/components/traffic.slint:61
+msgid "Downloaded"
+msgstr "已下载"
+
+#: gui/ui/components/traffic.slint:62
+msgid "Uploaded"
+msgstr "已上传"
+
+#: gui/ui/pages/node_editor.slint:44
+msgid "Reconnect to apply"
+msgstr "重新连接以应用"
+
+#: gui/ui/pages/node_editor.slint:45
+msgid "Basic"
+msgstr "基本"
+
+#: gui/ui/pages/node_editor.slint:50
+msgid "Name"
+msgstr "名称"
+
+#: gui/ui/pages/node_editor.slint:57
+msgid "Protocol"
+msgstr "协议"
+
+#: gui/ui/pages/node_editor.slint:77 gui/ui/pages/settings.slint:127
+msgid "Port"
+msgstr "端口"
+
+#: gui/ui/pages/node_editor.slint:85
+msgid "Authentication"
+msgstr "验证"
+
+#: gui/ui/pages/node_editor.slint:100
+msgid "Encryption method"
+msgstr "加密方式"
+
+#: gui/ui/pages/node_editor.slint:110 gui/ui/pages/node_editor.slint:154
+msgid "Advanced settings"
+msgstr "高级设置"
+
+#: gui/ui/pages/node_editor.slint:120
+msgid "Set as active"
+msgstr "设为使用中"
+
+#: gui/ui/pages/node_editor.slint:121 gui/ui/pages/nodes.slint:63
+msgid "Duplicate"
+msgstr "复制"
+
+#: gui/ui/pages/node_editor.slint:122
+msgid "Export link"
+msgstr "导出链接"
+
+#: gui/ui/pages/node_editor.slint:127 gui/ui/pages/nodes.slint:64
+msgid "Delete"
+msgstr "删除"
+
+#: gui/ui/pages/node_editor.slint:144
+msgid "Revert"
+msgstr "还原"
+
+#: gui/ui/pages/node_editor.slint:168
+msgid "Allow insecure connections"
+msgstr "允许不安全连接"
+
+#: gui/ui/pages/node_editor.slint:175
+msgid "Pinned certificate chain SHA-256"
+msgstr "固定证书链 SHA-256"
+
+#: gui/ui/pages/node_editor.slint:181
+msgid "Congestion control"
+msgstr "拥塞控制"
+
+#: gui/ui/pages/node_editor.slint:194
+msgid "Plugin"
+msgstr "插件"
+
+#: gui/ui/pages/node_editor.slint:200
+msgid "Plugin options"
+msgstr "插件选项"
+
+#: gui/ui/pages/node_editor.slint:206
+msgid "Plugin arguments"
+msgstr "插件参数"
+
+#: gui/ui/pages/node_editor.slint:215
+msgid "Timeout (s)"
+msgstr "超时（秒）"
+
+#: gui/ui/pages/node_editor.slint:222
+msgid "Group"
+msgstr "分组"
+
+#: gui/ui/pages/nodes.slint:16
+msgid "Import link"
+msgstr "导入链接"
+
+#: gui/ui/pages/nodes.slint:20
+msgid "Add node"
+msgstr "添加节点"
+
+#: gui/ui/pages/nodes.slint:61
+msgid "Move up"
+msgstr "上移"
+
+#: gui/ui/pages/nodes.slint:62
+msgid "Move down"
+msgstr "下移"
+
+#: gui/ui/pages/overview.slint:15
+msgid "Connected"
+msgstr "已连接"
+
+#: gui/ui/pages/overview.slint:42
+msgid "Current node"
+msgstr "当前节点"
+
+#: gui/ui/pages/overview.slint:48
+msgid "Stop proxy"
+msgstr "停止代理"
+
+#: gui/ui/pages/overview.slint:48
+msgid "Start proxy"
+msgstr "启动代理"
+
+#: gui/ui/pages/overview.slint:57 gui/ui/pages/settings.slint:125
+msgid "Local proxy"
+msgstr "本机代理"
+
+#: gui/ui/pages/overview.slint:70
+msgid "PAC address"
+msgstr "PAC 地址"
+
+#: gui/ui/pages/overview.slint:102
+msgid "PAC rules"
+msgstr "PAC 规则"
+
+#: gui/ui/pages/overview.slint:110
+msgid "Rules not downloaded yet"
+msgstr "规则尚未下载"
+
+#: gui/ui/pages/overview.slint:110
+msgid "Rules updated {}"
+msgstr "规则更新于 {}"
+
+#: gui/ui/pages/settings.slint:53
+msgid "Every {n} hour"
+msgid_plural "Every {n} hours"
+msgstr[0] "每 {n} 小时"
+
+#: gui/ui/pages/settings.slint:78
+msgid "General"
+msgstr "常规"
+
+#: gui/ui/pages/settings.slint:80
+msgid "Language"
+msgstr "语言"
+
+#: gui/ui/pages/settings.slint:82 gui/ui/pages/settings.slint:84
+msgid "Follow system"
+msgstr "跟随系统"
+
+#: gui/ui/pages/settings.slint:98
+msgid "Appearance"
+msgstr "外观"
+
+#: gui/ui/pages/settings.slint:100 gui/ui/pages/settings.slint:103
+msgid "Light"
+msgstr "浅色"
+
+#: gui/ui/pages/settings.slint:100 gui/ui/pages/settings.slint:104
+msgid "Dark"
+msgstr "深色"
+
+#: gui/ui/pages/settings.slint:95
+msgid "Start at login"
+msgstr "开机时自动启动"
+
+#: gui/ui/pages/settings.slint:100
+msgid "Hide window on start"
+msgstr "启动时隐藏窗口"
+
+#: gui/ui/pages/settings.slint:105
+msgid "Minimize to tray on close"
+msgstr "关闭窗口时最小化到系统托盘"
+
+#: gui/ui/pages/settings.slint:110
+msgid "Connect on start"
+msgstr "启动时连接"
+
+#: gui/ui/pages/settings.slint:112 gui/ui/pages/settings.slint:115
+msgid "On"
+msgstr "开启"
+
+#: gui/ui/pages/settings.slint:112 gui/ui/pages/settings.slint:116
+msgid "Last state"
+msgstr "保持上次状态"
+
+#: gui/ui/pages/settings.slint:128
+msgid "SOCKS5 and HTTP share this port"
+msgstr "SOCKS5 与 HTTP 共用此端口"
+
+#: gui/ui/pages/settings.slint:135
+msgid "Source"
+msgstr "来源"
+
+#: gui/ui/pages/settings.slint:137 gui/ui/pages/settings.slint:140
+msgid "Online"
+msgstr "在线"
+
+#: gui/ui/pages/settings.slint:137 gui/ui/pages/settings.slint:139
+msgid "Local"
+msgstr "本地"
+
+#: gui/ui/pages/settings.slint:147 gui/ui/pages/settings.slint:237
+msgid "Direct list"
+msgstr "直连列表"
+
+#: gui/ui/pages/settings.slint:152 gui/ui/pages/settings.slint:237
+msgid "Proxy list"
+msgstr "代理列表"
+
+#: gui/ui/pages/settings.slint:157
+msgid "Auto update"
+msgstr "自动更新"
+
+#: gui/ui/pages/settings.slint:169 gui/ui/pages/settings.slint:177
+msgid "Custom…"
+msgstr "自定义…"
+
+#: gui/ui/pages/settings.slint:190 gui/ui/pages/settings.slint:237
+msgid "PAC server"
+msgstr "PAC 服务器"
+
+#: gui/ui/pages/settings.slint:195 gui/ui/pages/settings.slint:237
+msgid "Online PAC"
+msgstr "在线 PAC"
+
+#: gui/ui/pages/settings.slint:197
+msgid "Not set"
+msgstr "未设置"
+
+#: gui/ui/pages/settings.slint:205
+msgid "About"
+msgstr "关于"
+
+#: gui/ui/pages/settings.slint:215
+msgid "Version {} · juicity core {} · shadowsocks-rust {}"
+msgstr "版本 {} · juicity core {} · shadowsocks-rust {}"
+
+#: gui/ui/pages/settings.slint:219
+msgid "Build {} ({})"
+msgstr "构建 {}（{}）"
+
+#: gui/ui/pages/settings.slint:237
+msgid "Local proxy port"
+msgstr "本地代理端口"
+
+#: gui/ui/pages/settings.slint:237
+msgid "Custom update interval"
+msgstr "自定义更新间隔"
+
+#: gui/ui/pages/settings.slint:243
+msgid "Hours"
+msgstr "小时"
+
+#: gui/ui/pages/settings.slint:243
+msgid "Address"
+msgstr "地址"
+
+#: gui/ui/pages/settings.slint:243
+msgid "URL"
+msgstr "网址"

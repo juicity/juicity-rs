@@ -10,7 +10,7 @@
 //!   `sslocal`.
 //!
 //! Both services run on a dedicated Tokio runtime owned by this module, so the
-//! GPUI event loop never blocks on proxy work.
+//! UI event loop never blocks on proxy work.
 
 use crate::config::{AppConfig, ProxyProfile, ProxyProtocol};
 use anyhow::Context;
@@ -37,8 +37,6 @@ const BIND_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(2
 /// A proxy core running in-process.
 struct RunningCore {
     protocol: ProxyProtocol,
-    /// Display name of the profile this core was started for.
-    name: String,
     /// Task running the local proxy service.
     task: JoinHandle<()>,
     /// Keeps the QUIC endpoint (and its pooled connections) alive for the
@@ -72,7 +70,10 @@ impl FlowCounters {
     }
 
     fn get(&self) -> (u64, u64) {
-        (self.tx.load(Ordering::Relaxed), self.rx.load(Ordering::Relaxed))
+        (
+            self.tx.load(Ordering::Relaxed),
+            self.rx.load(Ordering::Relaxed),
+        )
     }
 
     fn stop(&self) {
@@ -94,19 +95,6 @@ pub struct CoreManager {
 impl CoreManager {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    pub fn is_running(&self) -> bool {
-        self.running.is_some()
-    }
-
-    /// Name of the profile the running core was started with.
-    pub fn current_name(&self) -> Option<&str> {
-        self.running.as_ref().map(|v| v.name.as_str())
-    }
-
-    pub fn current_protocol(&self) -> Option<ProxyProtocol> {
-        self.running.as_ref().map(|v| v.protocol)
     }
 
     /// Cumulative `(transmitted, received)` bytes for the running core, or
@@ -171,20 +159,11 @@ impl CoreManager {
 
         self.running = Some(RunningCore {
             protocol: profile.protocol,
-            name: profile.display_name(),
             task: started.task,
             client: started.client,
             flow_stat: started.flow_stat,
             last_traffic: (0, 0),
         });
-        Ok(())
-    }
-
-    /// Stop the running core.  Blocks until the service has released its
-    /// listening sockets; the operation is short enough to stay on the UI
-    /// thread.
-    pub fn stop(&mut self) -> anyhow::Result<()> {
-        self.stop_and_wait();
         Ok(())
     }
 
@@ -439,12 +418,23 @@ fn build_juicity_config(
         password: profile.password.clone(),
         sni,
         allow_insecure: profile.allow_insecure,
+        pinned_certchain_sha256: non_empty(&profile.pinned_certchain_sha256)
+            .unwrap_or_default()
+            .to_string(),
+        // The client maps anything other than cubic/new_reno to BBR.
+        congestion_control: non_empty(&profile.congestion_control)
+            .unwrap_or("bbr")
+            .to_string(),
         listen: config.mixed_listen.clone(),
         log_level: "info".to_string(),
         ..Default::default()
     };
     juicity_config.validate_for_client()?;
     Ok(juicity_config)
+}
+
+fn non_empty(value: &Option<String>) -> Option<&str> {
+    value.as_deref().map(str::trim).filter(|v| !v.is_empty())
 }
 
 /// Build the shadowsocks-rust local configuration for `profile`.
@@ -593,6 +583,25 @@ mod tests {
     }
 
     #[test]
+    fn juicity_config_maps_pinned_hash_and_congestion_control() {
+        let mut profile = ProxyProfile {
+            server: "juicity.example.com".to_string(),
+            uuid: "6ba7b810-9dad-11d1-80b4-00c04fd430c8".to_string(),
+            password: "secret".to_string(),
+            ..Default::default()
+        };
+        let config = build_juicity_config(&AppConfig::default(), &profile).unwrap();
+        assert_eq!(config.congestion_control, "bbr");
+        assert_eq!(config.pinned_certchain_sha256, "");
+
+        profile.congestion_control = Some("cubic".to_string());
+        profile.pinned_certchain_sha256 = Some("aGFzaA".to_string());
+        let config = build_juicity_config(&AppConfig::default(), &profile).unwrap();
+        assert_eq!(config.congestion_control, "cubic");
+        assert_eq!(config.pinned_certchain_sha256, "aGFzaA");
+    }
+
+    #[test]
     fn juicity_config_uses_explicit_sni_and_ipv6_server() {
         let profile = ProxyProfile {
             protocol: ProxyProtocol::Juicity,
@@ -629,9 +638,6 @@ mod tests {
         let mut manager = CoreManager::new();
 
         manager.start_profile(&app_config, &profile).unwrap();
-        assert!(manager.is_running());
-        assert_eq!(manager.current_protocol(), Some(ProxyProtocol::Shadowsocks));
-        assert_eq!(manager.current_name(), Some("ss.example.com:8388"));
 
         // SOCKS5 greeting -> "no authentication required".
         let mut socks = TcpStream::connect("127.0.0.1:38471").unwrap();
@@ -666,10 +672,8 @@ mod tests {
         // Restarting must succeed even though the previous listener was just
         // released asynchronously.
         manager.start_profile(&app_config, &profile).unwrap();
-        assert!(manager.is_running());
 
         manager.stop_and_wait();
-        assert!(!manager.is_running());
         assert!(manager.poll().unwrap().is_none());
     }
 }

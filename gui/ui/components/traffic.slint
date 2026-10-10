@@ -1,0 +1,171 @@
+import { Theme, Icons } from "../theme.slint";
+import { TrafficStore } from "../state.slint";
+import { Caption, Icon } from "primitives.slint";
+
+// A speed behind its direction arrow; the label names it for assistive
+// technology only.
+component Reading inherits HorizontalLayout {
+    in property <image> icon;
+    in property <color> tint;
+    in property <string> label;
+    in property <string> value;
+    in property <length> icon-size;
+    in property <length> font-size;
+    in property <int> font-weight;
+    in property <color> color;
+    spacing: 4px;
+    VerticalLayout { alignment: center; Icon { source: root.icon; size: root.icon-size; colorize: root.tint; } }
+    Text {
+        text: root.value;
+        accessible-label: root.label;
+        accessible-value: root.value;
+        font-family: Theme.latin;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        color: root.color;
+        vertical-alignment: center;
+    }
+}
+
+// Download and upload speed curves rising from a shared baseline; the path
+// commands come from Rust in viewbox units, so they fit any chart size.
+component ChartCurve inherits Path {
+    width: 100%;
+    height: 100%;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: max(1, TrafficStore.slots - 1);
+    viewbox-height: 1;
+    fit: fill;
+    // The fit insets by half the stroke width (in pixels, not viewbox units),
+    // so every curve uses the same width for the area to meet its line.
+    stroke-width: 1.5px;
+    stroke-line-join: round;
+    stroke-line-cap: round;
+}
+
+component TrafficChart inherits Rectangle {
+    // Takes the card's height below the header, down to the page bottom.
+    min-height: 64px;
+    vertical-stretch: 1;
+    private property <length> mid: self.height / 2;
+    for offset in [0, 0.5, 1, 1.5]: Rectangle { y: root.mid * offset; height: 1px; background: Theme.divider; }
+    Rectangle { y: root.height - 1px; height: 1px; background: Theme.divider; }
+    // A small top inset keeps the peak's stroke clear of the top grid line.
+    Rectangle {
+        y: 3px;
+        height: parent.height - 3px;
+        ChartCurve { commands: TrafficStore.down-area; fill: Theme.text.with-alpha(0.1); stroke: transparent; }
+        ChartCurve { commands: TrafficStore.up-line; stroke: Theme.secondary; }
+        ChartCurve { commands: TrafficStore.down-line; stroke: Theme.text; }
+    }
+    if !TrafficStore.has-traffic: Text {
+        text: @tr("No traffic yet");
+        font-size: 12px;
+        color: Theme.secondary;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// One arc of the usage donut; the path commands come from Rust in a viewbox
+// from -1 to 1 around the circle's centre.
+component DonutArc inherits Path {
+    width: 100%;
+    height: 100%;
+    viewbox-x: -1;
+    viewbox-y: -1;
+    viewbox-width: 2;
+    viewbox-height: 2;
+    fit: fill;
+    // The fit insets by half the stroke width, so the ring stays inside.
+    stroke-width: 11px;
+}
+
+// The download and upload shares of the session totals as a ring, with both
+// totals together in the middle; the ring shrinks to fit a short card.
+component UsageDonut inherits Rectangle {
+    private property <length> side: min(self.width, self.height);
+    Rectangle {
+        x: 0px;
+        y: (parent.height - self.height) / 2;
+        width: root.side;
+        height: root.side;
+        DonutArc { commands: TrafficStore.donut-empty; stroke: Theme.divider; }
+        DonutArc { commands: TrafficStore.donut-down; stroke: Theme.text; }
+        DonutArc { commands: TrafficStore.donut-up; stroke: Theme.secondary; }
+        Text {
+            text: TrafficStore.total;
+            font-family: Theme.latin;
+            font-size: 13px;
+            color: Theme.text;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// A session total under its label, behind the direction arrow; the label
+// also names the value for assistive technology.
+component Total inherits HorizontalLayout {
+    in property <image> icon;
+    in property <color> tint;
+    in property <string> label;
+    in property <string> value;
+    spacing: 8px;
+    VerticalLayout { alignment: start; Icon { source: root.icon; size: 16px; colorize: root.tint; } }
+    VerticalLayout {
+        horizontal-stretch: 1;
+        min-width: 0px;
+        Text { text: root.label; font-size: 12px; color: Theme.secondary; height: 16px; vertical-alignment: center; overflow: elide; }
+        Text {
+            text: root.value;
+            accessible-label: root.label;
+            accessible-value: root.value;
+            font-family: Theme.latin;
+            font-size: 15px;
+            font-weight: 500;
+            color: Theme.text;
+            height: 20px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+// The card title with the current speeds on the right, then the speed
+// history chart across the full card width; the chart grows to fill the rest
+// of the Overview.
+export component SpeedPanel inherits VerticalLayout {
+    HorizontalLayout {
+        height: 20px;
+        spacing: 16px;
+        VerticalLayout { alignment: center; horizontal-stretch: 1; min-width: 0px; Caption { text: @tr("Speed"); overflow: elide; } }
+        Reading { icon: Icons.arrow-down; tint: Theme.text; label: @tr("Download"); value: TrafficStore.down-speed; icon-size: 16px; font-size: 15px; font-weight: 500; color: Theme.text; }
+        Reading { icon: Icons.arrow-up; tint: Theme.secondary; label: @tr("Upload"); value: TrafficStore.up-speed; icon-size: 16px; font-size: 15px; font-weight: 500; color: Theme.text; }
+    }
+    Rectangle { height: 4px; }
+    TrafficChart { }
+}
+
+// The card title, then the session usage donut with its legend beside it.
+export component UsagePanel inherits VerticalLayout {
+    HorizontalLayout {
+        height: 20px;
+        VerticalLayout { alignment: center; min-width: 0px; Caption { text: @tr("Traffic"); overflow: elide; } }
+    }
+    Rectangle { height: 4px; }
+    HorizontalLayout {
+        vertical-stretch: 1;
+        spacing: 24px;
+        UsageDonut { width: 112px; min-height: 64px; }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            min-width: 0px;
+            spacing: 12px;
+            Total { icon: Icons.arrow-down; tint: Theme.text; label: @tr("Downloaded"); value: TrafficStore.down-total; }
+            Total { icon: Icons.arrow-up; tint: Theme.secondary; label: @tr("Uploaded"); value: TrafficStore.up-total; }
+        }
+    }
+}

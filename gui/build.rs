@@ -12,6 +12,17 @@ const PNG_SIZES: [u32; 8] = [16, 32, 48, 64, 128, 256, 512, 1024];
 const ICO_SIZES: [u32; 6] = [16, 32, 48, 64, 128, 256];
 
 fn main() {
+    emit_dependency_versions();
+    slint_build::compile_with_config(
+        "ui/app.slint",
+        slint_build::CompilerConfiguration::new()
+            // slint-build sets the domain to CARGO_PKG_NAME (juicity-gui).
+            .with_default_translation_context(slint_build::DefaultTranslationContext::None)
+            .with_bundled_translations("lang")
+            // Element lookup in the behavior tests needs debug info.
+            .with_debug_info(std::env::var("PROFILE").as_deref() == Ok("debug")),
+    )
+    .expect("Failed to compile Slint UI");
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let svg_path = format!("{manifest_dir}/icon.svg");
@@ -34,7 +45,9 @@ fn main() {
         if matches!(size, 16 | 32 | 48) {
             let argb: Vec<u8> = pixmap
                 .data()
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .flat_map(|p| [p[3], p[0], p[1], p[2]]) // RGBA → ARGB
                 .collect();
             let raw_path = format!("{out_dir}/tray_{size}_argb.raw");
@@ -49,14 +62,19 @@ fn main() {
     let ico_path = Path::new(&out_dir).join("icon.ico");
     write_ico(&ico_images, &ico_path);
 
-    // On Windows GPUI takes the window icon from the executable's own icon
+    // On Windows the shell takes the executable's icon from its own icon
     // resource, so the icon has to end up inside the binary, not next to it.
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         embed_icon_resource(Path::new(&out_dir), &ico_path);
     }
 
-    // The About dialog reports the versions of the embedded protocol backends,
-    // so read them from the lockfile to match what is actually linked.
+    println!("cargo:rerun-if-changed={manifest_dir}/icon.svg");
+}
+
+/// About reports the versions of the embedded protocol
+/// backends, so read them from the lockfile to match what is actually linked.
+fn emit_dependency_versions() {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let lock = std::fs::read_to_string(format!("{manifest_dir}/../Cargo.lock")).unwrap_or_default();
     for (package, var) in [
         ("shadowsocks-service", "JUICITY_DEPS_SHADOWSOCKS_SERVICE"),
@@ -65,8 +83,6 @@ fn main() {
         let version = locked_version(&lock, package).unwrap_or_else(|| "unknown".to_string());
         println!("cargo:rustc-env={var}={version}");
     }
-
-    println!("cargo:rerun-if-changed={manifest_dir}/icon.svg");
     println!("cargo:rerun-if-changed={manifest_dir}/../Cargo.lock");
 }
 

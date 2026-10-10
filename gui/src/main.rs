@@ -6,29 +6,20 @@
     windows_subsystem = "windows"
 )]
 
-mod about_dialog;
-mod app;
 mod config;
 mod core;
+mod desktop;
 mod i18n;
-mod icon;
 mod link;
-mod log_dialog;
 mod logging;
 mod pac;
-mod pac_dialog;
-mod save_prompt;
-mod startup_dialog;
 mod state;
 mod system_proxy;
-mod system_theme;
 mod traffic;
-mod tray;
+mod ui;
 mod util;
-mod widgets;
-
-// Load translation files from `locales/` at compile time.
-rust_i18n::i18n!("locales", fallback = "en");
+mod validate;
+mod version;
 
 fn main() -> anyhow::Result<()> {
     let log_level = std::env::args()
@@ -36,11 +27,17 @@ fn main() -> anyhow::Result<()> {
         .and_then(|i| std::env::args().nth(i + 1))
         .unwrap_or_else(|| "info".to_string());
 
+    // Before any thread starts: zbus cannot parse a session bus address list.
+    #[cfg(target_os = "linux")]
+    let session_bus = desktop::session_bus::select();
+
     // Console output plus the in-memory buffer the log window reads.
     logging::init(&log_level);
 
-    // Activate the system locale before any UI string is read.
-    i18n::init();
+    #[cfg(target_os = "linux")]
+    if let Some(address) = session_bus {
+        tracing::info!("using session bus address {address}");
+    }
 
-    app::run()
+    ui::run()
 }

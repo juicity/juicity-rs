@@ -1,0 +1,58 @@
+import { Theme, Icons } from "../theme.slint";
+import { Icon } from "primitives.slint";
+import { Page, AppState, Actions } from "../state.slint";
+
+export component SidebarRow inherits Rectangle {
+    in property <image> icon;
+    in property <string> text;
+    in property <bool> active;
+    callback clicked;
+    height: 32px;
+    border-radius: 8px;
+    background: active ? Theme.sidebar-selected : transparent;
+    HorizontalLayout {
+        padding-left: 10px;
+        spacing: 10px;
+        VerticalLayout { alignment: center; Icon { source: root.icon; } }
+        Text { text: root.text; font-size: 14px; color: Theme.text; vertical-alignment: center; }
+    }
+    TouchArea { clicked => { root.clicked(); } }
+}
+
+export component Sidebar inherits Rectangle {
+    width: 200px;
+    background: Theme.sidebar;
+    VerticalLayout {
+        padding: 12px;
+        padding-top: 20px;
+        spacing: 2px;
+        SidebarRow { icon: Icons.activity; text: @tr("Overview"); active: AppState.page == Page.overview; clicked => { Actions.navigate(Page.overview); } }
+        SidebarRow { icon: Icons.server; text: @tr("Nodes"); active: AppState.page == Page.nodes; clicked => { Actions.navigate(Page.nodes); } }
+        SidebarRow { icon: Icons.logs; text: @tr("Logs"); active: AppState.page == Page.logs; clicked => { Actions.navigate(Page.logs); } }
+        SidebarRow { icon: Icons.settings; text: @tr("Settings"); active: AppState.page == Page.settings; clicked => { Actions.navigate(Page.settings); } }
+        Rectangle { vertical-stretch: 1; }
+        // The app name sits at the bottom-left, under the navigation.
+        HorizontalLayout {
+            padding-left: 10px;
+            spacing: 8px;
+            height: 36px;
+            VerticalLayout { alignment: center; Image { source: Icons.logo; width: 20px; height: 20px; } }
+            Text { text: "Juicity GUI"; font-family: Theme.latin; font-size: 14px; font-weight: 500; color: Theme.text; vertical-alignment: center; }
+        }
+    }
+}
+
+export component PageHeader inherits HorizontalLayout {
+    in property <string> title;
+    height: 64px;
+    spacing: 8px;
+    Text {
+        text: root.title;
+        font-size: 28px;
+        font-weight: 500;
+        color: Theme.text;
+        vertical-alignment: center;
+        horizontal-stretch: 1;
+    }
+    @children
+}

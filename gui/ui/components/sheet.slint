@@ -1,0 +1,115 @@
+import { Theme, Icons } from "../theme.slint";
+import { Card, Button, Icon } from "primitives.slint";
+
+export component Sheet inherits Rectangle {
+    in property <bool> open;
+    in property <string> title;
+    // Bind this to the final field's has-focus property.
+    in property <bool> last-field-focused;
+    callback cancelled;
+    callback completed;
+    visible: open;
+    background: Theme.scrim;
+    forward-focus: escape;
+    TouchArea { clicked => { root.cancelled(); } }
+    escape := FocusScope {
+        capture-key-pressed(event) => {
+            if event.text == Key.Escape { root.cancelled(); return accept; }
+            if event.text == Key.Return && root.last-field-focused { root.completed(); return accept; }
+            return reject;
+        }
+        key-pressed(event) => {
+            if event.text == Key.Escape { root.cancelled(); return accept; }
+            return reject;
+        }
+        Card {
+            width: 400px;
+            height: min(parent.height - 48px, self.preferred-height);
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            // Keep clicks inside the sheet from reaching the scrim.
+            TouchArea { }
+            VerticalLayout {
+                padding: 20px;
+                spacing: 16px;
+                Text { text: root.title; font-size: 20px; font-weight: 500; color: Theme.text; }
+                @children
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button { text: @tr("Cancel"); clicked => { root.cancelled(); } }
+                    Button { text: @tr("Done"); clicked => { root.completed(); } }
+                }
+            }
+        }
+    }
+    changed open => { if self.open { escape.focus(); } }
+}
+
+// Modal question: Enter accepts, Esc or a click on the scrim cancels.
+export component Prompt inherits Rectangle {
+    in property <string> title;
+    in property <string> body;
+    in property <string> accept-text;
+    in property <string> discard-text;
+    callback accepted;
+    callback discarded;
+    callback cancelled;
+    background: Theme.scrim;
+    forward-focus: keys;
+    TouchArea { clicked => { root.cancelled(); } }
+    keys := FocusScope {
+        capture-key-pressed(event) => {
+            if event.text == Key.Escape { root.cancelled(); return accept; }
+            if event.text == Key.Return { root.accepted(); return accept; }
+            return reject;
+        }
+        Card {
+            width: 400px;
+            height: self.preferred-height;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            // Keep clicks inside the card from reaching the scrim.
+            TouchArea { }
+            VerticalLayout {
+                padding: 20px;
+                spacing: 8px;
+                Text { text: root.title; font-size: 20px; font-weight: 500; color: Theme.text; wrap: word-wrap; }
+                Text { text: root.body; font-size: 14px; color: Theme.secondary; wrap: word-wrap; }
+                HorizontalLayout {
+                    padding-top: 8px;
+                    spacing: 8px;
+                    Button { text: root.discard-text; clicked => { root.discarded(); } }
+                    Rectangle { horizontal-stretch: 1; }
+                    Button { text: @tr("Cancel"); clicked => { root.cancelled(); } }
+                    Button { text: root.accept-text; primary: true; clicked => { root.accepted(); } }
+                }
+            }
+        }
+    }
+    init => { keys.focus(); }
+}
+
+export component Banner inherits Rectangle {
+    in property <string> text;
+    in property <bool> error;
+    callback dismissed;
+    height: 36px;
+    border-radius: 8px;
+    background: Theme.card;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 8px;
+        if root.error: VerticalLayout {
+            alignment: center;
+            Rectangle { width: 6px; height: 6px; border-radius: 3px; background: Theme.red; }
+        }
+        Text { text: root.text; font-size: 13px; color: Theme.text; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+        Rectangle {
+            width: 18px;
+            Icon { source: Icons.check; size: 16px; }
+            TouchArea { clicked => { root.dismissed(); } }
+        }
+    }
+}

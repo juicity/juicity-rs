@@ -1,0 +1,426 @@
+msgid ""
+msgstr ""
+"Language: ru\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+msgid "Save changes to your nodes?"
+msgstr "Сохранить изменения узлов?"
+
+msgid "Your node edits have not been saved."
+msgstr "Изменения узлов не сохранены."
+
+msgid "Save"
+msgstr "Сохранить"
+
+msgid "Don't Save"
+msgstr "Не сохранять"
+
+msgid "Connected · {}"
+msgstr "Подключено · {}"
+
+msgid "Connecting…"
+msgstr "Подключение…"
+
+msgid "Disconnected"
+msgstr "Отключено"
+
+msgid "System proxy · PAC"
+msgstr "Системный прокси · PAC"
+
+msgid "System proxy · Global"
+msgstr "Системный прокси · Весь трафик"
+
+msgid "System proxy · Off"
+msgstr "Системный прокси · Выкл."
+
+msgid "Links imported"
+msgstr "Ссылки импортированы"
+
+msgid "Link copied"
+msgstr "Ссылка скопирована"
+
+msgid "Could not start proxy: {}"
+msgstr "Не удалось запустить прокси: {}"
+
+msgid "Rules updated"
+msgstr "Правила обновлены"
+
+msgid "Could not update rules: {}"
+msgstr "Не удалось обновить правила: {}"
+
+msgid "Could not set system proxy: {}"
+msgstr "Не удалось настроить системный прокси: {}"
+
+msgid "Could not save settings: {}"
+msgstr "Не удалось сохранить настройки: {}"
+
+msgid "Proxy stopped: {}"
+msgstr "Прокси остановлен: {}"
+
+msgid "Add a node first"
+msgstr "Сначала добавьте узел"
+
+msgid "Missing fields: {}"
+msgstr "Заполните поля: {}"
+
+msgid "Could not import link: {}"
+msgstr "Не удалось импортировать ссылку: {}"
+
+msgid "Could not export link: {}"
+msgstr "Не удалось экспортировать ссылку: {}"
+
+msgid "Links imported: {}, skipped: {}"
+msgstr "Ссылок импортировано: {}, пропущено: {}"
+
+msgid "Fix the invalid fields before exporting"
+msgstr "Исправьте ошибки в полях перед экспортом"
+
+msgid "Could not save nodes: {}"
+msgstr "Не удалось сохранить узлы: {}"
+
+msgid "Fix the invalid fields before saving"
+msgstr "Исправьте ошибки в полях перед сохранением"
+
+msgid "Missing fields in {}: {}"
+msgstr "Заполните поля узла {}: {}"
+
+msgid "Nodes were changed outside juicity; saving will overwrite that change"
+msgstr "Узлы изменены вне juicity; сохранение перезапишет это изменение"
+
+msgid "Today {}"
+msgstr "сегодня {}"
+
+msgid "Yesterday {}"
+msgstr "вчера {}"
+
+msgid "Server"
+msgstr "Сервер"
+
+msgid "Password"
+msgstr "Пароль"
+
+msgid ", "
+msgstr ", "
+
+msgid "Required"
+msgstr "Обязательное поле"
+
+msgid "Enter a port from 1 to 65535"
+msgstr "Введите порт от 1 до 65535"
+
+msgid "Enter a whole number of seconds"
+msgstr "Введите целое число секунд"
+
+msgid "Enter an address as host:port"
+msgstr "Введите адрес в формате хост:порт"
+
+msgid "Enter a URL that starts with http:// or https://"
+msgstr "Введите URL с http:// или https://"
+
+msgid "Enter a whole number of hours, 1 or more"
+msgstr "Введите целое число часов, не менее 1"
+
+msgid "Node {}"
+msgstr "Узел {}"
+
+msgid "Disconnect"
+msgstr "Отключить"
+
+msgid "Connect"
+msgstr "Подключить"
+
+msgid "System proxy"
+msgstr "Системный прокси"
+
+msgid "Off"
+msgstr "Выкл."
+
+msgid "Global"
+msgstr "Все сайты"
+
+msgid "Bypass mainland China"
+msgstr "Китай напрямую"
+
+msgid "Proxy GFW list only"
+msgstr "Только GFW"
+
+msgid "Update rules"
+msgstr "Обновить правила"
+
+msgid "Nodes"
+msgstr "Узлы"
+
+msgid "Import from clipboard"
+msgstr "Импорт из буфера обмена"
+
+msgid "Open Juicity GUI"
+msgstr "Открыть Juicity GUI"
+
+msgid "Nodes…"
+msgstr "Узлы…"
+
+msgid "Logs…"
+msgstr "Журнал…"
+
+msgid "Settings…"
+msgstr "Настройки…"
+
+msgid "About Juicity GUI"
+msgstr "О Juicity GUI"
+
+msgid "Quit"
+msgstr "Выйти"
+
+msgid "Overview"
+msgstr "Обзор"
+
+msgid "Logs"
+msgstr "Журнал"
+
+msgid "Settings"
+msgstr "Настройки"
+
+msgid "In use"
+msgstr "Активен"
+
+msgid "Cancel"
+msgstr "Отмена"
+
+msgid "Done"
+msgstr "Готово"
+
+msgid "Traffic"
+msgstr "Трафик"
+
+#: gui/ui/components/traffic.slint:143
+msgid "Speed"
+msgstr "Скорость"
+
+msgid "No traffic yet"
+msgstr "Трафика пока нет"
+
+msgid "{n} earlier line dropped"
+msgid_plural "{n} earlier lines dropped"
+msgstr[0] "Отброшена {n} ранняя строка"
+msgstr[1] "Отброшены {n} ранние строки"
+msgstr[2] "Отброшено {n} ранних строк"
+
+msgid "Follow"
+msgstr "Следить"
+
+msgid "Clear"
+msgstr "Очистить"
+
+msgid "Download"
+msgstr "Загрузка"
+
+msgid "Upload"
+msgstr "Отдача"
+
+msgid "Downloaded"
+msgstr "Загружено"
+
+msgid "Uploaded"
+msgstr "Отдано"
+
+msgid "Reconnect to apply"
+msgstr "Переподключитесь, чтобы применить"
+
+msgid "Basic"
+msgstr "Основное"
+
+msgid "Name"
+msgstr "Название"
+
+msgid "Protocol"
+msgstr "Протокол"
+
+msgid "Port"
+msgstr "Порт"
+
+msgid "Authentication"
+msgstr "Аутентификация"
+
+msgid "Encryption method"
+msgstr "Метод шифрования"
+
+msgid "Advanced settings"
+msgstr "Дополнительные настройки"
+
+msgid "Set as active"
+msgstr "Активировать"
+
+msgid "Duplicate"
+msgstr "Дублировать"
+
+msgid "Export link"
+msgstr "Экспорт"
+
+msgid "Delete"
+msgstr "Удалить"
+
+msgid "Revert"
+msgstr "Вернуть"
+
+msgid "Allow insecure connections"
+msgstr "Разрешить небезопасные подключения"
+
+msgid "Pinned certificate chain SHA-256"
+msgstr "SHA-256 цепочки сертификатов"
+
+msgid "Congestion control"
+msgstr "Контроль перегрузки"
+
+msgid "Plugin"
+msgstr "Плагин"
+
+msgid "Plugin options"
+msgstr "Параметры плагина"
+
+msgid "Plugin arguments"
+msgstr "Аргументы плагина"
+
+msgid "Timeout (s)"
+msgstr "Тайм-аут (с)"
+
+msgid "Group"
+msgstr "Группа"
+
+msgid "Import link"
+msgstr "Импорт ссылки"
+
+msgid "Add node"
+msgstr "Добавить узел"
+
+msgid "Move up"
+msgstr "Переместить вверх"
+
+msgid "Move down"
+msgstr "Переместить вниз"
+
+msgid "Connected"
+msgstr "Подключено"
+
+msgid "Current node"
+msgstr "Текущий узел"
+
+msgid "Stop proxy"
+msgstr "Отключить прокси"
+
+msgid "Start proxy"
+msgstr "Подключить прокси"
+
+msgid "Local proxy"
+msgstr "Локальный прокси"
+
+msgid "PAC address"
+msgstr "Адрес PAC"
+
+msgid "PAC rules"
+msgstr "Правила PAC"
+
+msgid "Rules not downloaded yet"
+msgstr "Правила ещё не загружены"
+
+msgid "Rules updated {}"
+msgstr "Обновлено {}"
+
+msgid "Every {n} hour"
+msgid_plural "Every {n} hours"
+msgstr[0] "Раз в {n} час"
+msgstr[1] "Раз в {n} часа"
+msgstr[2] "Раз в {n} часов"
+
+msgid "General"
+msgstr "Общие"
+
+msgid "Language"
+msgstr "Язык"
+
+msgid "Follow system"
+msgstr "Как в системе"
+
+msgid "Appearance"
+msgstr "Оформление"
+
+msgid "Light"
+msgstr "Светлая"
+
+msgid "Dark"
+msgstr "Тёмная"
+
+msgid "Start at login"
+msgstr "Запуск при входе"
+
+msgid "Hide window on start"
+msgstr "Скрывать окно при запуске"
+
+msgid "Minimize to tray on close"
+msgstr "Сворачивать в трей при закрытии"
+
+msgid "Connect on start"
+msgstr "Подключение при запуске"
+
+msgid "On"
+msgstr "Вкл."
+
+msgid "Last state"
+msgstr "Последнее состояние"
+
+msgid "SOCKS5 and HTTP share this port"
+msgstr "Общий порт для SOCKS5 и HTTP"
+
+msgid "Source"
+msgstr "Источник"
+
+msgid "Online"
+msgstr "Онлайн"
+
+msgid "Local"
+msgstr "Локальный"
+
+msgid "Direct list"
+msgstr "Список без прокси"
+
+msgid "Proxy list"
+msgstr "Список через прокси"
+
+msgid "Auto update"
+msgstr "Автообновление"
+
+msgid "Custom…"
+msgstr "Свой интервал…"
+
+msgid "PAC server"
+msgstr "Сервер PAC"
+
+msgid "Online PAC"
+msgstr "Онлайн PAC"
+
+msgid "Not set"
+msgstr "Не задан"
+
+msgid "About"
+msgstr "О программе"
+
+msgid "Version {} · juicity core {} · shadowsocks-rust {}"
+msgstr "Версия {} · ядро juicity {} · shadowsocks-rust {}"
+
+msgid "Build {} ({})"
+msgstr "Сборка {} ({})"
+
+msgid "Local proxy port"
+msgstr "Порт локального прокси"
+
+msgid "Custom update interval"
+msgstr "Интервал обновления"
+
+msgid "Hours"
+msgstr "Часы"
+
+msgid "Address"
+msgstr "Адрес"
+
+msgid "URL"
+msgstr "URL"
