@@ -4,7 +4,7 @@
 use super::{update, WINDOW};
 use crate::traffic::HISTORY;
 use crate::ui::controller::{LogsSnapshot, TrafficView};
-use crate::ui::{Actions, AppState, LogRow, LogStore, MainWindow, Page, TrafficBar, TrafficStore};
+use crate::ui::{Actions, AppState, LogRow, LogStore, MainWindow, Page, TrafficStore};
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::cell::Cell;
 use std::time::Duration;
@@ -115,17 +115,10 @@ pub fn sync_logs(ui: &MainWindow, snapshot: &LogsSnapshot) {
 
 pub fn sync_traffic(ui: &MainWindow, view: &TrafficView) {
     let store = ui.global::<TrafficStore>();
-    let bars: Vec<TrafficBar> = view
-        .bars
-        .iter()
-        .map(|bar| TrafficBar {
-            slot: bar.slot as i32,
-            down: bar.down,
-            up: bar.up,
-        })
-        .collect();
     store.set_slots(HISTORY as i32);
-    store.set_bars(ModelRc::new(VecModel::from(bars)));
+    store.set_down_line(view.chart.down_line.as_str().into());
+    store.set_down_area(view.chart.down_area.as_str().into());
+    store.set_up_line(view.chart.up_line.as_str().into());
     store.set_has_traffic(view.has_samples);
     store.set_down_speed(view.down_speed.as_str().into());
     store.set_up_speed(view.up_speed.as_str().into());
@@ -186,7 +179,7 @@ mod tests {
         let (ui, buffer, monitor, dir) = setup_with_monitor("logs-timer");
         let actions = ui.global::<Actions>();
         let rows = || ui.global::<LogStore>().get_rows().row_count();
-        let bars = || ui.global::<TrafficStore>().get_bars().row_count();
+        let line = || ui.global::<TrafficStore>().get_down_line();
         // Hidden window: the page alone does not start the timer.
         actions.invoke_navigate(Page::Overview);
         assert_eq!(refreshing(), None);
@@ -199,7 +192,7 @@ mod tests {
         sample(&monitor);
         buffer.push(tracing::Level::WARN, "juicity_gui::core", "boom".into());
         i_slint_backend_testing::mock_elapsed_time(REFRESH);
-        assert_eq!(bars(), 1);
+        assert!(line().is_empty(), "one sample draws no curve yet");
         assert!(ui.global::<TrafficStore>().get_has_traffic());
         assert_eq!(rows(), 0, "log lines do not refresh on Overview");
 
@@ -216,12 +209,13 @@ mod tests {
         buffer.push(tracing::Level::INFO, "juicity_gui::core", "two".into());
         i_slint_backend_testing::mock_elapsed_time(REFRESH);
         assert_eq!(rows(), 2);
-        assert_eq!(bars(), 1, "traffic does not refresh on Logs");
+        assert!(line().is_empty(), "traffic does not refresh on Logs");
 
         // Back on Overview, the chart catches up at once.
         actions.invoke_navigate(Page::Overview);
         assert_eq!(refreshing(), Some(Page::Overview));
-        assert_eq!(bars(), 2);
+        let shown = line();
+        assert!(!shown.is_empty());
         actions.invoke_navigate(Page::Nodes);
         assert_eq!(refreshing(), None, "another page stops the timer");
 
@@ -236,7 +230,7 @@ mod tests {
         );
         sample(&monitor);
         i_slint_backend_testing::mock_elapsed_time(REFRESH);
-        assert_eq!(bars(), 2);
+        assert_eq!(line(), shown);
         ui.show().unwrap();
         actions.invoke_navigate(Page::Logs);
         assert_eq!(refreshing(), Some(Page::Logs));

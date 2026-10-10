@@ -42,7 +42,6 @@ export struct MenuItem { text: string, checked: bool, enabled: bool, danger: boo
 // One captured log line; the text stays English.
 export struct LogRow { time: string, level: string, target: string, message: string }
 // One chart slot (0 = oldest of HISTORY); heights are fractions of half the chart.
-export struct TrafficBar { slot: int, down: float, up: float }
 export struct Versions { gui: string, juicity: string, shadowsocks: string, tag: string, commit: string }
 
 export global AppState {
@@ -134,7 +133,10 @@ export global LogStore {
 }
 // The Overview page's traffic chart and statistics.
 export global TrafficStore {
-    in-out property <[TrafficBar]> bars;
+    // Chart curves as path commands in a viewbox `slots - 1` wide and 1 high.
+    in-out property <string> down-line;
+    in-out property <string> down-area;
+    in-out property <string> up-line;
     // Number of chart slots (traffic::HISTORY).
     in-out property <int> slots: 60;
     in-out property <bool> has-traffic;

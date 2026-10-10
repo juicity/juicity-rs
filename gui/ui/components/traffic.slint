@@ -19,29 +19,31 @@ component Stat inherits VerticalLayout {
     Text { text: root.value; font-family: Theme.latin; font-size: 17px; font-weight: 500; color: Theme.text; height: 22px; vertical-alignment: center; overflow: elide; }
 }
 
-// Download bars above the centre line, upload bars below it (as upstream).
+// Download and upload speed curves rising from a shared baseline; the path
+// commands come from Rust in viewbox units, so they fit any chart size.
+component ChartCurve inherits Path {
+    width: 100%;
+    height: 100%;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: max(1, TrafficStore.slots - 1);
+    viewbox-height: 1;
+    fit: fill;
+    // The fit insets by half the stroke width (in pixels, not viewbox units),
+    // so every curve uses the same width for the area to meet its line.
+    stroke-width: 1.5px;
+    stroke-line-join: round;
+    stroke-line-cap: round;
+}
+
 component TrafficChart inherits Rectangle {
     height: 64px;
     private property <length> mid: self.height / 2;
-    private property <length> slot: self.width / max(1, TrafficStore.slots);
     for offset in [0, 0.5, 1, 1.5]: Rectangle { y: root.mid * offset; height: 1px; background: Theme.divider; }
     Rectangle { y: root.height - 1px; height: 1px; background: Theme.divider; }
-    for bar in TrafficStore.bars: Rectangle {
-        x: root.slot * bar.slot;
-        width: max(1px, root.slot * 0.72);
-        height: root.mid * bar.down;
-        y: root.mid - self.height;
-        visible: self.height > 0.5px;
-        background: Theme.text;
-    }
-    for bar in TrafficStore.bars: Rectangle {
-        x: root.slot * bar.slot;
-        width: max(1px, root.slot * 0.72);
-        y: root.mid;
-        height: root.mid * bar.up;
-        visible: self.height > 0.5px;
-        background: Theme.secondary;
-    }
+    ChartCurve { commands: TrafficStore.down-area; fill: Theme.text.with-alpha(0.1); stroke: transparent; }
+    ChartCurve { commands: TrafficStore.up-line; stroke: Theme.secondary; }
+    ChartCurve { commands: TrafficStore.down-line; stroke: Theme.text; }
     if !TrafficStore.has-traffic: Text {
         text: @tr("No traffic yet");
         font-size: 12px;
