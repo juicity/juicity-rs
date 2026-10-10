@@ -6,8 +6,10 @@ use super::super::{Actions, AppState, MainWindow, Page, TrayText};
 use super::{logs, read, spawn_rules, update_with, WINDOW};
 use crate::desktop::single_instance::Activation;
 use crate::desktop::tray::{Sink, Tray, TrayEvent, TrayLabels, TrayMenu};
+use slint::winit_030::winit::dpi::PhysicalPosition;
+use slint::winit_030::WinitWindowAccessor;
 use slint::ComponentHandle;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,6 +21,8 @@ thread_local! {
     static LAST_MENU: RefCell<Option<TrayMenu>> = const { RefCell::new(None) };
     static ACTIVATION: RefCell<Activation> = RefCell::new(Activation::default());
     static START_TIMER: slint::Timer = slint::Timer::default();
+    // Where the window was when last hidden; hiding drops the native window.
+    static LAST_POSITION: Cell<Option<PhysicalPosition<i32>>> = const { Cell::new(None) };
 }
 
 fn window() -> Option<MainWindow> {
@@ -186,14 +190,17 @@ fn show_window(page: Option<Page>) {
     if let Some(page) = page {
         ui.global::<Actions>().invoke_navigate(page);
     }
+    let hidden = !ui.window().is_visible();
     if let Err(err) = ui.show() {
         tracing::warn!("could not show the window: {err}");
         return;
     }
+    if hidden {
+        place_window(&ui);
+    }
     ui.window().set_minimized(false);
     logs::update_refresh();
     // No effect on Wayland, where the compositor decides focus.
-    use slint::winit_030::WinitWindowAccessor;
     ui.window().with_winit_window(|w| w.focus_window());
 }
 
@@ -201,10 +208,36 @@ fn hide_window() {
     let Some(ui) = window() else {
         return;
     };
+    let position = ui
+        .window()
+        .with_winit_window(|w| w.outer_position().ok())
+        .flatten();
+    LAST_POSITION.with(|last| last.set(position));
     if let Err(err) = ui.hide() {
         tracing::warn!("could not hide the window: {err}");
     }
     logs::stop();
+}
+
+/// Put a newly shown window where it was last hidden, or centre the first one
+/// on its monitor: the default cascade can push it past a small screen's edge.
+/// Wayland ignores both, as the compositor places windows.
+fn place_window(ui: &MainWindow) {
+    let last = LAST_POSITION.with(Cell::take);
+    ui.window().with_winit_window(|w| {
+        let position = last.or_else(|| {
+            let monitor = w.current_monitor().or_else(|| w.primary_monitor())?;
+            let (origin, screen, outer) = (monitor.position(), monitor.size(), w.outer_size());
+            let centre = |screen: u32, outer: u32| (screen.saturating_sub(outer) / 2) as i32;
+            Some(PhysicalPosition::new(
+                origin.x + centre(screen.width, outer.width),
+                origin.y + centre(screen.height, outer.height),
+            ))
+        });
+        if let Some(position) = position {
+            w.set_outer_position(position);
+        }
+    });
 }
 
 fn toggle_window() {
@@ -257,6 +290,7 @@ pub fn show_initial(ui: &MainWindow) -> Result<(), slint::PlatformError> {
     ui.window().on_close_requested(close_requested);
     if !read(|c| c.hide_on_start()).unwrap_or(false) {
         ui.show()?;
+        place_window(ui);
         logs::update_refresh();
         return Ok(());
     }
