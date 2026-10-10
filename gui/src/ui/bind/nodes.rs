@@ -333,6 +333,51 @@ mod tests {
         teardown(&dir);
     }
 
+    fn press(ui: &MainWindow, text: &str, control: bool) {
+        use slint::platform::{Key, WindowEvent};
+        let window = ui.window();
+        if control {
+            window.dispatch_event(WindowEvent::KeyPressed {
+                text: Key::Control.into(),
+            });
+        }
+        window.dispatch_event(WindowEvent::KeyPressed { text: text.into() });
+        window.dispatch_event(WindowEvent::KeyReleased { text: text.into() });
+        if control {
+            window.dispatch_event(WindowEvent::KeyReleased {
+                text: Key::Control.into(),
+            });
+        }
+    }
+
+    #[test]
+    fn keyboard_saves_and_answers_the_prompt() {
+        use slint::platform::Key;
+        let (ui, dir) = setup("bind-nodes-keys");
+        let store = ui.global::<NodeStore>();
+        let state = ui.global::<AppState>();
+        let read = || std::fs::read_to_string(dir.join("profiles.json")).unwrap();
+        field(&ui, "Name").set_accessible_value("Osaka 01");
+        press(&ui, "s", true);
+        assert!(
+            !store.get_dirty() && read().contains("Osaka 01"),
+            "Ctrl+S saves"
+        );
+        // Esc cancels the prompt; Enter saves.
+        field(&ui, "Name").set_accessible_value("Kyoto 01");
+        update(|c, _| c.request_leave(crate::ui::controller::Leave::Hide).0);
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        assert!(state.get_save_prompt());
+        press(&ui, &SharedString::from(Key::Escape), false);
+        assert!(!state.get_save_prompt() && store.get_dirty());
+        update(|c, _| c.request_leave(crate::ui::controller::Leave::Hide).0);
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        press(&ui, &SharedString::from(Key::Return), false);
+        assert!(!state.get_save_prompt() && !store.get_dirty());
+        assert!(read().contains("Kyoto 01"));
+        teardown(&dir);
+    }
+
     #[test]
     fn field_errors_follow_a_language_switch() {
         let (ui, dir) = setup("bind-nodes-language");

@@ -4,6 +4,18 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
 
+msgid "Save changes to your nodes?"
+msgstr "Сохранить изменения узлов?"
+
+msgid "Your node edits have not been saved."
+msgstr "Изменения узлов не сохранены."
+
+msgid "Save"
+msgstr "Сохранить"
+
+msgid "Don't Save"
+msgstr "Не сохранять"
+
 msgid "Connected · {}"
 msgstr "Подключено · {}"
 
@@ -240,6 +252,9 @@ msgstr "Экспорт ссылки"
 
 msgid "Delete"
 msgstr "Удалить"
+
+msgid "Revert"
+msgstr "Вернуть"
 
 msgid "Allow insecure connections"
 msgstr "Разрешить небезопасные подключения"

@@ -1,9 +1,25 @@
 msgid ""
 msgstr ""
-"POT-Creation-Date: 2026-10-10 08:29+0000\n"
+"POT-Creation-Date: 2026-10-10 08:32+0000\n"
 "Language: zh_CN\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
+
+#: gui/ui/app.slint:74
+msgid "Save changes to your nodes?"
+msgstr "要保存节点的更改吗？"
+
+#: gui/ui/app.slint:75
+msgid "Your node edits have not been saved."
+msgstr "节点的修改尚未保存。"
+
+#: gui/ui/app.slint:76 gui/ui/pages/node_editor.slint:145
+msgid "Save"
+msgstr "保存"
+
+#: gui/ui/app.slint:77
+msgid "Don't Save"
+msgstr "不保存"
 
 #: gui/ui/state.slint:70
 msgid "Connected · {}"
@@ -109,11 +125,11 @@ msgstr "今天 {}"
 msgid "Yesterday {}"
 msgstr "昨天 {}"
 
-#: gui/ui/state.slint:189 gui/ui/pages/node_editor.slint:64
+#: gui/ui/state.slint:189 gui/ui/pages/node_editor.slint:70
 msgid "Server"
 msgstr "服务器"
 
-#: gui/ui/state.slint:191 gui/ui/pages/node_editor.slint:87
+#: gui/ui/state.slint:191 gui/ui/pages/node_editor.slint:93
 msgid "Password"
 msgstr "密码"
 
@@ -227,11 +243,11 @@ msgstr "日志"
 msgid "Settings"
 msgstr "设置"
 
-#: gui/ui/components/primitives.slint:375
+#: gui/ui/components/primitives.slint:382
 msgid "In use"
 msgstr "使用中"
 
-#: gui/ui/components/sheet.slint:40
+#: gui/ui/components/sheet.slint:40 gui/ui/components/sheet.slint:84
 msgid "Cancel"
 msgstr "取消"
 
@@ -280,75 +296,79 @@ msgstr "重新连接以应用"
 msgid "Basic"
 msgstr "基本"
 
-#: gui/ui/pages/node_editor.slint:47
+#: gui/ui/pages/node_editor.slint:50
 msgid "Name"
 msgstr "名称"
 
-#: gui/ui/pages/node_editor.slint:53
+#: gui/ui/pages/node_editor.slint:57
 msgid "Protocol"
 msgstr "协议"
 
-#: gui/ui/pages/node_editor.slint:71 gui/ui/pages/settings.slint:127
+#: gui/ui/pages/node_editor.slint:77 gui/ui/pages/settings.slint:127
 msgid "Port"
 msgstr "端口"
 
-#: gui/ui/pages/node_editor.slint:79
+#: gui/ui/pages/node_editor.slint:85
 msgid "Authentication"
 msgstr "验证"
 
-#: gui/ui/pages/node_editor.slint:94
+#: gui/ui/pages/node_editor.slint:100
 msgid "Encryption method"
 msgstr "加密方式"
 
-#: gui/ui/pages/node_editor.slint:104 gui/ui/pages/node_editor.slint:140
+#: gui/ui/pages/node_editor.slint:110 gui/ui/pages/node_editor.slint:154
 msgid "Advanced settings"
 msgstr "高级设置"
 
-#: gui/ui/pages/node_editor.slint:114
+#: gui/ui/pages/node_editor.slint:120
 msgid "Set as active"
 msgstr "设为使用中"
 
-#: gui/ui/pages/node_editor.slint:115 gui/ui/pages/nodes.slint:63
+#: gui/ui/pages/node_editor.slint:121 gui/ui/pages/nodes.slint:63
 msgid "Duplicate"
 msgstr "复制"
 
-#: gui/ui/pages/node_editor.slint:116
+#: gui/ui/pages/node_editor.slint:122
 msgid "Export link"
 msgstr "导出链接"
 
-#: gui/ui/pages/node_editor.slint:121 gui/ui/pages/nodes.slint:64
+#: gui/ui/pages/node_editor.slint:127 gui/ui/pages/nodes.slint:64
 msgid "Delete"
 msgstr "删除"
 
-#: gui/ui/pages/node_editor.slint:154
+#: gui/ui/pages/node_editor.slint:144
+msgid "Revert"
+msgstr "还原"
+
+#: gui/ui/pages/node_editor.slint:168
 msgid "Allow insecure connections"
 msgstr "允许不安全连接"
 
-#: gui/ui/pages/node_editor.slint:161
+#: gui/ui/pages/node_editor.slint:175
 msgid "Pinned certificate chain SHA-256"
 msgstr "固定证书链 SHA-256"
 
-#: gui/ui/pages/node_editor.slint:167
+#: gui/ui/pages/node_editor.slint:181
 msgid "Congestion control"
 msgstr "拥塞控制"
 
-#: gui/ui/pages/node_editor.slint:180
+#: gui/ui/pages/node_editor.slint:194
 msgid "Plugin"
 msgstr "插件"
 
-#: gui/ui/pages/node_editor.slint:186
+#: gui/ui/pages/node_editor.slint:200
 msgid "Plugin options"
 msgstr "插件选项"
 
-#: gui/ui/pages/node_editor.slint:192
+#: gui/ui/pages/node_editor.slint:206
 msgid "Plugin arguments"
 msgstr "插件参数"
 
-#: gui/ui/pages/node_editor.slint:201
+#: gui/ui/pages/node_editor.slint:215
 msgid "Timeout (s)"
 msgstr "超时（秒）"
 
-#: gui/ui/pages/node_editor.slint:208
+#: gui/ui/pages/node_editor.slint:222
 msgid "Group"
 msgstr "分组"
 

@@ -10,7 +10,7 @@ export { Theme, Icons } from "theme.slint";
 export { Page, Connection, ProxyMode, PacRule, PacSource, Protocol, StartupConnection, Notice, NodeField, SettingField, NodeCommand, NodeRow, NodeDraft, LogRow, TrafficBar, FieldError, MenuItem, Versions, AppState, NodeStore, SettingsStore, LogStore, Actions, Fmt, TrayText, FieldText } from "state.slint";
 import { Field, LabeledField } from "components/field.slint";
 import { PopupMenu } from "components/menu.slint";
-import { Sheet, Banner } from "components/sheet.slint";
+import { Sheet, Banner, Prompt } from "components/sheet.slint";
 import { ScrollArea } from "components/scroll.slint";
 
 export component MainWindow inherits Window {
@@ -24,34 +24,60 @@ export component MainWindow inherits Window {
     background: Theme.window;
     default-font-family: Theme.cjk;
     default-font-size: 14px;
-    HorizontalLayout {
-        Sidebar { }
-        VerticalLayout {
-            padding-left: 24px;
-            padding-right: 24px;
-            padding-bottom: 24px;
-            alignment: start;
-            if AppState.page == Page.overview: OverviewPage { }
-            if AppState.page == Page.nodes: NodesPage { }
+    forward-focus: keys;
+    keys := FocusScope {
+        capture-key-pressed(event) => {
+            // Cmd-Q quits through the unsaved-changes prompt.
+            if Platform.os == OperatingSystemType.macos && event.modifiers.control && event.text.to-lowercase() == "q" {
+                Actions.quit();
+                return accept;
+            }
+            // Ctrl/Cmd+S saves nodes while the Nodes page has no sheet open.
+            if event.modifiers.control && event.text.to-lowercase() == "s" && AppState.page == Page.nodes && !NodeStore.advanced-open && !AppState.save-prompt {
+                Actions.save-nodes();
+                return accept;
+            }
+            return reject;
+        }
+        HorizontalLayout {
+            Sidebar { }
+            VerticalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-bottom: 24px;
+                alignment: start;
+                if AppState.page == Page.overview: OverviewPage { }
+                if AppState.page == Page.nodes: NodesPage { }
+            }
+        }
+        // Recreated on every open, so its fields start from the sheet draft.
+        // Outside the layout so its scroll area can fill the window height
+        // without a layout binding loop; geometry matches the page column.
+        if AppState.page == Page.settings: SettingsPage {
+            x: 224px;
+            y: 0px;
+            width: root.width - 248px;
+            // The scroll content carries the 24 px bottom padding.
+            height: root.height;
+        }
+        // Placed like the settings page; the log card fills the window height.
+        if AppState.page == Page.logs: LogsPage {
+            x: 224px;
+            y: 0px;
+            width: root.width - 248px;
+            height: root.height;
+        }
+        if NodeStore.advanced-open: AdvancedSheet { }
+        if SettingsStore.sheet-open: SettingSheet { }
+        // Shown before closing or quitting with unsaved node edits.
+        if AppState.save-prompt: Prompt {
+            title: @tr("Save changes to your nodes?");
+            body: @tr("Your node edits have not been saved.");
+            accept-text: @tr("Save");
+            discard-text: @tr("Don't Save");
+            accepted => { Actions.prompt-save(); }
+            discarded => { Actions.prompt-discard(); }
+            cancelled => { Actions.prompt-cancel(); }
         }
     }
-    // Recreated on every open, so its fields start from the sheet draft.
-    // Outside the layout so its scroll area can fill the window height
-    // without a layout binding loop; geometry matches the page column.
-    if AppState.page == Page.settings: SettingsPage {
-        x: 224px;
-        y: 0px;
-        width: root.width - 248px;
-        // The scroll content carries the 24 px bottom padding.
-        height: root.height;
-    }
-    // Placed like the settings page; the log card fills the window height.
-    if AppState.page == Page.logs: LogsPage {
-        x: 224px;
-        y: 0px;
-        width: root.width - 248px;
-        height: root.height;
-    }
-    if NodeStore.advanced-open: AdvancedSheet { }
-    if SettingsStore.sheet-open: SettingSheet { }
 }

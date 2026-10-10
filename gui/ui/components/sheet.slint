@@ -46,6 +46,50 @@ export component Sheet inherits Rectangle {
     changed open => { if self.open { escape.focus(); } }
 }
 
+// Modal question: Enter accepts, Esc or a click on the scrim cancels.
+export component Prompt inherits Rectangle {
+    in property <string> title;
+    in property <string> body;
+    in property <string> accept-text;
+    in property <string> discard-text;
+    callback accepted;
+    callback discarded;
+    callback cancelled;
+    background: #00000066;
+    forward-focus: keys;
+    TouchArea { clicked => { root.cancelled(); } }
+    keys := FocusScope {
+        capture-key-pressed(event) => {
+            if event.text == Key.Escape { root.cancelled(); return accept; }
+            if event.text == Key.Return { root.accepted(); return accept; }
+            return reject;
+        }
+        Card {
+            width: 400px;
+            height: self.preferred-height;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            // Keep clicks inside the card from reaching the scrim.
+            TouchArea { }
+            VerticalLayout {
+                padding: 20px;
+                spacing: 8px;
+                Text { text: root.title; font-size: 20px; font-weight: 500; color: Theme.text; wrap: word-wrap; }
+                Text { text: root.body; font-size: 14px; color: Theme.secondary; wrap: word-wrap; }
+                HorizontalLayout {
+                    padding-top: 8px;
+                    spacing: 8px;
+                    Button { text: root.discard-text; clicked => { root.discarded(); } }
+                    Rectangle { horizontal-stretch: 1; }
+                    Button { text: @tr("Cancel"); clicked => { root.cancelled(); } }
+                    Button { text: root.accept-text; primary: true; clicked => { root.accepted(); } }
+                }
+            }
+        }
+    }
+    init => { keys.focus(); }
+}
+
 export component Banner inherits Rectangle {
     in property <string> text;
     in property <bool> error;

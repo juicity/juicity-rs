@@ -61,12 +61,14 @@ export component Button inherits Rectangle {
     in property <image> icon;
     in property <bool> has-icon: false;
     in property <bool> enabled: true;
+    // The default action of a group; drawn like a switched-on switch.
+    in property <bool> primary: false;
     callback clicked;
     forward-focus: focus;
     height: 32px;
     horizontal-stretch: 0;
     border-radius: 8px;
-    background: Theme.pill;
+    background: root.primary && root.enabled ? Theme.switch-on : Theme.pill;
     HorizontalLayout {
         padding-left: 14px;
         padding-right: 14px;
@@ -76,7 +78,12 @@ export component Button inherits Rectangle {
             alignment: center;
             Icon { source: root.icon; size: 16px; }
         }
-        Text { text: root.text; font-size: 13px; color: Theme.text; vertical-alignment: center; }
+        Text {
+            text: root.text;
+            font-size: 13px;
+            color: !root.enabled ? Theme.secondary : root.primary ? Theme.switch-on-knob : Theme.text;
+            vertical-alignment: center;
+        }
     }
     touch := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
     focus := FocusScope {

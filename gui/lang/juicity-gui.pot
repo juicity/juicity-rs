@@ -2,7 +2,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: juicity-gui VERSION\n"
-"POT-Creation-Date: 2026-10-10 08:29+0000\n"
+"POT-Creation-Date: 2026-10-10 08:32+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -11,6 +11,22 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
+
+#: gui/ui/app.slint:74
+msgid "Save changes to your nodes?"
+msgstr ""
+
+#: gui/ui/app.slint:75
+msgid "Your node edits have not been saved."
+msgstr ""
+
+#: gui/ui/app.slint:76 gui/ui/pages/node_editor.slint:145
+msgid "Save"
+msgstr ""
+
+#: gui/ui/app.slint:77
+msgid "Don't Save"
+msgstr ""
 
 #: gui/ui/state.slint:70
 msgid "Connected · {}"
@@ -116,11 +132,11 @@ msgstr ""
 msgid "Yesterday {}"
 msgstr ""
 
-#: gui/ui/state.slint:189 gui/ui/pages/node_editor.slint:64
+#: gui/ui/state.slint:189 gui/ui/pages/node_editor.slint:70
 msgid "Server"
 msgstr ""
 
-#: gui/ui/state.slint:191 gui/ui/pages/node_editor.slint:87
+#: gui/ui/state.slint:191 gui/ui/pages/node_editor.slint:93
 msgid "Password"
 msgstr ""
 
@@ -238,11 +254,11 @@ msgstr ""
 msgid "Settings"
 msgstr ""
 
-#: gui/ui/components/primitives.slint:375
+#: gui/ui/components/primitives.slint:382
 msgid "In use"
 msgstr ""
 
-#: gui/ui/components/sheet.slint:40
+#: gui/ui/components/sheet.slint:40 gui/ui/components/sheet.slint:84
 msgid "Cancel"
 msgstr ""
 
@@ -292,76 +308,80 @@ msgstr ""
 msgid "Basic"
 msgstr ""
 
-#: gui/ui/pages/node_editor.slint:47
+#: gui/ui/pages/node_editor.slint:50
 msgid "Name"
 msgstr ""
 
-#: gui/ui/pages/node_editor.slint:53
+#: gui/ui/pages/node_editor.slint:57
 msgid "Protocol"
 msgstr ""
 
-#: gui/ui/pages/node_editor.slint:71 gui/ui/pages/settings.slint:127
-#: gui/ui/pages/node_editor.slint:71 gui/ui/pages/settings.slint:127
+#: gui/ui/pages/node_editor.slint:77 gui/ui/pages/settings.slint:127
+#: gui/ui/pages/node_editor.slint:77 gui/ui/pages/settings.slint:127
 msgid "Port"
 msgstr ""
 
-#: gui/ui/pages/node_editor.slint:79
+#: gui/ui/pages/node_editor.slint:85
 msgid "Authentication"
 msgstr ""
 
-#: gui/ui/pages/node_editor.slint:94
+#: gui/ui/pages/node_editor.slint:100
 msgid "Encryption method"
 msgstr ""
 
-#: gui/ui/pages/node_editor.slint:104 gui/ui/pages/node_editor.slint:140
+#: gui/ui/pages/node_editor.slint:110 gui/ui/pages/node_editor.slint:154
 msgid "Advanced settings"
 msgstr ""
 
-#: gui/ui/pages/node_editor.slint:114
+#: gui/ui/pages/node_editor.slint:120
 msgid "Set as active"
 msgstr ""
 
-#: gui/ui/pages/node_editor.slint:115 gui/ui/pages/nodes.slint:63
+#: gui/ui/pages/node_editor.slint:121 gui/ui/pages/nodes.slint:63
 msgid "Duplicate"
 msgstr ""
 
-#: gui/ui/pages/node_editor.slint:116
+#: gui/ui/pages/node_editor.slint:122
 msgid "Export link"
 msgstr ""
 
-#: gui/ui/pages/node_editor.slint:121 gui/ui/pages/nodes.slint:64
+#: gui/ui/pages/node_editor.slint:127 gui/ui/pages/nodes.slint:64
 msgid "Delete"
 msgstr ""
 
-#: gui/ui/pages/node_editor.slint:154
+#: gui/ui/pages/node_editor.slint:144
+msgid "Revert"
+msgstr ""
+
+#: gui/ui/pages/node_editor.slint:168
 msgid "Allow insecure connections"
 msgstr ""
 
-#: gui/ui/pages/node_editor.slint:161
+#: gui/ui/pages/node_editor.slint:175
 msgid "Pinned certificate chain SHA-256"
 msgstr ""
 
-#: gui/ui/pages/node_editor.slint:167
+#: gui/ui/pages/node_editor.slint:181
 msgid "Congestion control"
 msgstr ""
 
-#: gui/ui/pages/node_editor.slint:180
+#: gui/ui/pages/node_editor.slint:194
 msgid "Plugin"
 msgstr ""
 
-#: gui/ui/pages/node_editor.slint:186
+#: gui/ui/pages/node_editor.slint:200
 msgid "Plugin options"
 msgstr ""
 
-#: gui/ui/pages/node_editor.slint:192
+#: gui/ui/pages/node_editor.slint:206
 msgid "Plugin arguments"
 msgstr ""
 
-#: gui/ui/pages/node_editor.slint:201
+#: gui/ui/pages/node_editor.slint:215
 msgid "Timeout (s)"
 msgstr ""
 
-#: gui/ui/pages/node_editor.slint:208
+#: gui/ui/pages/node_editor.slint:222
 msgid "Group"
 msgstr ""
 

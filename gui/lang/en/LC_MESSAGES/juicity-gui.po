@@ -1,9 +1,25 @@
 msgid ""
 msgstr ""
-"POT-Creation-Date: 2026-10-10 08:29+0000\n"
+"POT-Creation-Date: 2026-10-10 08:32+0000\n"
 "Language: en\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: gui/ui/app.slint:74
+msgid "Save changes to your nodes?"
+msgstr "Save changes to your nodes?"
+
+#: gui/ui/app.slint:75
+msgid "Your node edits have not been saved."
+msgstr "Your node edits have not been saved."
+
+#: gui/ui/app.slint:76 gui/ui/pages/node_editor.slint:145
+msgid "Save"
+msgstr "Save"
+
+#: gui/ui/app.slint:77
+msgid "Don't Save"
+msgstr "Don't Save"
 
 #: gui/ui/state.slint:70
 msgid "Connected · {}"
@@ -109,11 +125,11 @@ msgstr "Today {}"
 msgid "Yesterday {}"
 msgstr "Yesterday {}"
 
-#: gui/ui/state.slint:189 gui/ui/pages/node_editor.slint:64
+#: gui/ui/state.slint:189 gui/ui/pages/node_editor.slint:70
 msgid "Server"
 msgstr "Server"
 
-#: gui/ui/state.slint:191 gui/ui/pages/node_editor.slint:87
+#: gui/ui/state.slint:191 gui/ui/pages/node_editor.slint:93
 msgid "Password"
 msgstr "Password"
 
@@ -227,11 +243,11 @@ msgstr "Logs"
 msgid "Settings"
 msgstr "Settings"
 
-#: gui/ui/components/primitives.slint:375
+#: gui/ui/components/primitives.slint:382
 msgid "In use"
 msgstr "In use"
 
-#: gui/ui/components/sheet.slint:40
+#: gui/ui/components/sheet.slint:40 gui/ui/components/sheet.slint:84
 msgid "Cancel"
 msgstr "Cancel"
 
@@ -281,75 +297,79 @@ msgstr "Reconnect to apply"
 msgid "Basic"
 msgstr "Basic"
 
-#: gui/ui/pages/node_editor.slint:47
+#: gui/ui/pages/node_editor.slint:50
 msgid "Name"
 msgstr "Name"
 
-#: gui/ui/pages/node_editor.slint:53
+#: gui/ui/pages/node_editor.slint:57
 msgid "Protocol"
 msgstr "Protocol"
 
-#: gui/ui/pages/node_editor.slint:71 gui/ui/pages/settings.slint:127
+#: gui/ui/pages/node_editor.slint:77 gui/ui/pages/settings.slint:127
 msgid "Port"
 msgstr "Port"
 
-#: gui/ui/pages/node_editor.slint:79
+#: gui/ui/pages/node_editor.slint:85
 msgid "Authentication"
 msgstr "Authentication"
 
-#: gui/ui/pages/node_editor.slint:94
+#: gui/ui/pages/node_editor.slint:100
 msgid "Encryption method"
 msgstr "Encryption method"
 
-#: gui/ui/pages/node_editor.slint:104 gui/ui/pages/node_editor.slint:140
+#: gui/ui/pages/node_editor.slint:110 gui/ui/pages/node_editor.slint:154
 msgid "Advanced settings"
 msgstr "Advanced settings"
 
-#: gui/ui/pages/node_editor.slint:114
+#: gui/ui/pages/node_editor.slint:120
 msgid "Set as active"
 msgstr "Set as active"
 
-#: gui/ui/pages/node_editor.slint:115 gui/ui/pages/nodes.slint:63
+#: gui/ui/pages/node_editor.slint:121 gui/ui/pages/nodes.slint:63
 msgid "Duplicate"
 msgstr "Duplicate"
 
-#: gui/ui/pages/node_editor.slint:116
+#: gui/ui/pages/node_editor.slint:122
 msgid "Export link"
 msgstr "Export link"
 
-#: gui/ui/pages/node_editor.slint:121 gui/ui/pages/nodes.slint:64
+#: gui/ui/pages/node_editor.slint:127 gui/ui/pages/nodes.slint:64
 msgid "Delete"
 msgstr "Delete"
 
-#: gui/ui/pages/node_editor.slint:154
+#: gui/ui/pages/node_editor.slint:144
+msgid "Revert"
+msgstr "Revert"
+
+#: gui/ui/pages/node_editor.slint:168
 msgid "Allow insecure connections"
 msgstr "Allow insecure connections"
 
-#: gui/ui/pages/node_editor.slint:161
+#: gui/ui/pages/node_editor.slint:175
 msgid "Pinned certificate chain SHA-256"
 msgstr "Pinned certificate chain SHA-256"
 
-#: gui/ui/pages/node_editor.slint:167
+#: gui/ui/pages/node_editor.slint:181
 msgid "Congestion control"
 msgstr "Congestion control"
 
-#: gui/ui/pages/node_editor.slint:180
+#: gui/ui/pages/node_editor.slint:194
 msgid "Plugin"
 msgstr "Plugin"
 
-#: gui/ui/pages/node_editor.slint:186
+#: gui/ui/pages/node_editor.slint:200
 msgid "Plugin options"
 msgstr "Plugin options"
 
-#: gui/ui/pages/node_editor.slint:192
+#: gui/ui/pages/node_editor.slint:206
 msgid "Plugin arguments"
 msgstr "Plugin arguments"
 
-#: gui/ui/pages/node_editor.slint:201
+#: gui/ui/pages/node_editor.slint:215
 msgid "Timeout (s)"
 msgstr "Timeout (s)"
 
-#: gui/ui/pages/node_editor.slint:208
+#: gui/ui/pages/node_editor.slint:222
 msgid "Group"
 msgstr "Group"
 

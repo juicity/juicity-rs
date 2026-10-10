@@ -43,20 +43,26 @@ export component NodeEditor inherits Card {
         spacing: 8px;
         if NodeStore.reconnect-required: Caption { text: @tr("Reconnect to apply"); }
         GroupLabel { text: @tr("Basic"); }
-        DraftField {
-            label: @tr("Name");
-            value: NodeStore.draft.name;
-            latin: false;
-            edited(text) => { Actions.edit-node(NodeField.name, text); }
-        }
-        MenuField {
-            label: @tr("Protocol");
-            value: root.juicity ? "juicity" : "shadowsocks";
-            items: [
-                { text: "juicity", checked: root.juicity, enabled: true },
-                { text: "shadowsocks", checked: !root.juicity, enabled: true },
-            ];
-            selected(index) => { Actions.edit-node(NodeField.protocol, index == 0 ? "juicity" : "shadowsocks"); }
+        // Name and protocol share a row to leave room for the Save footer.
+        HorizontalLayout {
+            spacing: 10px;
+            DraftField {
+                label: @tr("Name");
+                value: NodeStore.draft.name;
+                latin: false;
+                horizontal-stretch: 1;
+                edited(text) => { Actions.edit-node(NodeField.name, text); }
+            }
+            MenuField {
+                label: @tr("Protocol");
+                width: 150px;
+                value: root.juicity ? "juicity" : "shadowsocks";
+                items: [
+                    { text: "juicity", checked: root.juicity, enabled: true },
+                    { text: "shadowsocks", checked: !root.juicity, enabled: true },
+                ];
+                selected(index) => { Actions.edit-node(NodeField.protocol, index == 0 ? "juicity" : "shadowsocks"); }
+            }
         }
         HorizontalLayout {
             spacing: 10px;
@@ -129,6 +135,14 @@ export component NodeEditor inherits Card {
                     clicked => { Actions.node-command(NodeStore.selected, NodeCommand.delete); }
                 }
             }
+        }
+        HDivider { }
+        // Node edits stay in memory until Save; both are disabled when clean.
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+            Button { text: @tr("Revert"); enabled: NodeStore.dirty; clicked => { Actions.revert-nodes(); } }
+            Button { text: @tr("Save"); primary: true; enabled: NodeStore.dirty; clicked => { Actions.save-nodes(); } }
         }
     }
 }

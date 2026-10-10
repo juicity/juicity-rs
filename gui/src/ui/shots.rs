@@ -278,11 +278,18 @@ fn shots() -> anyhow::Result<()> {
             for (page, page_name, height) in [
                 (Page::Overview, "overview", HEIGHT),
                 (Page::Nodes, "nodes", HEIGHT),
+                // Unsaved node edits: the enabled footer, then the prompt.
+                (Page::Nodes, "nodes-dirty", HEIGHT),
+                (Page::Nodes, "save-prompt", HEIGHT),
                 (Page::Logs, "logs", HEIGHT),
                 (Page::Settings, "settings", SETTINGS_HEIGHT),
             ] {
                 window.set_size(PhysicalSize::new(WIDTH, height));
                 ui.global::<AppState>().set_page(page);
+                ui.global::<NodeStore>()
+                    .set_dirty(page_name == "nodes-dirty" || page_name == "save-prompt");
+                ui.global::<AppState>()
+                    .set_save_prompt(page_name == "save-prompt");
                 let mut pixels = SharedPixelBuffer::<Rgb8Pixel>::new(WIDTH, height);
                 window.request_redraw();
                 anyhow::ensure!(
@@ -311,8 +318,10 @@ fn shots() -> anyhow::Result<()> {
                         &pixels,
                     )?);
                 }
-                // The Logs page has no mockup.
-                if language == UiLang::ZhTw && page != Page::Logs {
+                // Only these pages have mockups.
+                if language == UiLang::ZhTw
+                    && ["overview", "nodes", "settings"].contains(&page_name)
+                {
                     compare_mockup(
                         &root.join(format!("tests/mockup/{page_name}--{theme}--zh-TW.png")),
                         &output.join(format!("diff--{page_name}--{theme}--zh_TW.png")),
