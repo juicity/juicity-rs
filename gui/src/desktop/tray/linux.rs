@@ -150,7 +150,7 @@ impl ksni::Tray for SniTray {
 
     fn tool_tip(&self) -> ToolTip {
         ToolTip {
-            title: "juicity".into(),
+            title: "Juicity GUI".into(),
             description: self.menu.tooltip(),
             ..Default::default()
         }

@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=juicity
+Name=Juicity GUI
 Comment=Juicity proxy client
 Exec=juicity-gui
 Icon=io.juicity.gui

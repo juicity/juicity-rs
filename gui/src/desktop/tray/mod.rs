@@ -68,7 +68,7 @@ pub struct TrayMenu {
 }
 
 impl TrayMenu {
-    /// Tooltip body: status lines below the "juicity" title.
+    /// Tooltip body: status lines below the "Juicity GUI" title.
     pub fn tooltip(&self) -> String {
         format!("{}\n{}", self.labels.status, self.labels.proxy_status)
     }

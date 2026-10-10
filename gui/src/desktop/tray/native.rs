@@ -64,7 +64,7 @@ impl NativeTray {
 }
 
 fn tooltip(menu: &TrayMenu) -> String {
-    format!("juicity\n{}", menu.tooltip())
+    format!("Juicity GUI\n{}", menu.tooltip())
 }
 
 /// The 32 px PNG rendered by build.rs.
