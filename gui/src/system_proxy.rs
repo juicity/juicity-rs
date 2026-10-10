@@ -64,7 +64,7 @@ fn apply_linux(mode: SystemProxyMode, pac_url: &str, listen: &str) -> anyhow::Re
         // Detected KDE desktop environment; only apply KDE settings.
         match apply_linux_kde(mode, pac_url, listen) {
             Ok(true) => Ok(()),
-            Ok(false) => bail!("KDE proxy apply failed (kwriteconfig5 not found)"),
+            Ok(false) => bail!("KDE proxy apply failed (kwriteconfig6 or kwriteconfig5 not found)"),
             Err(err) => bail!("KDE proxy apply failed: {err}"),
         }
     } else {
@@ -85,7 +85,7 @@ fn apply_linux(mode: SystemProxyMode, pac_url: &str, listen: &str) -> anyhow::Re
         if gnome_ok || kde_ok {
             Ok(())
         } else {
-            bail!("no Linux system proxy backend available (need gsettings and/or kwriteconfig5)")
+            bail!("no Linux system proxy backend available (need gsettings and/or kwriteconfig6 or kwriteconfig5)")
         }
     }
 }
@@ -158,44 +158,35 @@ fn apply_linux_kde(mode: SystemProxyMode, pac_url: &str, listen: &str) -> anyhow
 
     match mode {
         SystemProxyMode::Disable => {
-            ok |= run_if_available(
-                "kwriteconfig5",
-                &[
-                    "--file",
-                    "kioslaverc",
-                    "--group",
-                    "Proxy Settings",
-                    "--key",
-                    "ProxyType",
-                    "0",
-                ],
-            )?;
+            ok |= kwriteconfig(&[
+                "--file",
+                "kioslaverc",
+                "--group",
+                "Proxy Settings",
+                "--key",
+                "ProxyType",
+                "0",
+            ])?;
         }
         SystemProxyMode::Pac => {
-            ok |= run_if_available(
-                "kwriteconfig5",
-                &[
-                    "--file",
-                    "kioslaverc",
-                    "--group",
-                    "Proxy Settings",
-                    "--key",
-                    "ProxyType",
-                    "2",
-                ],
-            )?;
-            ok |= run_if_available(
-                "kwriteconfig5",
-                &[
-                    "--file",
-                    "kioslaverc",
-                    "--group",
-                    "Proxy Settings",
-                    "--key",
-                    "Proxy Config Script",
-                    pac_url,
-                ],
-            )?;
+            ok |= kwriteconfig(&[
+                "--file",
+                "kioslaverc",
+                "--group",
+                "Proxy Settings",
+                "--key",
+                "ProxyType",
+                "2",
+            ])?;
+            ok |= kwriteconfig(&[
+                "--file",
+                "kioslaverc",
+                "--group",
+                "Proxy Settings",
+                "--key",
+                "Proxy Config Script",
+                pac_url,
+            ])?;
         }
         SystemProxyMode::Global => {
             let (host, port) = crate::util::split_host_port(listen);
@@ -206,65 +197,63 @@ fn apply_linux_kde(mode: SystemProxyMode, pac_url: &str, listen: &str) -> anyhow
                 host.to_string()
             };
 
-            ok |= run_if_available(
-                "kwriteconfig5",
-                &[
-                    "--file",
-                    "kioslaverc",
-                    "--group",
-                    "Proxy Settings",
-                    "--key",
-                    "ProxyType",
-                    "1",
-                ],
-            )?;
-            ok |= run_if_available(
-                "kwriteconfig5",
-                &[
-                    "--file",
-                    "kioslaverc",
-                    "--group",
-                    "Proxy Settings",
-                    "--key",
-                    "httpProxy",
-                    &format!("http://{} {}", host, port),
-                ],
-            )?;
-            ok |= run_if_available(
-                "kwriteconfig5",
-                &[
-                    "--file",
-                    "kioslaverc",
-                    "--group",
-                    "Proxy Settings",
-                    "--key",
-                    "httpsProxy",
-                    &format!("http://{} {}", host, port),
-                ],
-            )?;
-            ok |= run_if_available(
-                "kwriteconfig5",
-                &[
-                    "--file",
-                    "kioslaverc",
-                    "--group",
-                    "Proxy Settings",
-                    "--key",
-                    "socksProxy",
-                    &format!("socks://{} {}", host, port),
-                ],
-            )?;
+            ok |= kwriteconfig(&[
+                "--file",
+                "kioslaverc",
+                "--group",
+                "Proxy Settings",
+                "--key",
+                "ProxyType",
+                "1",
+            ])?;
+            ok |= kwriteconfig(&[
+                "--file",
+                "kioslaverc",
+                "--group",
+                "Proxy Settings",
+                "--key",
+                "httpProxy",
+                &format!("http://{} {}", host, port),
+            ])?;
+            ok |= kwriteconfig(&[
+                "--file",
+                "kioslaverc",
+                "--group",
+                "Proxy Settings",
+                "--key",
+                "httpsProxy",
+                &format!("http://{} {}", host, port),
+            ])?;
+            ok |= kwriteconfig(&[
+                "--file",
+                "kioslaverc",
+                "--group",
+                "Proxy Settings",
+                "--key",
+                "socksProxy",
+                &format!("socks://{} {}", host, port),
+            ])?;
         }
     }
 
     // Refresh KIO where available (best-effort; must not affect `ok` so that
-    // a missing kwriteconfig5 isn't falsely counted as a success).
-    let _ = run_if_available(
-        "qdbus",
-        &["org.kde.KIO", "/KIO/Scheduler", "reparseSlaveConfiguration"],
-    );
+    // a missing kwriteconfig isn't falsely counted as a success).
+    let reparse = ["org.kde.KIO", "/KIO/Scheduler", "reparseSlaveConfiguration"];
+    if !matches!(run_if_available("qdbus6", &reparse), Ok(true)) {
+        let _ = run_if_available("qdbus", &reparse);
+    }
 
     Ok(ok)
+}
+
+/// Write a KDE setting with Plasma 6's `kwriteconfig6`, falling back to
+/// Plasma 5's `kwriteconfig5`; `Ok(false)` when neither is installed.
+#[cfg(target_os = "linux")]
+fn kwriteconfig(args: &[&str]) -> anyhow::Result<bool> {
+    if run_if_available("kwriteconfig6", args)? {
+        return Ok(true);
+    }
+    run_if_available("kwriteconfig5", args)
 }
 
 #[cfg(target_os = "macos")]
