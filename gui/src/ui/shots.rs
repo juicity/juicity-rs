@@ -132,8 +132,13 @@ fn logs_fixture(window: &MainWindow) {
     ];
     let samples: Vec<Speed> = (0..44u32)
         .map(|i| Speed {
-            down: f64::from((i * 37) % 11) * 96_000.0 + 12_000.0,
-            up: f64::from((i * 23) % 7) * 60_000.0 + 8_000.0,
+            // A smooth, plausible session: browsing bursts on a steady base.
+            down: 380_000.0
+                + 290_000.0 * (f64::from(i) / 4.0).sin()
+                + f64::from((i * 37) % 5) * 18_000.0,
+            up: 90_000.0
+                + 45_000.0 * (f64::from(i) / 5.0 + 1.0).sin()
+                + f64::from((i * 23) % 3) * 6_000.0,
         })
         .collect();
     let traffic = TrafficSnapshot {

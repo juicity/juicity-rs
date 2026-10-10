@@ -68,9 +68,9 @@ export component TrafficPanel inherits VerticalLayout {
     HorizontalLayout {
         spacing: 24px;
         VerticalLayout {
-            alignment: start;
+            alignment: center;
             horizontal-stretch: 0;
-            width: 448px;
+            width: 400px;
             HorizontalLayout {
                 spacing: 16px;
                 Stat { label: @tr("Download"); value: TrafficStore.down-speed; marker: Theme.text; }
