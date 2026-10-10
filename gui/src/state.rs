@@ -9,7 +9,6 @@ use crate::config::{AppConfig, ProfileStore, ProxyProfile, RuntimeState, Storage
 use crate::core::CoreManager;
 use crate::pac;
 use std::path::Path;
-use std::sync::mpsc::Receiver;
 
 pub struct GuiState {
     pub storage: Storage,
@@ -18,22 +17,12 @@ pub struct GuiState {
     pub runtime: RuntimeState,
     pub core_manager: CoreManager,
     pub pac_server: Option<pac::PacServer>,
-    pub pac_update_rx: Option<Receiver<anyhow::Result<()>>>,
 }
 
 impl GuiState {
-    pub fn new() -> anyhow::Result<Self> {
-        Ok(Self::load(Storage::new()?))
-    }
-
-    /// Load the three config files from `storage`, recovering from corrupt ones.
-    pub fn load(storage: Storage) -> Self {
-        Self::load_tracked(storage).0
-    }
-
-    /// Like [`GuiState::load`], also returning the bytes parsed for
-    /// app.json, profiles.json and runtime.json (`None` when missing or
-    /// recovered from corruption).
+    /// Load the three config files from `storage`, recovering from corrupt
+    /// ones.  Also returns the bytes parsed for app.json, profiles.json and
+    /// runtime.json (`None` when missing or recovered from corruption).
     pub fn load_tracked(storage: Storage) -> (Self, [Option<Vec<u8>>; 3]) {
         let paths = storage.paths().clone();
         let (config, app): (AppConfig, _) =
@@ -59,32 +48,19 @@ impl GuiState {
             runtime,
             core_manager: CoreManager::new(),
             pac_server: None,
-            pac_update_rx: None,
         };
         (state, [app, profiles_bytes, runtime_bytes])
     }
 
-    pub fn flush(&self) -> anyhow::Result<()> {
-        self.storage.save_app_config(&self.config)?;
-        self.storage.save_profiles(&self.profiles)?;
-        self.storage.save_runtime_state(&self.runtime)?;
-        Ok(())
-    }
-
     /// Persist only the runtime state, leaving edits the user has not saved
     /// yet in memory.  Used when the proxy is started or stopped.
+    #[allow(dead_code)] // Used by the Slint editor's explicit save (next milestone).
     pub fn flush_runtime(&self) -> anyhow::Result<()> {
         self.storage.save_runtime_state(&self.runtime)
     }
 
     pub fn selected_profile(&self) -> Option<&ProxyProfile> {
         self.profiles.profiles.get(self.runtime.selected_profile)
-    }
-
-    pub fn selected_profile_mut(&mut self) -> Option<&mut ProxyProfile> {
-        self.profiles
-            .profiles
-            .get_mut(self.runtime.selected_profile)
     }
 
     pub fn normalize_selected_index(&mut self) {
@@ -150,13 +126,6 @@ pub fn restart_pac_server(state: &mut GuiState, force_restart: bool) -> anyhow::
         srv.update(content);
     }
     Ok(())
-}
-
-pub fn extract_port(addr: &str) -> u16 {
-    addr.rsplit(':')
-        .next()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(1080)
 }
 
 pub fn non_empty_text(input: &str) -> Option<String> {

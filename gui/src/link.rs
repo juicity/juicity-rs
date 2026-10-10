@@ -401,13 +401,15 @@ mod tests {
 
     #[test]
     fn roundtrip_juicity() {
-        let mut p = ProxyProfile::default();
-        p.server = "example.com".to_string();
-        p.server_port = 443;
-        p.uuid = "test-uuid".to_string();
-        p.password = "test-pass".to_string();
-        p.sni = Some("example.com".to_string());
-        p.name = "My Server".to_string();
+        let p = ProxyProfile {
+            server: "example.com".to_string(),
+            server_port: 443,
+            uuid: "test-uuid".to_string(),
+            password: "test-pass".to_string(),
+            sni: Some("example.com".to_string()),
+            name: "My Server".to_string(),
+            ..Default::default()
+        };
         let link = export_share_link(&p).unwrap();
         assert!(link.starts_with("juicity://"));
         let re = import_share_link(&link).unwrap();

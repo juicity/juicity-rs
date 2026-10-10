@@ -3893,7 +3893,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tray-icon",
- "unicode-segmentation",
  "ureq",
  "url",
  "windows-registry",

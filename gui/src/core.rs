@@ -37,8 +37,6 @@ const BIND_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(2
 /// A proxy core running in-process.
 struct RunningCore {
     protocol: ProxyProtocol,
-    /// Display name of the profile this core was started for.
-    name: String,
     /// Task running the local proxy service.
     task: JoinHandle<()>,
     /// Keeps the QUIC endpoint (and its pooled connections) alive for the
@@ -96,19 +94,6 @@ impl CoreManager {
         Self::default()
     }
 
-    pub fn is_running(&self) -> bool {
-        self.running.is_some()
-    }
-
-    /// Name of the profile the running core was started with.
-    pub fn current_name(&self) -> Option<&str> {
-        self.running.as_ref().map(|v| v.name.as_str())
-    }
-
-    pub fn current_protocol(&self) -> Option<ProxyProtocol> {
-        self.running.as_ref().map(|v| v.protocol)
-    }
-
     /// Cumulative `(transmitted, received)` bytes for the running core, or
     /// `None` when no core is running.
     ///
@@ -116,6 +101,7 @@ impl CoreManager {
     /// reads the counters its local server pushes over the flow-statistics
     /// socket.  The last known value is returned when a fresh reading is
     /// momentarily unavailable.
+    #[allow(dead_code)] // Used by the Slint logs page (next milestone).
     pub fn traffic(&mut self) -> Option<(u64, u64)> {
         let running = self.running.as_mut()?;
         let reading = match &running.client {
@@ -171,20 +157,11 @@ impl CoreManager {
 
         self.running = Some(RunningCore {
             protocol: profile.protocol,
-            name: profile.display_name(),
             task: started.task,
             client: started.client,
             flow_stat: started.flow_stat,
             last_traffic: (0, 0),
         });
-        Ok(())
-    }
-
-    /// Stop the running core.  Blocks until the service has released its
-    /// listening sockets; the operation is short enough to stay on the UI
-    /// thread.
-    pub fn stop(&mut self) -> anyhow::Result<()> {
-        self.stop_and_wait();
         Ok(())
     }
 
@@ -659,9 +636,6 @@ mod tests {
         let mut manager = CoreManager::new();
 
         manager.start_profile(&app_config, &profile).unwrap();
-        assert!(manager.is_running());
-        assert_eq!(manager.current_protocol(), Some(ProxyProtocol::Shadowsocks));
-        assert_eq!(manager.current_name(), Some("ss.example.com:8388"));
 
         // SOCKS5 greeting -> "no authentication required".
         let mut socks = TcpStream::connect("127.0.0.1:38471").unwrap();
@@ -696,10 +670,8 @@ mod tests {
         // Restarting must succeed even though the previous listener was just
         // released asynchronously.
         manager.start_profile(&app_config, &profile).unwrap();
-        assert!(manager.is_running());
 
         manager.stop_and_wait();
-        assert!(!manager.is_running());
         assert!(manager.poll().unwrap().is_none());
     }
 }

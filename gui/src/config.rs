@@ -37,10 +37,6 @@ pub const SS_METHODS: &[&str] = &[
     "table",
 ];
 
-pub fn method_to_index(method: &str) -> u32 {
-    SS_METHODS.iter().position(|m| *m == method).unwrap_or(0) as u32
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ProxyProtocol {
@@ -75,22 +71,6 @@ pub enum PacRuleMode {
     BypassChina,
     /// Only route domains on the GFW block-list via proxy; everything else is direct.
     ProxyGfw,
-}
-
-impl ProxyProtocol {
-    pub fn from_index(idx: u32) -> Self {
-        match idx {
-            1 => ProxyProtocol::Shadowsocks,
-            _ => ProxyProtocol::Juicity,
-        }
-    }
-
-    pub fn index(self) -> u32 {
-        match self {
-            ProxyProtocol::Juicity => 0,
-            ProxyProtocol::Shadowsocks => 1,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -248,16 +228,6 @@ pub enum StartupConnectionState {
     LastState,
 }
 
-impl StartupConnectionState {
-    pub fn index(self) -> u32 {
-        match self {
-            StartupConnectionState::Off => 0,
-            StartupConnectionState::On => 1,
-            StartupConnectionState::LastState => 2,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RuntimeState {
@@ -325,7 +295,7 @@ impl Storage {
     }
 
     /// Storage rooted at an explicit directory (used by tests).
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn with_dir(dir: impl Into<PathBuf>) -> anyhow::Result<Self> {
         Self::with_paths(ConfigPaths::in_dir(dir.into()))
     }
@@ -340,35 +310,8 @@ impl Storage {
         &self.paths
     }
 
-    pub fn load_app_config(&self) -> anyhow::Result<AppConfig> {
-        self.load_or_default(&self.paths.app_json)
-    }
-
-    pub fn save_app_config(&self, value: &AppConfig) -> anyhow::Result<()> {
-        self.save_pretty_json(&self.paths.app_json, value)
-    }
-
-    pub fn load_profiles(&self) -> anyhow::Result<ProfileStore> {
-        self.load_or_default(&self.paths.profiles_json)
-    }
-
-    pub fn save_profiles(&self, value: &ProfileStore) -> anyhow::Result<()> {
-        self.save_pretty_json(&self.paths.profiles_json, value)
-    }
-
-    pub fn load_runtime_state(&self) -> anyhow::Result<RuntimeState> {
-        self.load_or_default(&self.paths.runtime_json)
-    }
-
     pub fn save_runtime_state(&self, value: &RuntimeState) -> anyhow::Result<()> {
         self.save_pretty_json(&self.paths.runtime_json, value)
-    }
-
-    fn load_or_default<T>(&self, path: &Path) -> anyhow::Result<T>
-    where
-        T: DeserializeOwned + Default,
-    {
-        self.load_with_bytes(path).map(|(value, _)| value)
     }
 
     /// Load `path` (default when missing) and also return the bytes that were

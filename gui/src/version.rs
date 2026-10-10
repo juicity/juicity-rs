@@ -25,11 +25,6 @@ impl Versions {
             juicity: env!("JUICITY_DEPS_JUICITY_CLIENT"),
         }
     }
-
-    /// Release tag plus the abbreviated commit the binary was built from.
-    pub fn build(&self) -> String {
-        format!("{} ({})", self.tag, short_commit(self.commit))
-    }
 }
 
 /// Abbreviate a commit hash the way `git rev-parse --short` does.

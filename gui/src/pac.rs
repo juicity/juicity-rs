@@ -176,7 +176,6 @@ pub fn rules_age_hours(data_dir: &Path) -> Option<u64> {
 
 /// Modification time of the downloaded rule files, or `None` until both
 /// exist.
-#[allow(dead_code)]
 pub fn rules_updated_at(data_dir: &Path) -> Option<std::time::SystemTime> {
     // The older of the two files, so a half-failed download is not shown as fresh.
     let mtime = |file: &str| std::fs::metadata(data_dir.join(file)).ok()?.modified().ok();

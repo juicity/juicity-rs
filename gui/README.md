@@ -1,6 +1,6 @@
 # Juicity GUI
 
-A [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) based desktop frontend for the Juicity proxy client.
+A [Slint](https://slint.dev) 1.18 desktop frontend (winit + FemtoVG) for the Juicity proxy client.
 
 ## Implemented
 
@@ -21,7 +21,7 @@ A [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) based desk
   - Windows/macOS: native tray via `tray-icon` (polled on the main loop)
 - System proxy (Disable / PAC / Global): Linux GNOME/KDE, macOS `networksetup`, Windows registry. The proxy is restored to "Disable" when the app quits.
 - Corrupt config files are moved aside as `*.json.bad` and defaults are used instead of failing to start
-- Closing the main window keeps the app running in the tray (on by default; a hidden background window keeps GPUI's event loop alive), as long as a tray icon is actually available
+- Closing the main window keeps the app running in the tray (on by default; the Slint event loop keeps running via `run_event_loop_until_quit`), as long as a tray icon is actually available
 - Start/stop and core status polling (300 ms)
 - PAC settings dialog and Startup settings dialog
 - About dialog (tray menu only) showing the embedded application icon and the
@@ -62,12 +62,12 @@ no icon file has to ship next to the executable. `gui/build.rs` rasterizes it
 with `resvg` at 16/32/48/64/128/256/512/1024 px and the results are pulled in
 with `include_bytes!`:
 
-- the SVG itself and the 256 px PNG are served through the GPUI asset source
-  (`icon::Assets`), which is what the About dialog draws
+- the SVG itself is compiled into the Slint UI through `@image-url` in
+  `ui/theme.slint`, which is what the sidebar and the About page draw
 - 16/32/48 px are additionally converted to raw ARGB for the Linux
   StatusNotifierItem tray icon
 - `icon.ico` is assembled from the 16–256 px bitmaps and, on Windows, compiled
-  into the executable's resources as `IDI_ICON1` (resource id 1) — GPUI reads
+  into the executable's resources as `IDI_ICON1` (resource id 1) — Windows takes
   the window and taskbar icon from there
 - `gui/macos/bundle.sh` builds `icon.icns` from the generated PNGs, so no SVG
   converter has to be installed to produce a bundled app

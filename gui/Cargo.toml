@@ -25,7 +25,6 @@ slint = { version = "=1.18.1", default-features = false, features = ["std", "bac
 arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 directories = "5"
-unicode-segmentation = "1"
 notify = "7"
 sys-locale = "0.3"
 
