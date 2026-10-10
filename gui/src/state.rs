@@ -57,6 +57,12 @@ impl GuiState {
         Ok(())
     }
 
+    /// Persist only the runtime state, leaving edits the user has not saved
+    /// yet in memory.  Used when the proxy is started or stopped.
+    pub fn flush_runtime(&self) -> anyhow::Result<()> {
+        self.storage.save_runtime_state(&self.runtime)
+    }
+
     pub fn selected_profile(&self) -> Option<&ProxyProfile> {
         self.profiles.profiles.get(self.runtime.selected_profile)
     }

@@ -92,20 +92,35 @@ chmod +x "${MACOS_DIR}/juicity-gui"
 
 echo "==> Copied binaries to MacOS/"
 
-# ── Generate icon (icns) from SVG ───────────────────────────────────────
-# We use the already-generated PNGs from the build script, or generate one.
+# ── Generate icon (icns) from the build script output ───────────────────
+# build.rs rasterizes gui/icon.svg at exactly the sizes an .iconset needs, so
+# the bundle does not depend on an SVG converter being installed.
 ICNS_PATH="${RESOURCES_DIR}/icon.icns"
+ICONSET_DIR="${REPO_ROOT}/dist/Juicity.iconset"
 if command -v iconutil &>/dev/null; then
-  # Build iconset directory from the PNGs generated during build
-  ICONSET_DIR="${REPO_ROOT}/dist/Juicity.iconset"
   rm -rf "${ICONSET_DIR}"
   mkdir -p "${ICONSET_DIR}"
 
-  # Use PNGs from build script output
-  BUILD_OUT_DIR="$(dirname "$(find "${TARGET_DIR}" -name "build" -type d 2>/dev/null | head -1)" 2>/dev/null || true)"
-  # Generate icons from SVG at various sizes
-  if command -v sips &>/dev/null; then
-    # Generate a 1024x1024 PNG from SVG (convert via rsvg or cairosvg)
+  BUILD_OUT_DIR="$(ls -dt "${TARGET_DIR}"/build/juicity-gui-*/out 2>/dev/null | head -n 1 || true)"
+
+  if [[ -n "${BUILD_OUT_DIR}" && -f "${BUILD_OUT_DIR}/1024.png" ]]; then
+    # "<size> <iconset filename>" pairs required by `iconutil`.
+    while read -r SIZE NAME; do
+      cp "${BUILD_OUT_DIR}/${SIZE}.png" "${ICONSET_DIR}/${NAME}"
+    done <<'MEMBERS'
+16 icon_16x16.png
+32 icon_16x16@2x.png
+32 icon_32x32.png
+64 icon_32x32@2x.png
+128 icon_128x128.png
+256 icon_128x128@2x.png
+256 icon_256x256.png
+512 icon_256x256@2x.png
+512 icon_512x512.png
+1024 icon_512x512@2x.png
+MEMBERS
+  elif command -v sips &>/dev/null; then
+    # Fallback: render the SVG ourselves and let sips produce every size.
     TMP_PNG="${REPO_ROOT}/dist/juicity-icon-1024.png"
     if command -v rsvg-convert &>/dev/null; then
       rsvg-convert -w 1024 -h 1024 "${GUI_DIR}/icon.svg" -o "${TMP_PNG}"
@@ -128,14 +143,16 @@ if command -v iconutil &>/dev/null; then
         fi
       done
       rm -f "${TMP_PNG}"
-
-      # Convert iconset to icns
-      iconutil -c icns "${ICONSET_DIR}" -o "${ICNS_PATH}" || {
-        echo "WARNING: iconutil failed. Proceeding without icon."
-      }
-      rm -rf "${ICONSET_DIR}"
     fi
   fi
+
+  if compgen -G "${ICONSET_DIR}/*.png" >/dev/null; then
+    # Convert iconset to icns
+    iconutil -c icns "${ICONSET_DIR}" -o "${ICNS_PATH}" || {
+      echo "WARNING: iconutil failed. Proceeding without icon."
+    }
+  fi
+  rm -rf "${ICONSET_DIR}"
 fi
 
 if [[ ! -f "${ICNS_PATH}" ]]; then

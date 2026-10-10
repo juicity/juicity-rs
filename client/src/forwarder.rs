@@ -360,6 +360,9 @@ async fn start_udp_forward(entry: ForwardEntry, client: JuicityClient) -> anyhow
         }
 
         // ── Slow path: create a new session (low frequency) ──
+        // `open_udp_stream` already writes the stream header *and* the first
+        // datagram, so there is nothing more to send here. Do not re-send the
+        // first packet or the target would receive a duplicate datagram.
         let (send, mut recv) = match client.open_udp_stream(&host, port, &data[..]).await {
             Ok(pair) => pair,
             Err(e) => {

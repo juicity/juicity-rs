@@ -24,6 +24,8 @@ A [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) based desk
 - Closing the main window keeps the app running in the tray (on by default; a hidden background window keeps GPUI's event loop alive), as long as a tray icon is actually available
 - Start/stop and core status polling (300 ms)
 - PAC settings dialog and Startup settings dialog
+- About dialog (tray menu only) showing the embedded application icon and the
+  versions of the GUI, Shadowsocks-Rust and Juicity-RS
 
 ## Embedded protocol backends
 
@@ -52,6 +54,23 @@ deprecated stream ciphers. SIP003 plugins (`plugin`, `plugin_opts`,
 Legacy profiles that still point at a full `juicity-client` / `sslocal` JSON
 config file via `config_path` are loaded from that file; otherwise the
 configuration is generated from the individual profile fields.
+
+## Application icon
+
+`gui/icon.svg` is the single source of truth and is embedded into the binary, so
+no icon file has to ship next to the executable. `gui/build.rs` rasterizes it
+with `resvg` at 16/32/48/64/128/256/512/1024 px and the results are pulled in
+with `include_bytes!`:
+
+- the SVG itself and the 256 px PNG are served through the GPUI asset source
+  (`icon::Assets`), which is what the About dialog draws
+- 16/32/48 px are additionally converted to raw ARGB for the Linux
+  StatusNotifierItem tray icon
+- `icon.ico` is assembled from the 16–256 px bitmaps and, on Windows, compiled
+  into the executable's resources as `IDI_ICON1` (resource id 1) — GPUI reads
+  the window and taskbar icon from there
+- `gui/macos/bundle.sh` builds `icon.icns` from the generated PNGs, so no SVG
+  converter has to be installed to produce a bundled app
 
 ## Config directory
 
@@ -129,6 +148,11 @@ brew install molten-vk
 ### Windows
 
 Ensure a Vulkan-capable driver and runtime (e.g. the Vulkan SDK from LunarG).
+
+`x86_64` and `aarch64` are supported. The MSVC targets link the CRT statically
+and therefore need no extra runtime DLLs; the `*-pc-windows-gnullvm` targets are
+built with the MSYS2 CLANG64 (x86_64) or CLANGARM64 (aarch64) toolchain, which is
+also what CI uses on the native Windows 11 ARM runner.
 
 ## Run
 

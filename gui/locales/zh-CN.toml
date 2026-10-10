@@ -76,6 +76,8 @@ stop_proxy = "停止代理"
 status_running = "▶ 运行中 — %{name}"
 status_stopped = "■ 已停止"
 startup_settings = "启动设置..."
+about = "关于 Juicity GUI..."
+view_logs = "查看日志..."
 
 [proxy]
 disable = "禁用"
@@ -116,6 +118,32 @@ autostart_desc = "系统启动时自动运行本程序"
 yes = "是"
 no = "否"
 save = "保存"
+
+[about_dialog]
+title = "关于 Juicity GUI"
+app_name = "Juicity GUI"
+label_version = "版本："
+label_build = "构建："
+label_shadowsocks = "Shadowsocks-Rust："
+label_juicity = "Juicity-RS："
+
+[log_dialog]
+title = "日志"
+download_speed = "下载速度"
+upload_speed = "上传速度"
+download_total = "下载总量"
+upload_total = "上传总量"
+clear = "清空"
+follow = "自动滚动"
+dropped = "已丢弃 %{n} 行早期日志"
+no_traffic = "暂无流量数据"
+
+[save_prompt]
+title = "未保存的更改"
+message = "有尚未保存的更改，是否保存？"
+save = "保存"
+discard = "不保存"
+cancel = "取消"
 
 [protocol]
 juicity = "Juicity"

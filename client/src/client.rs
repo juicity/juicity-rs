@@ -318,6 +318,20 @@ impl JuicityClient {
         })
     }
 
+    /// Cumulative `(transmitted, received)` bytes across the live QUIC
+    /// connection.
+    ///
+    /// These are UDP-level counters, i.e. everything the tunnel carried over
+    /// the wire including QUIC overhead.  Returns `None` while the connection
+    /// is being rebuilt by a reconnect, which the caller can treat as "no
+    /// reading right now".
+    pub fn traffic(&self) -> Option<(u64, u64)> {
+        let guard = self.connection.try_read().ok()?;
+        let conn = guard.as_ref()?;
+        let stats = conn.stats();
+        Some((stats.udp_tx.bytes, stats.udp_rx.bytes))
+    }
+
     /// Return the shared connection, reconnecting if necessary.
     /// Failures are shared with queued callers until the backoff window expires.
     pub async fn connect(&self) -> anyhow::Result<Connection> {

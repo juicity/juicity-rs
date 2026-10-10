@@ -6,17 +6,23 @@
     windows_subsystem = "windows"
 )]
 
+mod about_dialog;
 mod app;
 mod config;
 mod core;
 mod i18n;
 mod icon;
 mod link;
+mod log_dialog;
+mod logging;
 mod pac;
 mod pac_dialog;
+mod save_prompt;
 mod startup_dialog;
 mod state;
 mod system_proxy;
+mod system_theme;
+mod traffic;
 mod tray;
 mod util;
 mod widgets;
@@ -30,12 +36,8 @@ fn main() -> anyhow::Result<()> {
         .and_then(|i| std::env::args().nth(i + 1))
         .unwrap_or_else(|| "info".to_string());
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&log_level)),
-        )
-        .init();
+    // Console output plus the in-memory buffer the log window reads.
+    logging::init(&log_level);
 
     // Activate the system locale before any UI string is read.
     i18n::init();

@@ -5,13 +5,14 @@
 
 use crate::app::AppView;
 use crate::config::{RuntimeState, StartupConnectionState};
-use gpui::prelude::*;
-use gpui::{
-    div, px, rgb, size, App, Bounds, ClickEvent, Context, ElementId, SharedString, WeakEntity,
+use crate::widgets;
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::checkbox::Checkbox;
+use gpui_kit::prelude::*;
+use gpui_kit::{
+    div, px, size, App, Bounds, ClickEvent, Context, ElementId, SharedString, WeakEntity,
     Window, WindowBounds, WindowOptions,
 };
-use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::checkbox::Checkbox;
 use rust_i18n::t;
 
 /// Open the startup settings dialog as its own window.
@@ -36,7 +37,7 @@ pub fn open(owner: &WeakEntity<AppView>, cx: &mut App) {
                 window.set_window_title(&t!("startup_dialog.title"));
                 window.set_app_id("io.juicity.gui");
                 let dialog = cx.new(|cx| StartupDialog::new(owner, state, cx));
-                cx.new(|cx| gpui_component::Root::new(dialog, window, cx))
+                cx.new(|cx| gpui_kit::base::Root::new(dialog, window, cx))
             },
         )
         .ok();
@@ -107,12 +108,13 @@ impl StartupDialog {
 impl Render for StartupDialog {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.weak_entity();
+        let colors = widgets::palette(cx);
 
         let group_header = |title: &str| {
             div()
                 .text_sm()
-                .font_weight(gpui::FontWeight::SEMIBOLD)
-                .text_color(rgb(0x24292f))
+                .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                .text_color(colors.foreground)
                 .mb_1()
                 .child(title.to_string())
         };
@@ -127,11 +129,11 @@ impl Render for StartupDialog {
             .size_full()
             .flex()
             .flex_col()
-            .bg(rgb(0xf6f8fa))
+            .bg(colors.panel)
             .child(
                 div()
                     .id("startup-scroll")
-                    .flex_grow()
+                    .flex_grow(1.)
                     .overflow_y_scroll()
                     .p_4()
                     .flex()
@@ -139,7 +141,7 @@ impl Render for StartupDialog {
                     .gap_3()
                     .child(
                         group_header(&t!("startup_dialog.group_hide_window"))
-                            .child(div().h(px(1.)).w_full().bg(rgb(0xe0e0e0)).mt_1()),
+                            .child(div().h(px(1.)).w_full().bg(colors.border).mt_1()),
                     )
                     .child(div().pl(px(8.)).child(chk(
                         "startup-hide-window",
@@ -152,10 +154,10 @@ impl Render for StartupDialog {
                             }
                         },
                     )))
-                    .child(separator())
+                    .child(separator(colors))
                     .child(
                         group_header(&t!("startup_dialog.group_connection"))
-                            .child(div().h(px(1.)).w_full().bg(rgb(0xe0e0e0)).mt_1()),
+                            .child(div().h(px(1.)).w_full().bg(colors.border).mt_1()),
                     )
                     .child(
                         div()
@@ -179,10 +181,10 @@ impl Render for StartupDialog {
                                 )
                             })),
                     )
-                    .child(separator())
+                    .child(separator(colors))
                     .child(
                         group_header(&t!("startup_dialog.group_autostart"))
-                            .child(div().h(px(1.)).w_full().bg(rgb(0xe0e0e0)).mt_1()),
+                            .child(div().h(px(1.)).w_full().bg(colors.border).mt_1()),
                     )
                     .child(div().pl(px(8.)).child(chk(
                         "startup-auto-start",
@@ -205,9 +207,9 @@ impl Render for StartupDialog {
                     .px_3()
                     .py_2()
                     .border_t_1()
-                    .border_color(rgb(0xd0d7de))
-                    .bg(rgb(0xffffff))
-                    .child(div().flex_grow())
+                    .border_color(colors.border)
+                    .bg(colors.background)
+                    .child(div().flex_grow(1.))
                     .child(btn(
                         "startup-cancel",
                         t!("btn.cancel").to_string(),
@@ -234,7 +236,7 @@ impl Render for StartupDialog {
     }
 }
 
-/// Build a gpui-component `Button`.
+/// Build a gpui-kit `Button`.
 fn btn(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
@@ -246,10 +248,10 @@ fn btn(
     b.on_click(on_click)
 }
 
-/// Build a gpui-component `Checkbox`.
+/// Build a gpui-kit `Checkbox`.
 fn chk(
     id: impl Into<ElementId>,
-    label: impl Into<gpui_component::text::Text>,
+    label: impl Into<gpui_kit::component::text::Text>,
     checked: bool,
     on_click: impl Fn(&bool, &mut Window, &mut App) + 'static,
 ) -> Checkbox {
@@ -257,6 +259,6 @@ fn chk(
 }
 
 /// Thin horizontal separator line.
-fn separator() -> impl IntoElement {
-    div().h(px(1.)).w_full().bg(rgb(0xe0e0e0)).my_1()
+fn separator(colors: widgets::Palette) -> impl IntoElement {
+    div().h(px(1.)).w_full().bg(colors.border).my_1()
 }

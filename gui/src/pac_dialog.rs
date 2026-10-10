@@ -8,13 +8,13 @@ use crate::app::AppView;
 use crate::config::AppConfig;
 use crate::pac;
 use crate::widgets;
-use gpui::prelude::*;
-use gpui::{
-    div, px, rgb, size, App, Bounds, ClickEvent, Context, ElementId, Entity, SharedString,
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::prelude::*;
+use gpui_kit::{
+    div, px, size, App, Bounds, ClickEvent, Context, ElementId, Entity, SharedString,
     WeakEntity, Window, WindowBounds, WindowOptions,
 };
-use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::input::{Input, InputState};
 use rust_i18n::t;
 
 /// Open the PAC settings dialog as its own window on top of the main view.
@@ -43,7 +43,7 @@ pub fn open(owner: &WeakEntity<AppView>, cx: &mut App) {
                 window.set_window_title(&t!("pac_dialog.title"));
                 window.set_app_id("io.juicity.gui");
                 let dialog = cx.new(|cx| PacDialog::new(owner, config, window, cx));
-                cx.new(|cx| gpui_component::Root::new(dialog, window, cx))
+                cx.new(|cx| gpui_kit::base::Root::new(dialog, window, cx))
             },
         )
         .ok();
@@ -129,13 +129,14 @@ impl PacDialog {
 impl Render for PacDialog {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.weak_entity();
+        let colors = widgets::palette(cx);
         let pac_url = pac::pac_url(&self.listen_addr.read(cx).value());
 
         let group_header = |title: &str| {
             div()
                 .text_sm()
-                .font_weight(gpui::FontWeight::SEMIBOLD)
-                .text_color(rgb(0x24292f))
+                .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                .text_color(colors.foreground)
                 .mb_1()
                 .child(title.to_string())
         };
@@ -144,11 +145,11 @@ impl Render for PacDialog {
             .size_full()
             .flex()
             .flex_col()
-            .bg(rgb(0xf6f8fa))
+            .bg(colors.panel)
             .child(
                 div()
                     .id("pac-scroll")
-                    .flex_grow()
+                    .flex_grow(1.)
                     .overflow_y_scroll()
                     .p_4()
                     .flex()
@@ -156,31 +157,35 @@ impl Render for PacDialog {
                     .gap_2()
                     .child(
                         group_header(&t!("pac_dialog.group_rules"))
-                            .child(div().h(px(1.)).w_full().bg(rgb(0xe0e0e0)).mt_1()),
+                            .child(div().h(px(1.)).w_full().bg(colors.border).mt_1()),
                     )
                     .child(widgets::field_row(
+                        colors,
                         t!("pac_dialog.direct_url").to_string(),
                         Input::new(&self.direct_url),
                     ))
                     .child(widgets::field_row(
+                        colors,
                         t!("pac_dialog.proxy_url").to_string(),
                         Input::new(&self.proxy_url),
                     ))
-                    .child(separator())
+                    .child(separator(colors))
                     .child(
                         group_header(&t!("pac_dialog.group_update"))
-                            .child(div().h(px(1.)).w_full().bg(rgb(0xe0e0e0)).mt_1()),
+                            .child(div().h(px(1.)).w_full().bg(colors.border).mt_1()),
                     )
                     .child(widgets::field_row(
+                        colors,
                         t!("pac_dialog.update_interval").to_string(),
                         Input::new(&self.interval),
                     ))
-                    .child(separator())
+                    .child(separator(colors))
                     .child(
                         group_header(&t!("pac_dialog.group_server"))
-                            .child(div().h(px(1.)).w_full().bg(rgb(0xe0e0e0)).mt_1()),
+                            .child(div().h(px(1.)).w_full().bg(colors.border).mt_1()),
                     )
                     .child(widgets::field_row(
+                        colors,
                         t!("pac_dialog.listen_addr").to_string(),
                         Input::new(&self.listen_addr),
                     ))
@@ -196,17 +201,18 @@ impl Render for PacDialog {
                                     .w(px(130.))
                                     .flex_none()
                                     .text_right()
-                                    .text_color(rgb(0x57606a))
+                                    .text_color(colors.muted_foreground)
                                     .child(t!("pac_dialog.pac_url_label").to_string()),
                             )
-                            .child(div().text_sm().text_color(rgb(0x0969da)).child(pac_url)),
+                            .child(div().text_sm().text_color(colors.link).child(pac_url)),
                     )
-                    .child(separator())
+                    .child(separator(colors))
                     .child(
                         group_header(&t!("pac_dialog.group_online"))
-                            .child(div().h(px(1.)).w_full().bg(rgb(0xe0e0e0)).mt_1()),
+                            .child(div().h(px(1.)).w_full().bg(colors.border).mt_1()),
                     )
                     .child(widgets::field_row(
+                        colors,
                         t!("pac_dialog.online_pac_url").to_string(),
                         Input::new(&self.online_url),
                     )),
@@ -220,15 +226,15 @@ impl Render for PacDialog {
                     .px_3()
                     .py_2()
                     .border_t_1()
-                    .border_color(rgb(0xd0d7de))
-                    .bg(rgb(0xffffff))
+                    .border_color(colors.border)
+                    .bg(colors.background)
                     .child(btn(
                         "pac-update-now",
                         t!("pac_dialog.update_now").to_string(),
                         false,
                         with_view(&this, PacDialog::update_now),
                     ))
-                    .child(div().flex_grow())
+                    .child(div().flex_grow(1.))
                     .child(btn(
                         "pac-cancel",
                         t!("btn.cancel").to_string(),
@@ -251,7 +257,7 @@ impl PacDialog {
     }
 }
 
-/// Build a gpui-component `Button`.
+/// Build a gpui-kit `Button`.
 fn btn(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
@@ -267,7 +273,7 @@ fn btn(
 fn with_view<F>(
     this: &WeakEntity<PacDialog>,
     f: F,
-) -> impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static
+) -> impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static
 where
     F: Fn(&mut PacDialog, &mut Window, &mut Context<PacDialog>) + 'static,
 {
@@ -278,6 +284,6 @@ where
 }
 
 /// Thin horizontal separator line.
-fn separator() -> impl IntoElement {
-    div().h(px(1.)).w_full().bg(rgb(0xe0e0e0)).my_1()
+fn separator(colors: widgets::Palette) -> impl IntoElement {
+    div().h(px(1.)).w_full().bg(colors.border).my_1()
 }

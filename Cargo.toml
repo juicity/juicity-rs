@@ -51,6 +51,9 @@ mimalloc = "0.1"
 shadowsocks-service = { version = "1.25", default-features = false, features = [
     "local",
     "local-http-rustls",
+    # `local-flow-stat` makes the local server push its byte counters over a
+    # socket, which is how the GUI obtains shadowsocks traffic statistics.
+    "local-flow-stat",
     "aead-cipher",
     "aead-cipher-2022",
     "stream-cipher",

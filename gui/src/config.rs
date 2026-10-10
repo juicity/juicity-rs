@@ -120,7 +120,7 @@ impl ProxyProtocol {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProxyProfile {
     /// Remarks / display name shown in the server list.
@@ -191,7 +191,7 @@ impl Default for ProxyProfile {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
     /// Single local inbound shared by every protocol.
@@ -238,7 +238,7 @@ impl Default for AppConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct ProfileStore {
     pub profiles: Vec<ProxyProfile>,

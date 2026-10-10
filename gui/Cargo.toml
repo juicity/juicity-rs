@@ -20,8 +20,9 @@ url.workspace = true
 base64.workspace = true
 ureq = "2.9"
 
-gpui = "0.2.2"
-gpui-component = "0.5.1"
+# GPUI Kit bundles and re-exports GPUI, gpui-base and the styled component
+# library (formerly `gpui-component`), so the GUI depends on this one crate.
+gpui-kit = "0.7"
 directories = "5"
 unicode-segmentation = "1"
 notify = "7"
@@ -31,14 +32,20 @@ sys-locale = "0.3"
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { version = "0.3", default-features = false, features = ["async-io"] }
 
+[target.'cfg(target_os = "windows")'.dependencies]
+# Reads the DWM accent colour from the registry for system theming.
+windows-registry = "0.5"
+
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 tray-icon = "0.24"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 [build-dependencies]
 resvg = "0.44"
+# Compiles the generated `icon.ico` into the Windows executable's resources.
+embed-resource = "3"
 
-# Enables `#[gpui::test]` + `TestAppContext` for headless UI/state tests.
+# Enables `#[gpui_kit::test]` + `TestAppContext` for headless UI/state tests.
 # The feature only affects test builds; it never reaches a release binary.
 [dev-dependencies]
-gpui = { version = "0.2.2", features = ["test-support"] }
+gpui-kit = { version = "0.7", features = ["test-support"] }

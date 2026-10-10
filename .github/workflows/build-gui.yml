@@ -4,7 +4,8 @@
 # Called via workflow_call from test-gui.yml / release.yml.
 # The caller is responsible for running build-package.yml first
 # (this workflow consumes the juicity-offline-source artifact).
-# Builds the juicity-gui (GPUI) app for Linux / Windows (gnullvm + MSVC) / macOS.
+# Builds the juicity-gui (GPUI) app for Linux / Windows (x86_64 + aarch64,
+# gnullvm + MSVC) / macOS.
 # ============================================
 
 name: Build GUI (reusable)
@@ -65,14 +66,21 @@ jobs:
             toolchain: msvc
             os: windows
 
-          # windows-aarch64 disabled
-          # - name: windows-aarch64
-          #   runner: windows-11-arm
-          #   target: aarch64-pc-windows-gnullvm
-          #   toolchain: gnullvm
-          #   msystem: CLANGARM64
-          #   msystem_arch: clang-aarch64
-          #   os: windows
+          # Windows on ARM: built on the native ARM64 runner, with the same
+          # CLANGARM64 toolchain the core workflow uses for this target.
+          - name: windows-aarch64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-gnullvm
+            toolchain: gnullvm
+            msystem: CLANGARM64
+            msystem_arch: clang-aarch64
+            os: windows
+
+          - name: windows-aarch64-msvc
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            toolchain: msvc
+            os: windows
 
           - name: macos-x86_64
             runner: macos-26-intel

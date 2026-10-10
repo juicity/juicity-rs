@@ -18,8 +18,12 @@ use juicity_client::client::JuicityClient;
 use juicity_client::local::LocalServer;
 use juicity_common::config::Config as JuicityConfig;
 use shadowsocks_service::config::{
-    Config as ShadowsocksConfig, ConfigType as ShadowsocksConfigType,
+    Config as ShadowsocksConfig, ConfigType as ShadowsocksConfigType, LocalFlowStatAddress,
 };
+use std::io::Read;
+use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
 use tokio::task::JoinHandle;
@@ -40,12 +44,44 @@ struct RunningCore {
     /// Keeps the QUIC endpoint (and its pooled connections) alive for the
     /// lifetime of a Juicity core; dropping it closes every connection.
     client: Option<JuicityClient>,
+    /// Shadowsocks byte counters fed by its flow-statistics reporter.
+    flow_stat: Option<Arc<FlowCounters>>,
+    /// Last reported traffic, returned when a fresh reading is unavailable.
+    last_traffic: (u64, u64),
 }
 
 /// Everything needed to supervise a freshly started core.
 struct StartedCore {
     task: JoinHandle<()>,
     client: Option<JuicityClient>,
+    flow_stat: Option<Arc<FlowCounters>>,
+}
+
+/// Cumulative byte counters pushed by shadowsocks-rust's flow-stat reporter.
+#[derive(Default)]
+struct FlowCounters {
+    tx: AtomicU64,
+    rx: AtomicU64,
+    stop: AtomicBool,
+}
+
+impl FlowCounters {
+    fn set(&self, tx: u64, rx: u64) {
+        self.tx.store(tx, Ordering::Relaxed);
+        self.rx.store(rx, Ordering::Relaxed);
+    }
+
+    fn get(&self) -> (u64, u64) {
+        (self.tx.load(Ordering::Relaxed), self.rx.load(Ordering::Relaxed))
+    }
+
+    fn stop(&self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+
+    fn stopped(&self) -> bool {
+        self.stop.load(Ordering::Relaxed)
+    }
 }
 
 #[derive(Default)]
@@ -71,6 +107,25 @@ impl CoreManager {
 
     pub fn current_protocol(&self) -> Option<ProxyProtocol> {
         self.running.as_ref().map(|v| v.protocol)
+    }
+
+    /// Cumulative `(transmitted, received)` bytes for the running core, or
+    /// `None` when no core is running.
+    ///
+    /// Juicity reads the QUIC connection statistics (UDP bytes); Shadowsocks
+    /// reads the counters its local server pushes over the flow-statistics
+    /// socket.  The last known value is returned when a fresh reading is
+    /// momentarily unavailable.
+    pub fn traffic(&mut self) -> Option<(u64, u64)> {
+        let running = self.running.as_mut()?;
+        let reading = match &running.client {
+            Some(client) => client.traffic(),
+            None => running.flow_stat.as_ref().map(|counters| counters.get()),
+        };
+        if let Some(reading) = reading {
+            running.last_traffic = reading;
+        }
+        Some(running.last_traffic)
     }
 
     /// Lazily create the runtime that hosts the embedded cores.
@@ -119,6 +174,8 @@ impl CoreManager {
             name: profile.display_name(),
             task: started.task,
             client: started.client,
+            flow_stat: started.flow_stat,
+            last_traffic: (0, 0),
         });
         Ok(())
     }
@@ -139,7 +196,15 @@ impl CoreManager {
         };
         tracing::info!("stopping in-process {:?} core", running.protocol);
 
-        let RunningCore { task, client, .. } = running;
+        let RunningCore {
+            task,
+            client,
+            flow_stat,
+            ..
+        } = running;
+        if let Some(flow_stat) = &flow_stat {
+            flow_stat.stop();
+        }
         // Dropping a `JoinHandle` only detaches the task, so abort explicitly.
         task.abort();
         if let Some(runtime) = self.runtime.as_ref() {
@@ -149,6 +214,7 @@ impl CoreManager {
             let _ = runtime.block_on(task);
         }
         drop(client);
+        drop(flow_stat);
     }
 
     /// Returns `None` while the core is healthy, or a human-readable reason
@@ -218,6 +284,7 @@ fn start_juicity(
     Ok(StartedCore {
         task,
         client: Some(client),
+        flow_stat: None,
     })
 }
 
@@ -227,7 +294,13 @@ fn start_shadowsocks(
     config: &AppConfig,
     profile: &ProxyProfile,
 ) -> anyhow::Result<StartedCore> {
-    let shadowsocks_config = build_shadowsocks_config(config, profile)?;
+    let mut shadowsocks_config = build_shadowsocks_config(config, profile)?;
+
+    // Point the local server's flow-statistics reporter at a listener of ours:
+    // shadowsocks-rust exposes no counter API, but it pushes the totals over a
+    // socket when asked to, which is how we obtain its traffic.
+    let (stat_addr, counters) = start_flow_stat_reader()?;
+    shadowsocks_config.local_stat_addr = Some(LocalFlowStatAddress::TcpStreamAddr(stat_addr));
 
     // `Server::new` binds every listener, so failures surface here.  Stopping
     // the previous core aborts its tasks, which release their sockets
@@ -238,7 +311,16 @@ fn start_shadowsocks(
             BIND_RETRY_DELAY,
             || shadowsocks_service::local::Server::new(shadowsocks_config.clone()),
         ))
-        .context("failed to start the shadowsocks local server")?;
+        .context("failed to start the shadowsocks local server");
+
+    let server = match server {
+        Ok(server) => server,
+        Err(err) => {
+            // Stop the reporter thread we already started.
+            counters.stop();
+            return Err(err);
+        }
+    };
 
     let task = runtime.handle().spawn(async move {
         if let Err(err) = server.run().await {
@@ -246,7 +328,57 @@ fn start_shadowsocks(
         }
     });
 
-    Ok(StartedCore { task, client: None })
+    Ok(StartedCore {
+        task,
+        client: None,
+        flow_stat: Some(counters),
+    })
+}
+
+/// Bind a loopback listener that shadowsocks-rust reports its byte counters to.
+///
+/// The reporter connects every 500 ms and writes two native-endian `u64`
+/// values — transmitted then received bytes — so a background thread reads them
+/// and stores the latest totals in [`FlowCounters`].
+fn start_flow_stat_reader() -> anyhow::Result<(SocketAddr, Arc<FlowCounters>)> {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")
+        .context("failed to bind the flow-statistics listener")?;
+    let addr = listener.local_addr()?;
+    listener
+        .set_nonblocking(true)
+        .context("failed to configure the flow-statistics listener")?;
+
+    let counters = Arc::new(FlowCounters::default());
+    let thread_counters = Arc::clone(&counters);
+    std::thread::Builder::new()
+        .name("ss-flow-stat".into())
+        .spawn(move || {
+            let mut buf = [0u8; 16];
+            while !thread_counters.stopped() {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        if read_flow_report(&mut stream, &mut buf).is_ok() {
+                            let tx = u64::from_ne_bytes(buf[0..8].try_into().unwrap());
+                            let rx = u64::from_ne_bytes(buf[8..16].try_into().unwrap());
+                            thread_counters.set(tx, rx);
+                        }
+                    }
+                    Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                    Err(_) => break,
+                }
+            }
+        })
+        .context("failed to spawn the flow-statistics thread")?;
+
+    Ok((addr, counters))
+}
+
+/// Read the two counters of one flow-statistics report.
+fn read_flow_report(stream: &mut std::net::TcpStream, buf: &mut [u8; 16]) -> std::io::Result<()> {
+    stream.set_read_timeout(Some(std::time::Duration::from_millis(500)))?;
+    stream.read_exact(buf)
 }
 
 /// Retry `op` while it fails with [`std::io::ErrorKind::AddrInUse`].

@@ -9,7 +9,7 @@
 
 use crate::config::PacRuleMode;
 use anyhow::Context;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -60,6 +60,27 @@ pub fn start(listen_addr: &str, initial_content: String) -> anyhow::Result<PacSe
         .spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { continue };
+
+                // Read (and discard) the request headers before replying. Closing
+                // a socket that still has unread data in its receive buffer makes
+                // Windows send an RST, which can reset or truncate the response we
+                // are about to write. The short timeout stops a silent client from
+                // stalling the single-threaded accept loop.
+                let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+                {
+                    let mut reader = BufReader::new(&stream);
+                    let mut line = String::new();
+                    loop {
+                        line.clear();
+                        match reader.read_line(&mut line) {
+                            Ok(0) => break,                                   // peer closed
+                            Ok(_) if line == "\r\n" || line == "\n" => break, // end of headers
+                            Ok(_) => {}
+                            Err(_) => break, // timeout or reset
+                        }
+                    }
+                }
+
                 let pac = content_thread.lock().map(|c| c.clone()).unwrap_or_default();
                 // Minimal HTTP/1.0 response – no keep-alive needed.
                 let response = format!(
@@ -73,6 +94,7 @@ pub fn start(listen_addr: &str, initial_content: String) -> anyhow::Result<PacSe
                     pac
                 );
                 let _ = stream.write_all(response.as_bytes());
+                let _ = stream.shutdown(std::net::Shutdown::Write);
             }
         })
         .context("failed to spawn pac-server thread")?;
@@ -142,8 +164,10 @@ fn download_file(url: &str, dest: &Path) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to download {}: {}", url, e))?;
 
     let mut reader = response.into_reader();
-    // Download to a temp file first, then perform atomic rename
-    let tmp_path = dest.with_extension(".tmp");
+    // Download to a temp file first, then perform atomic rename.
+    // `with_extension` replaces the extension, so pass `"tmp"` (not `".tmp"`)
+    // to get `china-list.tmp` rather than `china-list..tmp`.
+    let tmp_path = dest.with_extension("tmp");
     {
         let mut file = std::fs::File::create(&tmp_path)?;
         std::io::copy(&mut reader, &mut file)?;
@@ -252,6 +276,38 @@ fn domains_to_js_object(domains: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+
+    /// Bind an ephemeral loopback port, then release it so the PAC server can
+    /// take it over; returns the `host:port` address.
+    fn free_addr() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        format!("127.0.0.1:{port}")
+    }
+
+    /// Minimal HTTP GET; the PAC server closes the connection, so read to EOF.
+    fn http_get(addr: &str, path: &str) -> String {
+        let mut stream = TcpStream::connect(addr).unwrap();
+        stream
+            .write_all(format!("GET {path} HTTP/1.0\r\nHost: localhost\r\n\r\n").as_bytes())
+            .unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        response
+    }
+
+    /// Fetch the same URL with a real HTTP client, the way the OS proxy or a
+    /// browser would, to catch protocol-level problems the raw client misses.
+    fn http_client_get(addr: &str, path: &str) -> String {
+        ureq::get(&format!("http://{addr}{path}"))
+            .call()
+            .expect("HTTP client request failed")
+            .into_string()
+            .expect("HTTP client could not read the body")
+    }
 
     #[test]
     fn parse_skips_comments_and_prefixes() {
@@ -296,6 +352,86 @@ mod tests {
                 pac.contains("SOCKS5 127.0.0.1:1080; PROXY 127.0.0.1:1080; DIRECT"),
                 "unexpected PAC proxy chain for {mode:?}"
             );
+        }
+    }
+
+    /// End-to-end: rule files on disk are parsed, embedded in the PAC and that
+    /// exact PAC is what the HTTP server hands to a client.
+    #[test]
+    fn rules_file_is_converted_and_served_as_pac() {
+        let dir = std::env::temp_dir().join(format!("juicity-pac-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Written exactly like `download_file` leaves them: raw rule text.
+        std::fs::write(
+            dir.join("china-list.txt"),
+            "# comment\nbaidu.com\nfull:qq.com\nregexp:^skip\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("gfw.txt"), "twitter.com\ndomain:google.com\n").unwrap();
+
+        let (direct, proxy) = load_rules(&dir);
+        assert_eq!(direct, vec!["baidu.com", "qq.com"]);
+        assert_eq!(proxy, vec!["twitter.com", "google.com"]);
+
+        let pac = generate_pac(PacRuleMode::BypassChina, "127.0.0.1:1080", &direct, &proxy);
+        assert!(pac.contains("\"baidu.com\":1"), "domain list was not embedded in the PAC");
+
+        let addr = free_addr();
+        let server = start(&addr, pac.clone()).expect("PAC server failed to bind");
+
+        let response = http_get(&addr, "/pac");
+        assert!(response.starts_with("HTTP/1.0 200 OK"), "{response}");
+        assert!(response.contains("Content-Type: application/x-ns-proxy-autoconfig"));
+        assert!(response.contains(&format!("Content-Length: {}", pac.len())));
+        assert!(response.ends_with(&pac), "served body differs from the generated PAC");
+        assert_eq!(http_client_get(&addr, "/pac"), pac, "HTTP client got a different body");
+
+        // `update` must change what is served.
+        server.update("/* updated */".to_string());
+        assert!(http_get(&addr, "/pac").ends_with("/* updated */"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Manual check against the rule files this machine's app actually
+    /// downloaded. Ignored by default because it depends on local app data;
+    /// run it with:
+    ///
+    /// ```text
+    /// cargo test -p juicity-gui real_downloaded_rules -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore = "needs the app's downloaded rule files; run manually"]
+    fn real_downloaded_rules_convert_and_serve() {
+        let paths = crate::config::ConfigPaths::discover().expect("resolve config dir");
+        let (direct, proxy) = load_rules(&paths.config_dir);
+        println!("china-list -> {} domains, gfw -> {} domains", direct.len(), proxy.len());
+        assert!(direct.len() > 1000, "china-list did not convert ({} domains)", direct.len());
+        assert!(proxy.len() > 1000, "gfw list did not convert ({} domains)", proxy.len());
+
+        let pac = generate_pac(PacRuleMode::BypassChina, "127.0.0.1:1080", &direct, &proxy);
+        println!("generated PAC is {} bytes", pac.len());
+        assert!(pac.len() > 100_000, "generated PAC looks too small: {} bytes", pac.len());
+        assert!(
+            direct.iter().any(|d| pac.contains(d.as_str())),
+            "no rule from the list appears in the PAC"
+        );
+
+        let addr = free_addr();
+        let server = start(&addr, pac.clone()).expect("PAC server failed to bind");
+        let response = http_get(&addr, "/pac");
+        assert!(response.ends_with(&pac), "served PAC differs from the generated one");
+        assert_eq!(http_client_get(&addr, "/pac"), pac, "HTTP client got a different body");
+        println!("served {} bytes over http://{addr}/pac", pac.len());
+        drop(server);
+
+        // Optionally write the PAC out so it can be inspected or syntax-checked
+        // with a real JavaScript engine, e.g. `node --check` / `d8`:
+        //   $env:JUICITY_PAC_DUMP = "$env:TEMP\juicity.pac"
+        if let Ok(path) = std::env::var("JUICITY_PAC_DUMP") {
+            std::fs::write(&path, &pac).expect("failed to write PAC dump");
+            println!("dumped PAC to {path}");
         }
     }
 }

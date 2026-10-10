@@ -1,6 +1,14 @@
 /// Application icon name as registered in the icon theme.
 pub const ICON_NAME: &str = "io.juicity.gui";
 
+/// Asset paths of the embedded icon, as resolved by [`Assets`].
+pub const SVG_ASSET: &str = "icon.svg";
+pub const PNG_ASSET: &str = "icon.png";
+
+/// `gui/icon.svg` embedded verbatim, so the binary carries the source artwork
+/// in addition to the rasterized variants below.
+pub const SVG: &[u8] = include_bytes!("../icon.svg");
+
 // PNG bytes at standard sizes, generated from icon.svg by build.rs.
 const ICON_16: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/16.png"));
 const ICON_32: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/32.png"));
@@ -8,6 +16,36 @@ const ICON_48: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/48.png"));
 const ICON_64: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/64.png"));
 const ICON_128: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/128.png"));
 const ICON_256: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/256.png"));
+
+/// Asset source serving the application icon plus the bundled gpui-kit assets.
+///
+/// GPUI resolves `svg()` and `img()` paths through the application's asset
+/// source, so exposing the icon here keeps it usable without shipping a file
+/// next to the executable. Every other path — notably the Lucide icon set used
+/// by gpui-kit components, such as the Select chevron — is delegated to the
+/// bundled gpui-kit assets.
+pub struct Assets;
+
+impl gpui_kit::AssetSource for Assets {
+    fn load(&self, path: &str) -> gpui_kit::Result<Option<std::borrow::Cow<'static, [u8]>>> {
+        let bytes = match path {
+            SVG_ASSET => SVG,
+            PNG_ASSET => ICON_256,
+            _ => return gpui_kit::AssetSource::load(&gpui_kit::assets::Assets, path),
+        };
+        Ok(Some(std::borrow::Cow::Borrowed(bytes)))
+    }
+
+    fn list(&self, path: &str) -> gpui_kit::Result<Vec<gpui_kit::SharedString>> {
+        let mut names = if path.is_empty() {
+            vec![SVG_ASSET.into(), PNG_ASSET.into()]
+        } else {
+            Vec::new()
+        };
+        names.extend(gpui_kit::AssetSource::list(&gpui_kit::assets::Assets, path)?);
+        Ok(names)
+    }
+}
 
 /// Install application icons into the user-local icon theme.
 ///

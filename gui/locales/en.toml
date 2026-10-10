@@ -76,6 +76,8 @@ stop_proxy = "Stop Proxy"
 status_running = "▶ Running — %{name}"
 status_stopped = "■ Stopped"
 startup_settings = "Startup Settings..."
+about = "About Juicity GUI..."
+view_logs = "View Logs..."
 
 [proxy]
 disable = "Disable"
@@ -116,6 +118,32 @@ autostart_desc = "Automatically run this program when the system starts"
 yes = "Yes"
 no = "No"
 save = "Save"
+
+[about_dialog]
+title = "About Juicity GUI"
+app_name = "Juicity GUI"
+label_version = "Version:"
+label_build = "Build:"
+label_shadowsocks = "Shadowsocks-Rust:"
+label_juicity = "Juicity-RS:"
+
+[log_dialog]
+title = "Logs"
+download_speed = "Download"
+upload_speed = "Upload"
+download_total = "Downloaded"
+upload_total = "Uploaded"
+clear = "Clear"
+follow = "Follow"
+dropped = "%{n} earlier lines dropped"
+no_traffic = "No traffic yet"
+
+[save_prompt]
+title = "Unsaved Changes"
+message = "You have unsaved changes. Do you want to save them?"
+save = "Save"
+discard = "Don't Save"
+cancel = "Cancel"
 
 [protocol]
 juicity = "Juicity"
