@@ -23,7 +23,7 @@ A Rust implementation of the [Juicity](https://github.com/juicity/juicity) proto
 juicity-common/       # Shared library: config, protocol wire format, crypto, constants, link generation
 juicity-client/       # Client binary: QUIC client, SOCKS5/HTTP proxy, TCP/UDP forwarder
 juicity-server/       # Server binary: QUIC listener, TCP/UDP relay, underlay UDP demux
-gui/                  # Optional GUI front-end (desktop tray app)
+gui/                  # Optional GUI front-end (Slint desktop tray app)
 ```
 
 ### Crate Overview

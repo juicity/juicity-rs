@@ -94,60 +94,45 @@ JSON files currently used:
 
 ## Build dependencies
 
-GPUI requires a Vulkan-capable display server (Wayland or X11) at runtime and
-the following native libraries at build time: X11, xcb, xkbcommon, wayland.
-
-### Linux (Debian/Ubuntu)
-
-```bash
-sudo apt update
-sudo apt install -y pkg-config libx11-dev libxcb1-dev libxkbcommon-dev \
-  libwayland-dev libvulkan-dev mesa-vulkan-drivers
-```
-
-### Fedora
+The UI is built with [Slint](https://slint.dev). It renders with FemtoVG on
+OpenGL by default; Vulkan is not needed. On a machine without working GPU
+acceleration (for example a VM without a GPU driver), start the GUI with
+`--software-render` to use Slint's software renderer instead:
 
 ```bash
-sudo dnf install -y pkgconf-pkg-config libX11-devel libxcb-devel \
-  libxkbcommon-devel wayland-devel vulkan-loader-devel mesa-vulkan-drivers
+juicity-gui --software-render
 ```
 
-### Arch
+Setting `SLINT_BACKEND=winit-software` has the same effect.
+
+### Linux
+
+Wayland, X11, xkbcommon and OpenGL are loaded at runtime, so only `pkg-config`
+and the Fontconfig development files are needed to build (the same packages CI
+installs). At runtime the GUI needs a Wayland or X11 session with an OpenGL
+driver (Mesa), and Noto Sans CJK for the Chinese UI.
 
 ```bash
-sudo pacman -S --needed pkgconf libx11 libxcb libxkbcommon wayland vulkan-icd-loader \
-  vulkan-mesa-layer
+# Debian/Ubuntu
+sudo apt install -y pkg-config libfontconfig1-dev fonts-noto-cjk fonts-noto-core
+# Fedora
+sudo dnf install -y pkgconf-pkg-config fontconfig-devel google-noto-sans-cjk-fonts
+# Arch
+sudo pacman -S --needed pkgconf fontconfig noto-fonts-cjk
 ```
 
-### NixOS
-
-System libraries live in the nix store, so point `LIBRARY_PATH` at them for
-linking and `LD_LIBRARY_PATH` for running. Example with a Vulkan software
-rasterizer (llvmpipe) on Wayland:
-
-```bash
-export LIBRARY_PATH=/nix/store/zyvz6mkqf6iihqr5yfvmfr2inafxdlq4-libxcb-1.17.0/lib:/nix/store/xg73b708qsrdvb82vdwvir097p9w7vr3-libxkbcommon-1.13.2/lib:/nix/store/b4r5xlxclsvy3z6fvvwf74vln5l1hw4y-wayland-1.25.0/lib
-
-export LD_LIBRARY_PATH=$LIBRARY_PATH:/nix/store/xin0b9mlvl6w1qqhvr2nfdcv5qns1b13-vulkan-loader-1.4.350.0/lib:/nix/store/3967gykw3wcyq3svf238nk31jlhxnl7c-mesa-26.1.5/lib
-export VK_ICD_FILENAMES=/nix/store/3967gykw3wcyq3svf238nk31jlhxnl7c-mesa-26.1.5/share/vulkan/icd.d/lvp_icd.x86_64.json
-
-cargo build -p juicity-gui
-```
-
-(The store hashes depend on the installed nixpkgs revision; resolve them with
-`nix-store -q` or use a `pkgs.symlinkJoin` dev shell.)
+On NixOS, add `wayland`, `libxkbcommon`, `libGL` and the X11 libraries to
+`LD_LIBRARY_PATH` (for example in a dev shell), because they are opened with
+`dlopen` rather than linked.
 
 ### macOS
 
-Vulkan is provided via MoltenVK:
-
-```bash
-brew install molten-vk
-```
+No extra packages are needed. FemtoVG uses Apple's deprecated OpenGL; if the
+window does not render, use `--software-render`.
 
 ### Windows
 
-Ensure a Vulkan-capable driver and runtime (e.g. the Vulkan SDK from LunarG).
+No extra packages or runtimes are needed.
 
 `x86_64` and `aarch64` are supported. The MSVC targets link the CRT statically
 and therefore need no extra runtime DLLs; the `*-pc-windows-gnullvm` targets are
