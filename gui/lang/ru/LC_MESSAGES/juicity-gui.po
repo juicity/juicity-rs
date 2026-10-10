@@ -248,7 +248,7 @@ msgid "Duplicate"
 msgstr "Дублировать"
 
 msgid "Export link"
-msgstr "Экспорт ссылки"
+msgstr "Экспорт"
 
 msgid "Delete"
 msgstr "Удалить"

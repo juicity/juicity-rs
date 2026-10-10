@@ -41,6 +41,9 @@ export component Field inherits VerticalLayout {
                     vertical-alignment: center;
                 }
                 if root.masked: Text {
+                    x: 0px;
+                    width: parent.width;
+                    horizontal-alignment: left;
                     text: Fmt.mask(root.text);
                     font-family: root.latin ? Theme.latin : Theme.cjk;
                     font-size: 14px;
