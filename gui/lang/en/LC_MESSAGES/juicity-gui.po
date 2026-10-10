@@ -451,6 +451,18 @@ msgstr "Language"
 msgid "Follow system"
 msgstr "Follow system"
 
+#: gui/ui/pages/settings.slint:98
+msgid "Appearance"
+msgstr "Appearance"
+
+#: gui/ui/pages/settings.slint:100 gui/ui/pages/settings.slint:103
+msgid "Light"
+msgstr "Light"
+
+#: gui/ui/pages/settings.slint:100 gui/ui/pages/settings.slint:104
+msgid "Dark"
+msgstr "Dark"
+
 #: gui/ui/pages/settings.slint:95
 msgid "Start at login"
 msgstr "Start at login"

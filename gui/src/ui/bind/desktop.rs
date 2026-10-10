@@ -2,11 +2,12 @@
 //! activation by a second launch.
 
 use super::super::controller::{Answer, Leave};
-use super::super::{Actions, AppState, MainWindow, Page, TrayText};
+use super::super::{Actions, AppState, MainWindow, Page, Theme, TrayText};
 use super::{logs, read, spawn_rules, update_with, WINDOW};
 use crate::desktop::single_instance::Activation;
 use crate::desktop::tray::{Sink, Tray, TrayEvent, TrayLabels, TrayMenu};
 use slint::winit_030::winit::dpi::PhysicalPosition;
+use slint::winit_030::winit::window::Theme as WindowTheme;
 use slint::winit_030::WinitWindowAccessor;
 use slint::ComponentHandle;
 use std::cell::{Cell, RefCell};
@@ -197,6 +198,7 @@ fn show_window(page: Option<Page>) {
     }
     if hidden {
         place_window(&ui);
+        apply_window_theme(&ui);
     }
     ui.window().set_minimized(false);
     logs::update_refresh();
@@ -238,6 +240,29 @@ fn place_window(ui: &MainWindow) {
             w.set_outer_position(position);
         }
     });
+}
+
+/// Match the native title bar to the appearance setting once the native
+/// window exists; hiding drops it, so every show applies it again.
+pub(super) fn apply_window_theme(ui: &MainWindow) {
+    let ui = ui.as_weak();
+    let task = slint::spawn_local(async move {
+        let Some(ui) = ui.upgrade() else {
+            return;
+        };
+        let Ok(window) = ui.window().winit_window().await else {
+            return;
+        };
+        // Read when the window arrives, so a later choice is never undone.
+        window.set_theme(match ui.global::<Theme>().get_appearance() {
+            1 => Some(WindowTheme::Light),
+            2 => Some(WindowTheme::Dark),
+            _ => None,
+        });
+    });
+    if let Err(err) = task {
+        tracing::debug!("could not set the window theme: {err}");
+    }
 }
 
 fn toggle_window() {
@@ -291,6 +316,7 @@ pub fn show_initial(ui: &MainWindow) -> Result<(), slint::PlatformError> {
     if !read(|c| c.hide_on_start()).unwrap_or(false) {
         ui.show()?;
         place_window(ui);
+        apply_window_theme(ui);
         logs::update_refresh();
         return Ok(());
     }

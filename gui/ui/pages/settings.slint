@@ -95,6 +95,19 @@ export component SettingsPage inherits VerticalLayout {
                     }
                     HDivider { }
                     SettingRow {
+                        label: @tr("Appearance");
+                        MenuValue {
+                            text: Theme.appearance == 0 ? @tr("Follow system") : Theme.appearance == 1 ? @tr("Light") : @tr("Dark");
+                            items: [
+                                { text: @tr("Follow system"), checked: Theme.appearance == 0, enabled: true },
+                                { text: @tr("Light"), checked: Theme.appearance == 1, enabled: true },
+                                { text: @tr("Dark"), checked: Theme.appearance == 2, enabled: true },
+                            ];
+                            selected(index) => { Actions.set-appearance(index); }
+                        }
+                    }
+                    HDivider { }
+                    SettingRow {
                         label: @tr("Start at login");
                         SettingSwitch { on <=> SettingsStore.autostart; enabled: SettingsStore.autostart-supported; toggled(on) => { Actions.set-autostart(on); } }
                     }

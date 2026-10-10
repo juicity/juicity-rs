@@ -449,6 +449,18 @@ msgstr "语言"
 msgid "Follow system"
 msgstr "跟随系统"
 
+#: gui/ui/pages/settings.slint:98
+msgid "Appearance"
+msgstr "外观"
+
+#: gui/ui/pages/settings.slint:100 gui/ui/pages/settings.slint:103
+msgid "Light"
+msgstr "浅色"
+
+#: gui/ui/pages/settings.slint:100 gui/ui/pages/settings.slint:104
+msgid "Dark"
+msgstr "深色"
+
 #: gui/ui/pages/settings.slint:95
 msgid "Start at login"
 msgstr "开机时自动启动"

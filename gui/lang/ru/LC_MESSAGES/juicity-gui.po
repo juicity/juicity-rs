@@ -341,6 +341,15 @@ msgstr "Язык"
 msgid "Follow system"
 msgstr "Как в системе"
 
+msgid "Appearance"
+msgstr "Оформление"
+
+msgid "Light"
+msgstr "Светлая"
+
+msgid "Dark"
+msgstr "Тёмная"
+
 msgid "Start at login"
 msgstr "Запуск при входе"
 

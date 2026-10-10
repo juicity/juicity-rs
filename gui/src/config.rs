@@ -252,12 +252,23 @@ impl LanguagePreference {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AppearancePreference {
+    #[default]
+    FollowSystem,
+    Light,
+    Dark,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RuntimeState {
     /// Saved as `runtime.json`'s `language`; missing fields follow the system locale.
     /// Changes apply to the UI immediately, without restarting the proxy.
     pub language: LanguagePreference,
+    /// Saved as `runtime.json`'s `appearance`; missing fields follow the system theme.
+    pub appearance: AppearancePreference,
     pub auto_start: bool,
     pub selected_profile: usize,
     pub close_to_tray: bool,
@@ -274,6 +285,7 @@ impl Default for RuntimeState {
     fn default() -> Self {
         Self {
             language: LanguagePreference::default(),
+            appearance: AppearancePreference::default(),
             auto_start: false,
             selected_profile: 0,
             // Minimize to the system tray instead of quitting when the main
@@ -432,6 +444,33 @@ mod tests {
         assert!(runtime.auto_start);
         assert!(runtime.hide_window_on_startup);
         assert_eq!(runtime.startup_connection_state, StartupConnectionState::On);
+    }
+
+    #[test]
+    fn appearance_round_trips_in_runtime_config() {
+        for appearance in [
+            AppearancePreference::FollowSystem,
+            AppearancePreference::Light,
+            AppearancePreference::Dark,
+        ] {
+            let runtime = RuntimeState {
+                appearance,
+                ..Default::default()
+            };
+            let saved = serde_json::to_value(&runtime).unwrap();
+            let restored: RuntimeState = serde_json::from_value(saved.clone()).unwrap();
+            assert_eq!(restored.appearance, appearance);
+            if appearance == AppearancePreference::Dark {
+                assert_eq!(saved["appearance"], "dark");
+            }
+        }
+    }
+
+    #[test]
+    fn old_runtime_config_follows_system_appearance() {
+        let runtime: RuntimeState = serde_json::from_str(r#"{"language":"ru"}"#).unwrap();
+        assert_eq!(runtime.appearance, AppearancePreference::FollowSystem);
+        assert_eq!(runtime.language, LanguagePreference::Ru);
     }
 
     #[test]

@@ -2,7 +2,9 @@
 //! PAC server. Text values are edited in a sheet that holds its own draft.
 
 use super::{Changes, ConfigFile, Controller, Notice};
-use crate::config::{LanguagePreference, PacMode, StartupConnectionState, SystemProxyMode};
+use crate::config::{
+    AppearancePreference, LanguagePreference, PacMode, StartupConnectionState, SystemProxyMode,
+};
 use crate::state::restart_pac_server;
 use crate::util::{format_host_port, split_host_port};
 use std::time::Instant;
@@ -42,6 +44,7 @@ pub struct SettingSheet {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SettingsSnapshot {
     pub language: LanguagePreference,
+    pub appearance: AppearancePreference,
     pub autostart: bool,
     pub hide_on_start: bool,
     pub close_to_tray: bool,
@@ -159,6 +162,7 @@ impl Controller {
         let runtime = &self.gui.runtime;
         SettingsSnapshot {
             language: runtime.language,
+            appearance: runtime.appearance,
             autostart: runtime.auto_start,
             hide_on_start: runtime.hide_window_on_startup,
             close_to_tray: runtime.close_to_tray,
@@ -179,6 +183,14 @@ impl Controller {
             return Changes::SETTINGS;
         }
         self.gui.runtime.language = language;
+        Changes::SETTINGS | self.mark_dirty(ConfigFile::Runtime, now)
+    }
+
+    pub fn set_appearance(&mut self, appearance: AppearancePreference, now: Instant) -> Changes {
+        if self.gui.runtime.appearance == appearance {
+            return Changes::SETTINGS;
+        }
+        self.gui.runtime.appearance = appearance;
         Changes::SETTINGS | self.mark_dirty(ConfigFile::Runtime, now)
     }
 

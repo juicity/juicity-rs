@@ -1,12 +1,13 @@
 //! Settings page callbacks and snapshot sync.
 
 use super::update;
-use crate::config::{LanguagePreference, PacMode, StartupConnectionState};
+use crate::config::{AppearancePreference, LanguagePreference, PacMode, StartupConnectionState};
 use crate::ui::controller::{
     is_interval_preset, url_summary, SettingError, SettingKey, SettingsSnapshot,
 };
 use crate::ui::{
     Actions, FieldText, MainWindow, PacSource, SettingField, SettingsStore, StartupConnection,
+    Theme,
 };
 use slint::ComponentHandle;
 
@@ -82,10 +83,29 @@ fn language_to(language: LanguagePreference) -> i32 {
     }
 }
 
+fn appearance_from(index: i32) -> AppearancePreference {
+    match index {
+        1 => AppearancePreference::Light,
+        2 => AppearancePreference::Dark,
+        _ => AppearancePreference::FollowSystem,
+    }
+}
+
+fn appearance_to(appearance: AppearancePreference) -> i32 {
+    match appearance {
+        AppearancePreference::FollowSystem => 0,
+        AppearancePreference::Light => 1,
+        AppearancePreference::Dark => 2,
+    }
+}
+
 pub fn wire(ui: &MainWindow) {
     let actions = ui.global::<Actions>();
     actions
         .on_set_language(|index| update(move |c, now| c.set_language(language_from(index), now)));
+    actions.on_set_appearance(|index| {
+        update(move |c, now| c.set_appearance(appearance_from(index), now))
+    });
     actions.on_set_autostart(|on| update(move |c, now| c.set_autostart(on, now)));
     actions.on_set_hide_on_start(|on| update(move |c, now| c.set_hide_on_start(on, now)));
     actions.on_set_close_to_tray(|on| update(move |c, now| c.set_close_to_tray(on, now)));
@@ -122,6 +142,12 @@ pub fn wire(ui: &MainWindow) {
 pub fn sync(ui: &MainWindow, snapshot: &SettingsSnapshot) {
     let store = ui.global::<SettingsStore>();
     store.set_language(language_to(snapshot.language));
+    let theme = ui.global::<Theme>();
+    let appearance = appearance_to(snapshot.appearance);
+    if theme.get_appearance() != appearance {
+        theme.set_appearance(appearance);
+        super::desktop::apply_window_theme(ui);
+    }
     store.set_autostart(snapshot.autostart);
     store.set_hide_on_start(snapshot.hide_on_start);
     store.set_close_to_tray(snapshot.close_to_tray);
@@ -202,6 +228,24 @@ mod tests {
         assert!(store.get_close_to_tray());
         assert!(!store.get_versions().gui.is_empty());
         assert!(!store.get_sheet_open());
+        teardown(&dir);
+    }
+
+    #[test]
+    fn appearance_switches_theme_and_persists_live() {
+        let (ui, _, dir) = setup("bind-settings-appearance");
+        let actions = ui.global::<Actions>();
+        let theme = ui.global::<Theme>();
+        actions.invoke_set_appearance(2);
+        assert!(theme.get_dark());
+        std::thread::sleep(DEBOUNCE_WAIT);
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(500));
+        let saved: crate::config::RuntimeState =
+            serde_json::from_slice(&std::fs::read(dir.join("runtime.json")).unwrap()).unwrap();
+        assert_eq!(saved.appearance, AppearancePreference::Dark);
+        actions.invoke_set_appearance(1);
+        assert!(!theme.get_dark());
+        assert_eq!(theme.get_appearance(), 1);
         teardown(&dir);
     }
 

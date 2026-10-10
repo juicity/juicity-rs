@@ -326,7 +326,8 @@ fn shots() -> anyhow::Result<()> {
             let ui = MainWindow::new()?;
             prepare(&ui, language)?;
             fixture(&ui);
-            ui.global::<Theme>().set_dark(dark);
+            ui.global::<Theme>()
+                .set_appearance(if dark { 2 } else { 1 });
             if language == UiLang::ZhTw {
                 assert_eq!(
                     ui.global::<AppState>().get_connection_text(),

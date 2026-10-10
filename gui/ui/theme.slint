@@ -4,7 +4,9 @@ import "../fonts/NotoSans-Medium.ttf";
 import "../fonts/NotoSansMono-Regular.ttf";
 
 export global Theme {
-    in-out property <bool> dark: Palette.color-scheme == ColorScheme.dark;
+    // Menu order: follow system, light, dark. Following tracks OS changes live.
+    in-out property <int> appearance;
+    out property <bool> dark: appearance == 0 ? Palette.color-scheme == ColorScheme.dark : appearance == 2;
     out property <color> window: dark ? #1C1C1E : #F2F2F4;
     out property <color> sidebar: dark ? #232325 : #ECECEF;
     out property <color> sidebar-selected: dark ? #3A3A3C : #DEDEE3;
