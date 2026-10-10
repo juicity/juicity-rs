@@ -27,8 +27,17 @@ fn main() -> anyhow::Result<()> {
         .and_then(|i| std::env::args().nth(i + 1))
         .unwrap_or_else(|| "info".to_string());
 
+    // Before any thread starts: zbus cannot parse a session bus address list.
+    #[cfg(target_os = "linux")]
+    let session_bus = desktop::session_bus::select();
+
     // Console output plus the in-memory buffer the log window reads.
     logging::init(&log_level);
+
+    #[cfg(target_os = "linux")]
+    if let Some(address) = session_bus {
+        tracing::info!("using session bus address {address}");
+    }
 
     ui::run()
 }
