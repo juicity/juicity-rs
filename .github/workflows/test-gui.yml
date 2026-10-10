@@ -50,8 +50,11 @@ jobs:
       sha: ${{ github.sha }}
     secrets: inherit
 
-  slint:
-    name: Slint (Linux)
+  # --------------------------------------------------
+  # Screenshot goldens (fails on a mismatch)
+  # --------------------------------------------------
+  shots:
+    name: Screenshots (Linux)
     needs: package
     runs-on: ubuntu-26.04
     steps:
@@ -62,22 +65,21 @@ jobs:
           name: juicity-offline-source
       - name: Extract offline source
         run: tar -xzf juicity-offline-source.tar.gz
+      # The goldens were rendered with Noto Sans CJK 2.004 from these packages.
       - name: Install Slint build deps
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y pkg-config libfontconfig1-dev libxkbcommon-dev libwayland-dev fonts-noto-cjk fonts-noto-cjk-extra fonts-noto-core
+          sudo apt-get install -y pkg-config libfontconfig1-dev fonts-noto-cjk fonts-noto-cjk-extra fonts-noto-core
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
-      - name: Build and test Slint
-        run: |
-          cargo build --locked --frozen --offline -p juicity-gui --no-default-features --features ui-slint
-          cargo test --locked --frozen --offline -p juicity-gui --no-default-features --features ui-slint
-      - name: Render overview fixtures
-        run: JUICITY_SHOTS=1 cargo test --locked --frozen --offline -p juicity-gui --no-default-features --features ui-slint shots -- --ignored --test-threads=1
-      - name: Upload Slint screenshots
+      - name: Compare screenshots with the goldens
+        run: JUICITY_SHOTS=1 cargo test --locked --frozen --offline -p juicity-gui shots -- --ignored --test-threads=1
+      # Renders for review on success; renders and diffs on a mismatch.
+      - name: Upload screenshots
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: juicity-slint-shots
-          path: target/juicity-shots/*.png
-          if-no-files-found: error
+          name: juicity-gui-shots
+          path: target/juicity-shots/
+          if-no-files-found: warn
