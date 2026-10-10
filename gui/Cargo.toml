@@ -3,11 +3,6 @@ name = "juicity-gui"
 version.workspace = true
 edition.workspace = true
 
-[features]
-default = ["ui-gpui"]
-ui-gpui = ["dep:gpui-kit"]
-ui-slint = ["dep:slint", "dep:slint-build", "dep:arboard", "dep:chrono", "dep:zbus", "dep:windows-sys"]
-
 [dependencies]
 juicity-common = { path = "../common" }
 # Embedded proxy core (QUIC client + local SOCKS5/HTTP server).
@@ -25,30 +20,26 @@ url.workspace = true
 base64.workspace = true
 ureq = "2.9"
 
-# GPUI Kit bundles and re-exports GPUI, gpui-base and the styled component
-# library (formerly `gpui-component`), so the GUI depends on this one crate.
-gpui-kit = { version = "0.7", optional = true }
-slint = { version = "=1.18.1", optional = true, default-features = false, features = ["std", "backend-winit", "renderer-femtovg", "renderer-software", "compat-1-2", "accessibility", "unstable-fontique-011", "unstable-winit-030"] }
+slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-femtovg", "renderer-software", "compat-1-2", "accessibility", "unstable-fontique-011", "unstable-winit-030"] }
 # Clipboard and local time for the Slint UI; both are already in the lockfile via Slint.
-arboard = { version = "3", optional = true, default-features = false, features = ["wayland-data-control"] }
-chrono = { version = "0.4", optional = true, default-features = false, features = ["clock"] }
+arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 directories = "5"
 unicode-segmentation = "1"
 notify = "7"
-rust-i18n = "3"
 sys-locale = "0.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { version = "0.3", default-features = false, features = ["async-io"] }
 # Single instance for the Slint UI (D-Bus name + org.freedesktop.Application);
 # the same version ksni already uses.
-zbus = { version = "5", optional = true, default-features = false, features = ["async-io", "blocking-api"] }
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-# Reads the DWM accent colour from the registry for system theming.
+# Writes the autostart entry under the Run registry key.
 windows-registry = "0.5"
 # Single instance for the Slint UI: named mutex, named pipe, foreground rights.
-windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Pipes", "Win32_System_RemoteDesktop", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Pipes", "Win32_System_RemoteDesktop", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 tray-icon = "0.24"
@@ -56,7 +47,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 
 [build-dependencies]
 resvg = "0.44"
-slint-build = { version = "=1.18.1", optional = true }
+slint-build = "=1.18.1"
 # Compiles the generated `icon.ico` into the Windows executable's resources.
 embed-resource = "3"
 

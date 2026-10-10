@@ -270,7 +270,7 @@ impl Controller {
         if let Err(err) = restart_pac_server(&mut self.gui, true) {
             tracing::warn!("PAC server failed to start: {err:#}");
         }
-        // Start the core first, then re-apply the proxy (gpui order).
+        // Start the core first, then re-apply the proxy.
         changes |= self.startup_connection(now);
         // The OS proxy is reset to Disable on exit, so re-apply the saved mode.
         if self.gui.config.system_proxy_mode != SystemProxyMode::Disable {
@@ -282,8 +282,7 @@ impl Controller {
         (changes, job)
     }
 
-    /// Stop the core, restore the OS proxy to Disable, then flush (the order
-    /// the gpui frontend uses).
+    /// Stop the core, restore the OS proxy to Disable, then flush.
     pub fn shutdown(&mut self) {
         self.effects.stop_core(&mut self.gui.core_manager);
         self.connected = false;

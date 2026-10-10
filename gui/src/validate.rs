@@ -2,7 +2,7 @@
 
 use crate::config::{ProxyProfile, ProxyProtocol};
 
-/// A mandatory profile field. Each frontend formats its own label.
+/// A mandatory profile field. The UI formats its own label.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RequiredField {
     Server,

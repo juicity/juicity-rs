@@ -1,7 +1,5 @@
-//! Desktop integration shared by both frontends.
+//! Desktop integration: autostart, single instance and the tray.
 
 pub mod autostart;
-#[cfg(feature = "ui-slint")]
 pub mod single_instance;
-#[cfg(feature = "ui-slint")]
 pub mod tray;

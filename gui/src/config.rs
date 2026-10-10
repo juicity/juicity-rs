@@ -1,6 +1,5 @@
 use anyhow::Context;
 use directories::ProjectDirs;
-use rust_i18n::t;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -59,16 +58,6 @@ pub enum SystemProxyMode {
     Global,
 }
 
-impl SystemProxyMode {
-    pub fn label(self) -> String {
-        match self {
-            SystemProxyMode::Disable => t!("proxy.disable").to_string(),
-            SystemProxyMode::Pac => t!("proxy.pac").to_string(),
-            SystemProxyMode::Global => t!("proxy.global").to_string(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PacMode {
@@ -88,23 +77,7 @@ pub enum PacRuleMode {
     ProxyGfw,
 }
 
-impl PacRuleMode {
-    pub fn label(self) -> String {
-        match self {
-            PacRuleMode::BypassChina => t!("pac.bypass_china").to_string(),
-            PacRuleMode::ProxyGfw => t!("pac.gfw_only").to_string(),
-        }
-    }
-}
-
 impl ProxyProtocol {
-    pub fn label(self) -> String {
-        match self {
-            ProxyProtocol::Juicity => t!("protocol.juicity").to_string(),
-            ProxyProtocol::Shadowsocks => t!("protocol.shadowsocks").to_string(),
-        }
-    }
-
     pub fn from_index(idx: u32) -> Self {
         match idx {
             1 => ProxyProtocol::Shadowsocks,
@@ -276,14 +249,6 @@ pub enum StartupConnectionState {
 }
 
 impl StartupConnectionState {
-    pub fn label(self) -> String {
-        match self {
-            StartupConnectionState::Off => t!("startup_dialog.connection_off").to_string(),
-            StartupConnectionState::On => t!("startup_dialog.connection_on").to_string(),
-            StartupConnectionState::LastState => t!("startup_dialog.connection_last").to_string(),
-        }
-    }
-
     pub fn index(self) -> u32 {
         match self {
             StartupConnectionState::Off => 0,

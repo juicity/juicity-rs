@@ -212,8 +212,7 @@ impl Controller {
         Changes::SETTINGS | self.mark_dirty(ConfigFile::Runtime, now)
     }
 
-    /// Connect on start when the startup setting asks for it (same rule as
-    /// the gpui `apply_startup_connection`).
+    /// Connect on start when the startup setting asks for it.
     pub(super) fn startup_connection(&mut self, now: Instant) -> Changes {
         let runtime = &self.gui.runtime;
         let start = match runtime.startup_connection_state {
@@ -357,7 +356,7 @@ impl Controller {
     }
 
     /// The local mixed port changed: regenerate the PAC, re-point the system
-    /// proxy and restart a running core (the gpui `apply_listen_change`).
+    /// proxy and restart a running core.
     pub(super) fn apply_listen_change(&mut self, now: Instant) -> Changes {
         let mut changes = Changes::OVERVIEW;
         if let Err(err) = restart_pac_server(&mut self.gui, false) {

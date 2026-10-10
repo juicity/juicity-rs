@@ -10,7 +10,7 @@
 //!   `sslocal`.
 //!
 //! Both services run on a dedicated Tokio runtime owned by this module, so the
-//! GPUI event loop never blocks on proxy work.
+//! UI event loop never blocks on proxy work.
 
 use crate::config::{AppConfig, ProxyProfile, ProxyProtocol};
 use anyhow::Context;

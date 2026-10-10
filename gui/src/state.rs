@@ -2,8 +2,8 @@
 //!
 //! Holds the persistent [`GuiState`] (config/profiles/runtime + the proxy core
 //! manager) and the helpers that tie them together. Keeping this separate from
-//! `app.rs` (which owns the GPUI rendering + view logic) mirrors the `core`/`ui`
-//! split used by larger GPUI apps and makes the state testable on its own.
+//! the `ui` module (Slint rendering, controller and bindings) makes the state
+//! testable on its own.
 
 use crate::config::{AppConfig, ProfileStore, ProxyProfile, RuntimeState, Storage};
 use crate::core::CoreManager;

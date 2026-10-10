@@ -1,4 +1,4 @@
-//! Locale detection with backend-specific catalog tags.
+//! Locale detection and the Slint catalog tags.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UiLang {
@@ -8,7 +8,6 @@ pub enum UiLang {
 }
 
 impl UiLang {
-    #[cfg(feature = "ui-slint")]
     pub fn slint_tag(self) -> &'static str {
         match self {
             Self::En => "en",
@@ -16,21 +15,6 @@ impl UiLang {
             Self::ZhTw => "zh_TW",
         }
     }
-
-    #[cfg(feature = "ui-gpui")]
-    fn gpui_tag(self) -> &'static str {
-        match self {
-            Self::En => "en",
-            Self::ZhCn | Self::ZhTw => "zh-CN",
-        }
-    }
-}
-
-#[cfg(feature = "ui-gpui")]
-pub fn init() {
-    let locale = detect().gpui_tag();
-    rust_i18n::set_locale(locale);
-    tracing::debug!("i18n locale set to: {locale}");
 }
 
 pub fn detect() -> UiLang {
@@ -106,13 +90,5 @@ mod tests {
         for tag in ["fr-FR", "C.UTF-8", "zho", "zhish-TW", "zh-JP"] {
             assert_eq!(normalise(tag), UiLang::En, "{tag}");
         }
-    }
-
-    #[cfg(feature = "ui-gpui")]
-    #[test]
-    fn gpui_uses_existing_catalogs() {
-        assert_eq!(UiLang::ZhTw.gpui_tag(), "zh-CN");
-        assert_eq!(UiLang::ZhCn.gpui_tag(), "zh-CN");
-        assert_eq!(UiLang::En.gpui_tag(), "en");
     }
 }

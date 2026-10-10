@@ -1,5 +1,4 @@
-//! Build-time versions of the GUI and its embedded cores, shown by both
-//! frontends.
+//! Build-time versions of the GUI and its embedded cores, shown in About.
 
 /// Versions reported in About.  The dependency versions are injected by
 /// `build.rs` from `Cargo.lock`, so they cannot drift from the linked crates.
@@ -28,7 +27,6 @@ impl Versions {
     }
 
     /// Release tag plus the abbreviated commit the binary was built from.
-    #[cfg_attr(feature = "ui-slint", allow(dead_code))]
     pub fn build(&self) -> String {
         format!("{} ({})", self.tag, short_commit(self.commit))
     }

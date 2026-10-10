@@ -12,27 +12,17 @@ const PNG_SIZES: [u32; 8] = [16, 32, 48, 64, 128, 256, 512, 1024];
 const ICO_SIZES: [u32; 6] = [16, 32, 48, 64, 128, 256];
 
 fn main() {
-    let gpui = std::env::var_os("CARGO_FEATURE_UI_GPUI").is_some();
-    let slint = std::env::var_os("CARGO_FEATURE_UI_SLINT").is_some();
-    // Emitted first so a build with both or neither feature reports only
-    // the `compile_error!` in main.rs.
     emit_dependency_versions();
-    if gpui == slint {
-        return;
-    }
-    #[cfg(feature = "ui-slint")]
-    if slint {
-        slint_build::compile_with_config(
-            "ui/app.slint",
-            slint_build::CompilerConfiguration::new()
-                // slint-build sets the domain to CARGO_PKG_NAME (juicity-gui).
-                .with_default_translation_context(slint_build::DefaultTranslationContext::None)
-                .with_bundled_translations("lang")
-                // Element lookup in the behavior tests needs debug info.
-                .with_debug_info(std::env::var("PROFILE").as_deref() == Ok("debug")),
-        )
-        .expect("Failed to compile Slint UI");
-    }
+    slint_build::compile_with_config(
+        "ui/app.slint",
+        slint_build::CompilerConfiguration::new()
+            // slint-build sets the domain to CARGO_PKG_NAME (juicity-gui).
+            .with_default_translation_context(slint_build::DefaultTranslationContext::None)
+            .with_bundled_translations("lang")
+            // Element lookup in the behavior tests needs debug info.
+            .with_debug_info(std::env::var("PROFILE").as_deref() == Ok("debug")),
+    )
+    .expect("Failed to compile Slint UI");
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let svg_path = format!("{manifest_dir}/icon.svg");
@@ -72,7 +62,7 @@ fn main() {
     let ico_path = Path::new(&out_dir).join("icon.ico");
     write_ico(&ico_images, &ico_path);
 
-    // On Windows GPUI takes the window icon from the executable's own icon
+    // On Windows the shell takes the executable's icon from its own icon
     // resource, so the icon has to end up inside the binary, not next to it.
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         embed_icon_resource(Path::new(&out_dir), &ico_path);
@@ -81,7 +71,7 @@ fn main() {
     println!("cargo:rerun-if-changed={manifest_dir}/icon.svg");
 }
 
-/// About (both frontends) reports the versions of the embedded protocol
+/// About reports the versions of the embedded protocol
 /// backends, so read them from the lockfile to match what is actually linked.
 fn emit_dependency_versions() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");

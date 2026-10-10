@@ -31,7 +31,7 @@ pub enum DraftField {
     Group,
 }
 
-/// Why a draft field cannot be saved. Each frontend formats its own message.
+/// Why a draft field cannot be saved. The UI formats its own message.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DraftError {
     /// A mandatory field (server, UUID, password) is empty.
