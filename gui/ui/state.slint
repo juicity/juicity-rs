@@ -88,6 +88,8 @@ export global NodeStore {
     in-out property <string> timeout-error;
 }
 export global SettingsStore {
+    // Menu order: system, English, Simplified Chinese, Traditional Chinese, Russian.
+    in-out property <int> language;
     in-out property <bool> autostart;
     // False where starting at login is not implemented yet.
     in-out property <bool> autostart-supported: true;
@@ -131,6 +133,7 @@ export global Actions {
     callback commit-advanced;
     callback cancel-advanced;
     callback set-autostart(bool);
+    callback set-language(int);
     callback set-hide-on-start(bool);
     callback set-close-to-tray(bool);
     callback set-startup-connection(StartupConnection);

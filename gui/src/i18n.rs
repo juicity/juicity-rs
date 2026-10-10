@@ -5,6 +5,7 @@ pub enum UiLang {
     En,
     ZhCn,
     ZhTw,
+    Ru,
 }
 
 impl UiLang {
@@ -13,6 +14,7 @@ impl UiLang {
             Self::En => "en",
             Self::ZhCn => "zh_CN",
             Self::ZhTw => "zh_TW",
+            Self::Ru => "ru",
         }
     }
 }
@@ -34,8 +36,10 @@ fn normalise(raw: &str) -> UiLang {
         .replace('_', "-")
         .to_ascii_lowercase();
     let mut parts = tag.split('-');
-    if parts.next() != Some("zh") {
-        return UiLang::En;
+    match parts.next() {
+        Some("ru") => return UiLang::Ru,
+        Some("zh") => {}
+        _ => return UiLang::En,
     }
     if parts
         .clone()
@@ -52,6 +56,21 @@ fn normalise(raw: &str) -> UiLang {
 #[cfg(test)]
 mod tests {
     use super::{normalise, UiLang};
+
+    #[test]
+    fn russian_locale_variants() {
+        for tag in [
+            "ru",
+            "ru_RU",
+            "ru-RU",
+            "ru_RU.UTF-8",
+            "RU-ru",
+            "ru_BY@variant",
+        ] {
+            assert_eq!(normalise(tag), UiLang::Ru, "{tag}");
+        }
+        assert_eq!(normalise("rus"), UiLang::En);
+    }
 
     #[test]
     fn posix_zh_cn() {

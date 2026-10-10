@@ -248,6 +248,44 @@ mod tests {
     }
 
     #[test]
+    fn language_switch_updates_tray_notice_and_persists_live() {
+        let (ui, dir) = setup("desktop-language");
+        let actions = ui.global::<Actions>();
+        actions.invoke_set_language(1);
+        assert_eq!(menu(&ui).unwrap().labels.connect, "Connect");
+        actions.invoke_add_node();
+        actions.invoke_set_active_node();
+        assert_eq!(
+            ui.global::<AppState>().get_notice_detail(),
+            "Server, UUID, Password"
+        );
+        actions.invoke_set_language(4);
+        assert_eq!(menu(&ui).unwrap().labels.connect, "Подключить");
+        assert_eq!(menu(&ui).unwrap().labels.settings, "Настройки…");
+        assert_eq!(
+            ui.global::<AppState>().get_notice_detail(),
+            "Сервер, UUID, Пароль"
+        );
+        assert_eq!(
+            ui.global::<super::super::super::Theme>().get_cjk(),
+            "Noto Sans"
+        );
+        std::thread::sleep(Duration::from_millis(450));
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(500));
+        let saved: crate::config::RuntimeState =
+            serde_json::from_slice(&std::fs::read(dir.join("runtime.json")).unwrap()).unwrap();
+        assert_eq!(saved.language, crate::config::LanguagePreference::Ru);
+        actions.invoke_set_language(1);
+        assert_eq!(menu(&ui).unwrap().labels.connect, "Connect");
+        assert_eq!(
+            ui.global::<AppState>().get_notice_detail(),
+            "Server, UUID, Password"
+        );
+        shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn tray_events_drive_the_ui() {
         let (ui, dir) = setup("desktop-events");
         handle(TrayEvent::SetProxyMode(crate::config::SystemProxyMode::Pac));

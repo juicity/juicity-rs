@@ -9,7 +9,7 @@ mod shots;
 
 use crate::config::Storage;
 use crate::desktop::single_instance;
-use crate::i18n::{self, UiLang};
+use crate::i18n::UiLang;
 use controller::{Controller, NativeEffects};
 use slint::ComponentHandle;
 
@@ -17,12 +17,18 @@ slint::include_modules!();
 
 /// Translation, fonts and pure callbacks; no application data.
 fn prepare(window: &MainWindow, language: UiLang) -> anyhow::Result<()> {
+    apply_language(window, language)?;
+    window.global::<Fmt>().on_elide_middle(fmt::elide_middle);
+    window.global::<Fmt>().on_mask(fmt::mask);
+    Ok(())
+}
+
+fn apply_language(window: &MainWindow, language: UiLang) -> anyhow::Result<()> {
+    fonts::register_medium(language)?;
     slint::select_bundled_translation(language.slint_tag())?;
     window
         .global::<Theme>()
         .set_cjk(fonts::cjk_family(language).into());
-    window.global::<Fmt>().on_elide_middle(fmt::elide_middle);
-    window.global::<Fmt>().on_mask(fmt::mask);
     Ok(())
 }
 
@@ -61,17 +67,15 @@ pub fn run() -> anyhow::Result<()> {
         single_instance::Startup::Primary(instance) => instance,
         single_instance::Startup::Secondary => return Ok(()),
     };
-    let language = i18n::detect();
+    let storage = Storage::new()?;
+    let config_dir = storage.paths().config_dir.clone();
+    let controller = Controller::new(storage, Box::new(NativeEffects::default()));
+    let language = controller.language().resolve();
     fonts::register_medium(language)?;
     let window = MainWindow::new().map_err(|err| renderer_error(software, err))?;
     prepare(&window, language)?;
 
-    let storage = Storage::new()?;
-    let config_dir = storage.paths().config_dir.clone();
-    bind::install(
-        &window,
-        Controller::new(storage, Box::new(NativeEffects::default())),
-    );
+    bind::install(&window, controller);
     bind::watch_config_dir(&config_dir);
     bind::startup();
     bind::start_tray();

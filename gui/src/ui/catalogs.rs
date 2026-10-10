@@ -149,6 +149,10 @@ fn bundled_catalogs_are_complete() {
             "zh_TW",
             include_str!("../../lang/zh_TW/LC_MESSAGES/juicity-gui.po"),
         ),
+        (
+            "ru",
+            include_str!("../../lang/ru/LC_MESSAGES/juicity-gui.po"),
+        ),
     ] {
         let catalog = parse(content);
         for key in template.keys() {
@@ -160,6 +164,8 @@ fn bundled_catalogs_are_complete() {
                 &["msgstr"]
             } else if language == "en" {
                 &["msgstr[0]", "msgstr[1]"]
+            } else if language == "ru" {
+                &["msgstr[0]", "msgstr[1]", "msgstr[2]"]
             } else {
                 &["msgstr[0]"]
             };

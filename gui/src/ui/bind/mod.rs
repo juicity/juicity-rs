@@ -29,6 +29,7 @@ thread_local! {
     static CONTROLLER: RefCell<Option<Controller>> = const { RefCell::new(None) };
     static WINDOW: RefCell<Option<slint::Weak<MainWindow>>> = const { RefCell::new(None) };
     static SYNCING: Cell<bool> = const { Cell::new(false) };
+    static LANGUAGE: Cell<Option<crate::i18n::UiLang>> = const { Cell::new(None) };
     static SAVE_TIMER: slint::Timer = slint::Timer::default();
     static NOTICE_TIMER: slint::Timer = slint::Timer::default();
     static POLL_TIMER: slint::Timer = slint::Timer::default();
@@ -68,6 +69,7 @@ pub fn shutdown() {
     NOTICE_TIMER.with(|t| t.stop());
     WATCHER.with(|w| w.borrow_mut().take());
     desktop::stop();
+    LANGUAGE.set(None);
     if let Some(mut controller) = CONTROLLER.with(|c| c.borrow_mut().take()) {
         controller.shutdown();
     }
@@ -117,12 +119,24 @@ fn apply(changes: Changes) {
     let Some(ui) = WINDOW.with(|w| w.borrow().as_ref().and_then(|w| w.upgrade())) else {
         return;
     };
+    let language_changed = if changes.settings {
+        read(|c| c.language().resolve()).is_some_and(|language| {
+            if LANGUAGE.get() == Some(language) {
+                return false;
+            }
+            super::apply_language(&ui, language).expect("bundled language and fonts are available");
+            LANGUAGE.set(Some(language));
+            true
+        })
+    } else {
+        false
+    };
     if changes.overview {
         if let Some(snapshot) = read(|c| c.overview()) {
             sync(|| overview::sync(&ui, &snapshot));
         }
     }
-    if changes.nodes || changes.editor {
+    if changes.nodes || changes.editor || language_changed {
         if let Some(snapshot) = read(|c| c.nodes()) {
             sync(|| nodes::sync(&ui, &snapshot, changes.editor));
         }
@@ -146,7 +160,12 @@ fn apply(changes: Changes) {
             });
         }
     }
-    if changes.overview || changes.nodes {
+    if language_changed && !changes.notice {
+        if let Some((notice, _)) = read(|c| c.notice()) {
+            sync(|| overview::sync_notice(&ui, &notice));
+        }
+    }
+    if changes.overview || changes.nodes || language_changed {
         desktop::push_tray(&ui, false);
     }
     if changes.persist {

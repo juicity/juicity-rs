@@ -77,6 +77,21 @@ export component SettingsPage inherits VerticalLayout {
                 SettingsCard {
                     title: @tr("General");
                     SettingRow {
+                        label: @tr("Language");
+                        MenuValue {
+                            text: SettingsStore.language == 0 ? @tr("Follow system") : SettingsStore.language == 1 ? "English" : SettingsStore.language == 2 ? "简体中文" : SettingsStore.language == 3 ? "繁體中文" : "Русский";
+                            items: [
+                                { text: @tr("Follow system"), checked: SettingsStore.language == 0, enabled: true },
+                                { text: "English", checked: SettingsStore.language == 1, enabled: true },
+                                { text: "简体中文", checked: SettingsStore.language == 2, enabled: true },
+                                { text: "繁體中文", checked: SettingsStore.language == 3, enabled: true },
+                                { text: "Русский", checked: SettingsStore.language == 4, enabled: true },
+                            ];
+                            selected(index) => { Actions.set-language(index); }
+                        }
+                    }
+                    HDivider { }
+                    SettingRow {
                         label: @tr("Start at login");
                         SettingSwitch { on <=> SettingsStore.autostart; enabled: SettingsStore.autostart-supported; toggled(on) => { Actions.set-autostart(on); } }
                     }

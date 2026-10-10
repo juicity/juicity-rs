@@ -205,7 +205,7 @@ fn shots() -> anyhow::Result<()> {
     }))?;
     fonts::register_screenshot_fonts()?;
     let mut failures = Vec::new();
-    for language in [UiLang::En, UiLang::ZhCn, UiLang::ZhTw] {
+    for language in [UiLang::En, UiLang::ZhCn, UiLang::ZhTw, UiLang::Ru] {
         for dark in [false, true] {
             let ui = MainWindow::new()?;
             prepare(&ui, language)?;
@@ -248,7 +248,9 @@ fn shots() -> anyhow::Result<()> {
                     image::ColorType::Rgb8,
                 )?;
                 println!("Rendered {}", path.display());
-                if matches!(language, UiLang::En | UiLang::ZhTw) {
+                if matches!(language, UiLang::En | UiLang::ZhTw | UiLang::Ru)
+                    || page == Page::Settings
+                {
                     failures.extend(compare_golden(
                         &root.join("tests/golden").join(&filename),
                         &output.join(format!("diff--golden--{filename}")),

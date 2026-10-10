@@ -1,7 +1,7 @@
 //! Settings page callbacks and snapshot sync.
 
 use super::update;
-use crate::config::{PacMode, StartupConnectionState};
+use crate::config::{LanguagePreference, PacMode, StartupConnectionState};
 use crate::ui::controller::{
     is_interval_preset, url_summary, SettingError, SettingKey, SettingsSnapshot,
 };
@@ -62,8 +62,30 @@ fn source_to(mode: PacMode) -> PacSource {
     }
 }
 
+fn language_from(index: i32) -> LanguagePreference {
+    match index {
+        1 => LanguagePreference::En,
+        2 => LanguagePreference::ZhCn,
+        3 => LanguagePreference::ZhTw,
+        4 => LanguagePreference::Ru,
+        _ => LanguagePreference::FollowSystem,
+    }
+}
+
+fn language_to(language: LanguagePreference) -> i32 {
+    match language {
+        LanguagePreference::FollowSystem => 0,
+        LanguagePreference::En => 1,
+        LanguagePreference::ZhCn => 2,
+        LanguagePreference::ZhTw => 3,
+        LanguagePreference::Ru => 4,
+    }
+}
+
 pub fn wire(ui: &MainWindow) {
     let actions = ui.global::<Actions>();
+    actions
+        .on_set_language(|index| update(move |c, now| c.set_language(language_from(index), now)));
     actions.on_set_autostart(|on| update(move |c, now| c.set_autostart(on, now)));
     actions.on_set_hide_on_start(|on| update(move |c, now| c.set_hide_on_start(on, now)));
     actions.on_set_close_to_tray(|on| update(move |c, now| c.set_close_to_tray(on, now)));
@@ -99,6 +121,7 @@ pub fn wire(ui: &MainWindow) {
 /// text.
 pub fn sync(ui: &MainWindow, snapshot: &SettingsSnapshot) {
     let store = ui.global::<SettingsStore>();
+    store.set_language(language_to(snapshot.language));
     store.set_autostart(snapshot.autostart);
     store.set_hide_on_start(snapshot.hide_on_start);
     store.set_close_to_tray(snapshot.close_to_tray);

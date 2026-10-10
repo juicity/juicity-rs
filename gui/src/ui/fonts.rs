@@ -1,6 +1,10 @@
 use crate::i18n::UiLang;
 
 pub fn cjk_family(lang: UiLang) -> &'static str {
+    // Cyrillic reads better in the bundled Latin face than in the CJK one.
+    if lang == UiLang::Ru {
+        return "Noto Sans";
+    }
     let traditional = lang == UiLang::ZhTw;
     if cfg!(target_os = "windows") {
         if traditional {
@@ -53,6 +57,9 @@ fn cjk_file(name: &str) -> Option<std::path::PathBuf> {
 }
 
 pub fn register_medium(lang: UiLang) -> anyhow::Result<()> {
+    if lang == UiLang::Ru {
+        return Ok(());
+    }
     #[cfg(target_os = "linux")]
     {
         use slint::fontique_011::{fontique, shared_collection};

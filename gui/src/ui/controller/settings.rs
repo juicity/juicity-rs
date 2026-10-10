@@ -2,7 +2,7 @@
 //! PAC server. Text values are edited in a sheet that holds its own draft.
 
 use super::{Changes, ConfigFile, Controller, Notice};
-use crate::config::{PacMode, StartupConnectionState, SystemProxyMode};
+use crate::config::{LanguagePreference, PacMode, StartupConnectionState, SystemProxyMode};
 use crate::state::restart_pac_server;
 use crate::util::{format_host_port, split_host_port};
 use std::time::Instant;
@@ -41,6 +41,7 @@ pub struct SettingSheet {
 /// Everything the settings page shows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SettingsSnapshot {
+    pub language: LanguagePreference,
     pub autostart: bool,
     pub hide_on_start: bool,
     pub close_to_tray: bool,
@@ -149,10 +150,15 @@ fn http_url(text: &str) -> Result<String, SettingError> {
 }
 
 impl Controller {
+    pub fn language(&self) -> LanguagePreference {
+        self.gui.runtime.language
+    }
+
     pub fn settings(&self) -> SettingsSnapshot {
         let config = &self.gui.config;
         let runtime = &self.gui.runtime;
         SettingsSnapshot {
+            language: runtime.language,
             autostart: runtime.auto_start,
             hide_on_start: runtime.hide_window_on_startup,
             close_to_tray: runtime.close_to_tray,
@@ -166,6 +172,14 @@ impl Controller {
             online_pac_url: config.online_pac_url.clone().unwrap_or_default(),
             sheet: self.sheet.clone(),
         }
+    }
+
+    pub fn set_language(&mut self, language: LanguagePreference, now: Instant) -> Changes {
+        if self.gui.runtime.language == language {
+            return Changes::SETTINGS;
+        }
+        self.gui.runtime.language = language;
+        Changes::SETTINGS | self.mark_dirty(ConfigFile::Runtime, now)
     }
 
     /// Write or remove the autostart entry; the switch reverts on failure.

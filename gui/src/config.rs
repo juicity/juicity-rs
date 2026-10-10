@@ -228,9 +228,36 @@ pub enum StartupConnectionState {
     LastState,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum LanguagePreference {
+    #[default]
+    FollowSystem,
+    En,
+    ZhCn,
+    ZhTw,
+    Ru,
+}
+
+impl LanguagePreference {
+    pub fn resolve(self) -> crate::i18n::UiLang {
+        use crate::i18n::{self, UiLang};
+        match self {
+            Self::FollowSystem => i18n::detect(),
+            Self::En => UiLang::En,
+            Self::ZhCn => UiLang::ZhCn,
+            Self::ZhTw => UiLang::ZhTw,
+            Self::Ru => UiLang::Ru,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RuntimeState {
+    /// Saved as `runtime.json`'s `language`; missing fields follow the system locale.
+    /// Changes apply to the UI immediately, without restarting the proxy.
+    pub language: LanguagePreference,
     pub auto_start: bool,
     pub selected_profile: usize,
     pub close_to_tray: bool,
@@ -246,6 +273,7 @@ pub struct RuntimeState {
 impl Default for RuntimeState {
     fn default() -> Self {
         Self {
+            language: LanguagePreference::default(),
             auto_start: false,
             selected_profile: 0,
             // Minimize to the system tray instead of quitting when the main
@@ -371,6 +399,40 @@ impl Storage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn language_round_trips_in_runtime_config() {
+        for language in [
+            LanguagePreference::FollowSystem,
+            LanguagePreference::En,
+            LanguagePreference::ZhCn,
+            LanguagePreference::ZhTw,
+            LanguagePreference::Ru,
+        ] {
+            let runtime = RuntimeState {
+                language,
+                ..Default::default()
+            };
+            let saved = serde_json::to_value(&runtime).unwrap();
+            let restored: RuntimeState = serde_json::from_value(saved.clone()).unwrap();
+            assert_eq!(restored.language, language);
+            if language == LanguagePreference::Ru {
+                assert_eq!(saved["language"], "ru");
+            }
+        }
+    }
+
+    #[test]
+    fn old_runtime_config_follows_system_language() {
+        let runtime: RuntimeState = serde_json::from_str(
+            r#"{"auto_start":true,"hide_window_on_startup":true,"startup_connection_state":"on"}"#,
+        )
+        .unwrap();
+        assert_eq!(runtime.language, LanguagePreference::FollowSystem);
+        assert!(runtime.auto_start);
+        assert!(runtime.hide_window_on_startup);
+        assert_eq!(runtime.startup_connection_state, StartupConnectionState::On);
+    }
 
     #[test]
     fn profiles_without_new_fields_load_unchanged() {
