@@ -1,6 +1,16 @@
+<div align="center">
+
+<img src="gui/icon.svg" width="96" alt="Juicity">
+
 # Juicity-RS
 
-> **Languages:** [English](README.md) | [简体中文](README-zh_hans.md)
+**Juicity client, server and desktop GUI, written in Rust.**
+
+English · [简体中文](README-zh_hans.md)
+
+[Features](#features) • [GUI](#gui) • [Build](#build) • [Configuration](#configuration) • [Usage](#usage) • [Protocol](#protocol)
+
+</div>
 
 A Rust implementation of the [Juicity](https://github.com/juicity/juicity) protocol — a QUIC-based proxy that improves on TUIC's UDP handling with **UDP over Stream**, multiplexing UDP traffic over bidirectional QUIC streams.
 
@@ -16,6 +26,14 @@ A Rust implementation of the [Juicity](https://github.com/juicity/juicity) proto
 - **Share link & QR code** — `juicity://` URI generation, terminal ANSI QR code, and PNG export
 - **Dual-stack server** — `:port` shorthand binds `[::]:port` with `IPV6_V6ONLY=false`
 - **Password memory safety** — client password is stored in `Zeroizing<String>` and zeroed on drop
+
+## GUI
+
+<img src="docs/images/gui-overview.png" alt="The Overview page, light and dark" width="100%">
+
+`gui/` is a native desktop app for Linux, Windows and macOS, built with Slint. It runs the Juicity and Shadowsocks clients inside its own process, manages nodes and share links, sets the system proxy (off, PAC or global), shows speed, usage and logs, and keeps running in the tray when the window is closed. The interface is in English, Simplified Chinese, Traditional Chinese and Russian, with light and dark themes. Build and run it with the [GUI guide](gui/README.md).
+
+<img src="docs/images/gui-nodes.png" alt="The Nodes page, light and dark" width="100%">
 
 ## Project Structure
 
