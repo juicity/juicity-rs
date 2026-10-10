@@ -28,8 +28,11 @@ export component NodesPage inherits VerticalLayout {
     HorizontalLayout {
         spacing: 16px;
         vertical-stretch: 1;
+        // Both columns share any width beyond the minimum window.
         Card {
-            width: 300px;
+            min-width: 300px;
+            preferred-width: 300px;
+            horizontal-stretch: 1;
             ScrollArea {
                 x: 8px;
                 y: 8px;
@@ -72,6 +75,6 @@ export component NodesPage inherits VerticalLayout {
                 }
             }
         }
-        NodeEditor { width: 396px; }
+        NodeEditor { min-width: 396px; preferred-width: 396px; horizontal-stretch: 1; }
     }
 }
