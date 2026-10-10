@@ -43,6 +43,9 @@ export component MainWindow inherits Window {
                 padding-right: 24px;
                 padding-bottom: 24px;
                 if AppState.page == Page.nodes: NodesPage { }
+                // Other pages sit outside this layout; an empty column would
+                // cap the window's maximum height at its minimum.
+                if AppState.page != Page.nodes: Rectangle { }
             }
         }
         // Recreated on every open, so its fields start from the sheet draft.
