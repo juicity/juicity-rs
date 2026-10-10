@@ -256,7 +256,7 @@ pub struct Controller {
     saved: Saved,
     /// Close or quit waiting for an answer to the unsaved-changes prompt.
     leave: Option<Leave>,
-    /// The open settings sheet; its draft is committed only by 完成.
+    /// The open settings sheet; its draft is committed only by Done.
     sheet: Option<settings::SettingSheet>,
     /// Log and traffic sources plus the Logs page state.
     logs: logs::LogsState,

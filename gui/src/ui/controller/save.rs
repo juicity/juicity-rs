@@ -49,7 +49,7 @@ impl Controller {
         self.gui.runtime.selected_profile = index;
     }
 
-    /// 儲存 / Ctrl+S: validate and write the working list now.
+    /// Save / Ctrl+S: validate and write the working list now.
     pub fn save_nodes(&mut self) -> Changes {
         self.write_nodes().0
     }
@@ -125,7 +125,7 @@ impl Controller {
         }
     }
 
-    /// 還原: restore the saved list and active node, select the active
+    /// Revert: restore the saved list and active node, select the active
     /// node and reload the editor, dropping invalid text.
     pub fn revert_nodes(&mut self) -> Changes {
         if !self.nodes_dirty() {

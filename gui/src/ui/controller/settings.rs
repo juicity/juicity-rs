@@ -241,7 +241,7 @@ impl Controller {
         }
     }
 
-    /// 本機/線上: which PAC URL the system proxy points at.
+    /// Local/Online: which PAC URL the system proxy points at.
     pub fn set_pac_source(&mut self, mode: PacMode, now: Instant) -> Changes {
         if self.gui.config.pac_mode == mode {
             return Changes::SETTINGS;
@@ -297,7 +297,7 @@ impl Controller {
         Changes::SETTINGS
     }
 
-    /// 取消, Esc or the scrim: drop the draft.
+    /// Cancel, Esc or the scrim: drop the draft.
     pub fn cancel_setting(&mut self) -> Changes {
         if self.sheet.take().is_some() {
             Changes::SETTINGS
@@ -306,7 +306,7 @@ impl Controller {
         }
     }
 
-    /// 完成: validate, apply and close; an invalid draft keeps the sheet open.
+    /// Done: validate, apply and close; an invalid draft keeps the sheet open.
     pub fn commit_setting(&mut self, now: Instant) -> Changes {
         let Some(sheet) = &mut self.sheet else {
             return Changes::NONE;
@@ -536,7 +536,7 @@ mod tests {
         let dir = temp_dir("settings-interval");
         let (mut c, _) = controller(&dir);
         let now = Instant::now();
-        // Off opens with the default preset, so 完成 works right away.
+        // Off opens with the default preset, so Done works right away.
         let _ = c.open_setting(SettingKey::UpdateHours);
         assert_eq!(c.settings().sheet.unwrap().draft, "24");
         assert_eq!(c.settings().sheet.unwrap().error, None);

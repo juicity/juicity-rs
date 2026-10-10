@@ -1,4 +1,4 @@
-//! Nodes page: list operations, the editor draft and the 進階設定 sheet.
+//! Nodes page: list operations, the editor draft and the Advanced sheet.
 //!
 //! `NodesState::selected` is the node shown in the editor (UI only);
 //! `runtime.selected_profile` is the working active node the core runs;
@@ -135,7 +135,7 @@ impl DraftData {
         }
     }
 
-    /// Copy the fields edited in the 進階設定 sheet.
+    /// Copy the fields edited in the Advanced sheet.
     fn take_advanced(&mut self, sheet: &Self) {
         self.sni.clone_from(&sheet.sni);
         self.allow_insecure = sheet.allow_insecure;
@@ -274,7 +274,7 @@ pub struct NodesSnapshot {
     pub draft: DraftData,
     pub errors: Vec<(DraftField, DraftError)>,
     pub reconnect_required: bool,
-    /// The 進階設定 sheet draft while the sheet is open.
+    /// The Advanced sheet draft while the sheet is open.
     pub advanced: Option<DraftData>,
     /// The working list differs from the saved one.
     pub dirty: bool,
@@ -388,7 +388,7 @@ impl Controller {
         self.load_selected()
     }
 
-    /// 新增節點: append a default node named `name` and select it.
+    /// Add node: append a default node named `name` and select it.
     pub fn add_node(&mut self, name: String) -> Changes {
         self.gui.profiles.profiles.push(ProxyProfile {
             name,
@@ -499,7 +499,7 @@ impl Controller {
         }
     }
 
-    /// 設為使用中: make the selected node active; a running core switches to
+    /// Set as active: make the selected node active; a running core switches to
     /// it immediately (as the tray selection does).
     pub fn set_active_node(&mut self, now: Instant) -> Changes {
         let index = self.nodes.selected;
@@ -519,7 +519,7 @@ impl Controller {
         changes
     }
 
-    /// 匯入連結: add every link on the clipboard and select the first one.
+    /// Import link: add every link on the clipboard and select the first one.
     pub fn import_links(&mut self) -> Changes {
         match self.effects.paste_text() {
             Ok(text) => self.import_text(&text),
@@ -564,7 +564,7 @@ impl Controller {
         self.load_selected() | self.set_notice(notice)
     }
 
-    /// 匯出連結: copy the selected node's share link.
+    /// Export link: copy the selected node's share link.
     pub fn export_link(&mut self) -> Changes {
         // The stored profile would not match what the editor shows.
         if !self.nodes.errors.is_empty() {
@@ -587,7 +587,7 @@ impl Controller {
         Changes::NODES
     }
 
-    /// A sheet field changed; nothing is saved until 完成.
+    /// A sheet field changed; nothing is saved until Done.
     pub fn edit_advanced(&mut self, field: DraftField, value: &str) -> Changes {
         let Some(sheet) = &mut self.nodes.advanced else {
             return Changes::NONE;
@@ -601,7 +601,7 @@ impl Controller {
         Changes::NODES
     }
 
-    /// 完成: keep the sheet open while it has errors, else copy it into
+    /// Done: keep the sheet open while it has errors, else copy it into
     /// the working list.
     pub fn commit_advanced(&mut self) -> Changes {
         if !self.nodes.advanced_errors.is_empty() {
@@ -614,7 +614,7 @@ impl Controller {
         self.commit_draft() | Changes::EDITOR
     }
 
-    /// 取消, Esc or a click on the scrim: drop the sheet draft.
+    /// Cancel, Esc or a click on the scrim: drop the sheet draft.
     pub fn cancel_advanced(&mut self) -> Changes {
         self.nodes.advanced = None;
         self.nodes.advanced_errors.clear();
@@ -794,7 +794,7 @@ mod tests {
             !c.nodes().reconnect_required,
             "only shown for the active node"
         );
-        // Disconnected: 設為使用中 only changes the active node.
+        // Disconnected: Set as active only changes the active node.
         let _ = c.toggle_connection(now);
         let _ = c.set_active_node(now);
         assert_eq!(fake.0.borrow().started.len(), 2);

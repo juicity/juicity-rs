@@ -205,7 +205,7 @@ impl Controller {
         })
     }
 
-    /// 更新規則: returns the download job unless one is already running.
+    /// Update rules: returns the download job unless one is already running.
     pub fn update_rules(&mut self) -> (Changes, Option<RuleJob>) {
         let job = self.begin_rules();
         let changes = if job.is_some() {

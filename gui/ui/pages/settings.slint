@@ -158,7 +158,7 @@ export component SettingsPage inherits VerticalLayout {
                         label: @tr("Auto update");
                         MenuValue {
                             text: root.hours-text(root.hours);
-                            // Presets, then the stored custom value (if any), then 自訂….
+                            // Presets, then the stored custom value (if any), then Custom….
                             items: root.custom-hours ? [
                                 { text: @tr("Off"), checked: false, enabled: true },
                                 { text: root.hours-text(6), checked: false, enabled: true },
@@ -229,7 +229,7 @@ export component SettingsPage inherits VerticalLayout {
 }
 
 // Edits one settings value. The field loads the sheet draft when it is
-// created and when the serial changes (a new open), never while typing; 完成 commits, 取消, Esc or the scrim discard.
+// created and when the serial changes (a new open), never while typing; Done commits, Cancel, Esc or the scrim discard.
 export component SettingSheet inherits Sheet {
     private property <SettingField> field: SettingsStore.sheet-field;
     private property <int> serial: SettingsStore.sheet-serial;
