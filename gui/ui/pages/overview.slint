@@ -124,7 +124,7 @@ export component OverviewPage inherits VerticalLayout {
                             Rectangle { min-height: 12px; vertical-stretch: 1; }
                             HorizontalLayout {
                                 spacing: 12px;
-                                Text { text: AppState.rules-age-days < 0 ? @tr("Rules not downloaded yet") : @tr("Rules updated {}", AppState.rules-updated-at); font-size: 12px; color: Theme.secondary; vertical-alignment: center; horizontal-stretch: 1; }
+                                Text { text: AppState.rules-age-days < 0 ? @tr("Rules not downloaded yet") : @tr("Rules updated {}", AppState.rules-updated-at); font-size: 12px; color: Theme.secondary; vertical-alignment: center; horizontal-stretch: 1; min-width: 0px; overflow: elide; }
                                 Button { text: @tr("Update rules"); icon: Icons.refresh; has-icon: true; enabled: !AppState.rules-updating; clicked => { Actions.update-rules(); } }
                             }
                         }
