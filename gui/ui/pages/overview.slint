@@ -144,27 +144,34 @@ export component OverviewPage inherits VerticalLayout {
                         }
                     }
                 }
-                HorizontalLayout {
+                // The traffic row grows with the window up to a cap; taller
+                // windows leave the space below it empty.
+                VerticalLayout {
                     vertical-stretch: 1;
-                    spacing: 16px;
-                    Card {
-                        horizontal-stretch: 1;
-                        min-width: 0px;
-                        preferred-width: 0px;
-                        VerticalLayout {
-                            padding: 20px;
-                            SpeedPanel { vertical-stretch: 1; }
+                    HorizontalLayout {
+                        vertical-stretch: 1;
+                        max-height: 240px;
+                        spacing: 16px;
+                        Card {
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            preferred-width: 0px;
+                            VerticalLayout {
+                                padding: 20px;
+                                SpeedPanel { vertical-stretch: 1; }
+                            }
+                        }
+                        Card {
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            preferred-width: 0px;
+                            VerticalLayout {
+                                padding: 20px;
+                                UsagePanel { vertical-stretch: 1; }
+                            }
                         }
                     }
-                    Card {
-                        horizontal-stretch: 1;
-                        min-width: 0px;
-                        preferred-width: 0px;
-                        VerticalLayout {
-                            padding: 20px;
-                            UsagePanel { vertical-stretch: 1; }
-                        }
-                    }
+                    Rectangle { vertical-stretch: 0; }
                 }
             }
         }
