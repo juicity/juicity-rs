@@ -1,0 +1,65 @@
+import { Theme } from "../theme.slint";
+import { TrafficStore } from "../state.slint";
+import { Caption } from "primitives.slint";
+
+component Stat inherits VerticalLayout {
+    in property <string> label;
+    in property <string> value;
+    in property <color> marker;
+    spacing: 4px;
+    horizontal-stretch: 1;
+    min-width: 0px;
+    preferred-width: 0px;
+    HorizontalLayout {
+        spacing: 6px;
+        alignment: start;
+        VerticalLayout { alignment: center; Rectangle { width: 8px; height: 8px; border-radius: 4px; background: root.marker; } }
+        Caption { text: root.label; overflow: elide; }
+    }
+    Text { text: root.value; font-family: Theme.latin; font-size: 17px; font-weight: 500; color: Theme.text; height: 22px; vertical-alignment: center; overflow: elide; }
+}
+
+// Download bars above the centre line, upload bars below it (as upstream).
+component TrafficChart inherits Rectangle {
+    height: 130px;
+    private property <length> mid: self.height / 2;
+    private property <length> slot: self.width / max(1, TrafficStore.slots);
+    for offset in [0, 0.5, 1, 1.5]: Rectangle { y: root.mid * offset; height: 1px; background: Theme.divider; }
+    Rectangle { y: root.height - 1px; height: 1px; background: Theme.divider; }
+    for bar in TrafficStore.bars: Rectangle {
+        x: root.slot * bar.slot;
+        width: max(1px, root.slot * 0.72);
+        height: root.mid * bar.down;
+        y: root.mid - self.height;
+        visible: self.height > 0.5px;
+        background: Theme.text;
+    }
+    for bar in TrafficStore.bars: Rectangle {
+        x: root.slot * bar.slot;
+        width: max(1px, root.slot * 0.72);
+        y: root.mid;
+        height: root.mid * bar.up;
+        visible: self.height > 0.5px;
+        background: Theme.secondary;
+    }
+    if !TrafficStore.has-traffic: Text {
+        text: @tr("No traffic yet");
+        font-size: 12px;
+        color: Theme.secondary;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// Speeds, totals and the speed history chart.
+export component TrafficPanel inherits VerticalLayout {
+    spacing: 16px;
+    HorizontalLayout {
+        spacing: 16px;
+        Stat { label: @tr("Download"); value: TrafficStore.down-speed; marker: Theme.text; }
+        Stat { label: @tr("Upload"); value: TrafficStore.up-speed; marker: Theme.secondary; }
+        Stat { label: @tr("Downloaded"); value: TrafficStore.down-total; marker: Theme.text; }
+        Stat { label: @tr("Uploaded"); value: TrafficStore.up-total; marker: Theme.secondary; }
+    }
+    TrafficChart { }
+}

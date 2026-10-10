@@ -256,7 +256,9 @@ fn close_with_tray(tray_available: bool) -> slint::CloseRequestResponse {
 pub fn show_initial(ui: &MainWindow) -> Result<(), slint::PlatformError> {
     ui.window().on_close_requested(close_requested);
     if !read(|c| c.hide_on_start()).unwrap_or(false) {
-        return ui.show();
+        ui.show()?;
+        logs::update_refresh();
+        return Ok(());
     }
     START_TIMER.with(|timer| {
         timer.start(slint::TimerMode::SingleShot, TRAY_WAIT, || {
@@ -364,10 +366,10 @@ mod tests {
         assert!(ui.window().is_visible());
         handle(TrayEvent::ShowLogs);
         assert_eq!(ui.global::<AppState>().get_page(), Page::Logs);
-        assert!(logs::refreshing());
+        assert_eq!(logs::refreshing(), Some(Page::Logs));
         handle(TrayEvent::ToggleWindow);
         assert!(!ui.window().is_visible());
-        assert!(!logs::refreshing());
+        assert_eq!(logs::refreshing(), None);
         handle(TrayEvent::ShowAbout);
         assert_eq!(ui.global::<AppState>().get_page(), Page::Settings);
         assert!(ui.window().is_visible());
@@ -456,13 +458,13 @@ mod tests {
         ui.show().unwrap();
         ui.global::<Actions>().invoke_navigate(Page::Logs);
         logs::update_refresh();
-        assert!(logs::refreshing());
+        assert_eq!(logs::refreshing(), Some(Page::Logs));
         assert!(matches!(
             close_with_tray(true),
             slint::CloseRequestResponse::HideWindow
         ));
         assert!(!ui.window().is_visible());
-        assert!(!logs::refreshing(), "stopped before the next tick");
+        assert_eq!(logs::refreshing(), None, "stopped before the next tick");
         drop(ui);
         shutdown();
         let _ = std::fs::remove_dir_all(&dir);

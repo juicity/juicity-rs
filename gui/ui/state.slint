@@ -131,6 +131,9 @@ export global LogStore {
     in-out property <int> max-chars;
     // Bumped when rows are replaced, so a following list scrolls to the tail.
     in-out property <int> serial;
+}
+// The Overview page's traffic chart and statistics.
+export global TrafficStore {
     in-out property <[TrafficBar]> bars;
     // Number of chart slots (traffic::HISTORY).
     in-out property <int> slots: 60;

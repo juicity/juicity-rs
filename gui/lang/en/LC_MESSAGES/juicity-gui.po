@@ -255,7 +255,11 @@ msgstr "Cancel"
 msgid "Done"
 msgstr "Done"
 
-#: gui/ui/pages/logs.slint:56
+#: gui/ui/pages/overview.slint:136
+msgid "Traffic"
+msgstr "Traffic"
+
+#: gui/ui/components/traffic.slint:46
 msgid "No traffic yet"
 msgstr "No traffic yet"
 
@@ -273,19 +277,19 @@ msgstr "Follow"
 msgid "Clear"
 msgstr "Clear"
 
-#: gui/ui/pages/logs.slint:110
+#: gui/ui/components/traffic.slint:59
 msgid "Download"
 msgstr "Download"
 
-#: gui/ui/pages/logs.slint:111
+#: gui/ui/components/traffic.slint:60
 msgid "Upload"
 msgstr "Upload"
 
-#: gui/ui/pages/logs.slint:112
+#: gui/ui/components/traffic.slint:61
 msgid "Downloaded"
 msgstr "Downloaded"
 
-#: gui/ui/pages/logs.slint:113
+#: gui/ui/components/traffic.slint:62
 msgid "Uploaded"
 msgstr "Uploaded"
 

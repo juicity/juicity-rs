@@ -1,4 +1,5 @@
-//! Logs page: captured log lines, the traffic chart and its statistics.
+//! Captured log lines (Logs page), the traffic chart and its statistics
+//! (Overview page).
 
 use super::{Changes, Controller};
 use crate::logging::{LogBuffer, LogLine};
@@ -13,8 +14,10 @@ pub(super) struct LogsState {
     pub(super) buffer: Arc<LogBuffer>,
     pub(super) traffic: Arc<TrafficMonitor>,
     follow: bool,
-    /// Buffer and monitor versions last reported by `refresh_logs`.
-    seen: (u64, u64),
+    /// Buffer version last reported by `refresh_logs`.
+    seen_logs: u64,
+    /// Monitor version last reported by `refresh_traffic`.
+    seen_traffic: u64,
 }
 
 impl LogsState {
@@ -24,12 +27,12 @@ impl LogsState {
     }
 
     pub(super) fn with_sources(buffer: Arc<LogBuffer>, traffic: Arc<TrafficMonitor>) -> Self {
-        let seen = (buffer.version(), traffic.version());
         Self {
+            seen_logs: buffer.version(),
+            seen_traffic: traffic.version(),
             buffer,
             traffic,
             follow: true,
-            seen,
         }
     }
 }
@@ -53,7 +56,7 @@ pub struct ChartBar {
     pub up: f32,
 }
 
-/// The traffic chart and statistics as the page shows them.
+/// The traffic chart and statistics as the Overview page shows them.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TrafficView {
     pub bars: Vec<ChartBar>,
@@ -107,22 +110,41 @@ impl Controller {
         traffic_view(&self.logs.traffic.snapshot())
     }
 
-    /// Refresh timer of the shown page: report what changed since the last call.
+    /// Refresh timer of the Logs page: report new lines since the last call.
     pub fn refresh_logs(&mut self) -> Changes {
-        let seen = (self.logs.buffer.version(), self.logs.traffic.version());
-        let changes = Changes {
-            logs: seen.0 != self.logs.seen.0,
-            traffic: seen.1 != self.logs.seen.1,
-            ..Changes::NONE
-        };
-        self.logs.seen = seen;
-        changes
+        let seen = self.logs.buffer.version();
+        let changed = seen != self.logs.seen_logs;
+        self.logs.seen_logs = seen;
+        if changed {
+            Changes::LOGS
+        } else {
+            Changes::NONE
+        }
     }
 
-    /// The page became visible: push everything.
+    /// Refresh timer of the Overview page: report new traffic samples since
+    /// the last call.
+    pub fn refresh_traffic(&mut self) -> Changes {
+        let seen = self.logs.traffic.version();
+        let changed = seen != self.logs.seen_traffic;
+        self.logs.seen_traffic = seen;
+        if changed {
+            Changes::TRAFFIC
+        } else {
+            Changes::NONE
+        }
+    }
+
+    /// The Logs page became visible: push all lines.
     pub fn reload_logs(&mut self) -> Changes {
-        self.logs.seen = (self.logs.buffer.version(), self.logs.traffic.version());
-        Changes::LOGS | Changes::TRAFFIC
+        self.logs.seen_logs = self.logs.buffer.version();
+        Changes::LOGS
+    }
+
+    /// The Overview page became visible: push the whole chart.
+    pub fn reload_traffic(&mut self) -> Changes {
+        self.logs.seen_traffic = self.logs.traffic.version();
+        Changes::TRAFFIC
     }
 
     pub fn set_log_follow(&mut self, follow: bool) -> Changes {
@@ -136,7 +158,7 @@ impl Controller {
     /// Empty the buffer and reset the dropped count.
     pub fn clear_logs(&mut self) -> Changes {
         self.logs.buffer.clear();
-        self.logs.seen.0 = self.logs.buffer.version();
+        self.logs.seen_logs = self.logs.buffer.version();
         Changes::LOGS
     }
 
@@ -201,8 +223,10 @@ mod tests {
         assert_eq!(fake.0.borrow().traffic_reads, 3);
         assert!(monitor.version() > before);
         assert_eq!(monitor.snapshot().samples, [Speed::default()]);
-        assert_eq!(c.refresh_logs(), Changes::TRAFFIC);
+        // Traffic reaches the Overview refresh only, never the Logs one.
         assert_eq!(c.refresh_logs(), Changes::NONE);
+        assert_eq!(c.refresh_traffic(), Changes::TRAFFIC);
+        assert_eq!(c.refresh_traffic(), Changes::NONE);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -255,6 +279,7 @@ mod tests {
         for index in 0..2005 {
             buffer.push(Level::INFO, "juicity_gui::core", format!("line {index}"));
         }
+        assert_eq!(c.refresh_traffic(), Changes::NONE);
         assert_eq!(c.refresh_logs(), Changes::LOGS);
         let logs = c.logs();
         assert_eq!(logs.lines.len(), 2000);

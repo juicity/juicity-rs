@@ -51,7 +51,7 @@ pub fn install(ui: &MainWindow, controller: Controller) {
     logs::wire(ui);
     POLL_TIMER.with(|timer| {
         timer.start(slint::TimerMode::Repeated, POLL_INTERVAL, || {
-            // Samples traffic whether or not the Logs page is shown.
+            // Samples traffic whether or not the Overview page is shown.
             update(|c, _| c.poll_core());
         })
     });

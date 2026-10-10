@@ -104,7 +104,7 @@ fn fixture(window: &MainWindow) {
     logs_fixture(window);
 }
 
-/// Fixed log lines and traffic history for the Logs page.
+/// Fixed log lines (Logs page) and traffic history (Overview page).
 fn logs_fixture(window: &MainWindow) {
     use tracing::Level;
     let line = |time: &str, level, target: &str, message: &str| LogLine {

@@ -255,7 +255,11 @@ msgstr "取消"
 msgid "Done"
 msgstr "完成"
 
-#: gui/ui/pages/logs.slint:56
+#: gui/ui/pages/overview.slint:136
+msgid "Traffic"
+msgstr "流量"
+
+#: gui/ui/components/traffic.slint:46
 msgid "No traffic yet"
 msgstr "尚無流量"
 
@@ -272,19 +276,19 @@ msgstr "跟隨最新"
 msgid "Clear"
 msgstr "清除"
 
-#: gui/ui/pages/logs.slint:110
+#: gui/ui/components/traffic.slint:59
 msgid "Download"
 msgstr "下載"
 
-#: gui/ui/pages/logs.slint:111
+#: gui/ui/components/traffic.slint:60
 msgid "Upload"
 msgstr "上傳"
 
-#: gui/ui/pages/logs.slint:112
+#: gui/ui/components/traffic.slint:61
 msgid "Downloaded"
 msgstr "已下載"
 
-#: gui/ui/pages/logs.slint:113
+#: gui/ui/components/traffic.slint:62
 msgid "Uploaded"
 msgstr "已上傳"
 

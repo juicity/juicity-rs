@@ -7,7 +7,7 @@ import { SettingsPage, SettingSheet } from "pages/settings.slint";
 import { LogsPage } from "pages/logs.slint";
 import { Page, AppState, NodeStore, SettingsStore, Actions, Fmt, TrayText } from "state.slint";
 export { Theme, Icons } from "theme.slint";
-export { Page, Connection, ProxyMode, PacRule, PacSource, Protocol, StartupConnection, Notice, NodeField, SettingField, NodeCommand, NodeRow, NodeDraft, LogRow, TrafficBar, FieldError, MenuItem, Versions, AppState, NodeStore, SettingsStore, LogStore, Actions, Fmt, TrayText, FieldText } from "state.slint";
+export { Page, Connection, ProxyMode, PacRule, PacSource, Protocol, StartupConnection, Notice, NodeField, SettingField, NodeCommand, NodeRow, NodeDraft, LogRow, TrafficBar, FieldError, MenuItem, Versions, AppState, NodeStore, SettingsStore, LogStore, TrafficStore, Actions, Fmt, TrayText, FieldText } from "state.slint";
 import { Field, LabeledField } from "components/field.slint";
 import { PopupMenu } from "components/menu.slint";
 import { Sheet, Banner, Prompt } from "components/sheet.slint";
@@ -43,7 +43,6 @@ export component MainWindow inherits Window {
                 padding-right: 24px;
                 padding-bottom: 24px;
                 alignment: start;
-                if AppState.page == Page.overview: OverviewPage { }
                 if AppState.page == Page.nodes: NodesPage { }
             }
         }
@@ -55,6 +54,13 @@ export component MainWindow inherits Window {
             y: 0px;
             width: root.width - 248px;
             // The scroll content carries the 24 px bottom padding.
+            height: root.height;
+        }
+        // Placed like the settings page, so its content scrolls.
+        if AppState.page == Page.overview: OverviewPage {
+            x: 224px;
+            y: 0px;
+            width: root.width - 248px;
             height: root.height;
         }
         // Placed like the settings page; the log card fills the window height.

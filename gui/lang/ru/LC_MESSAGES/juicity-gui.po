@@ -190,6 +190,9 @@ msgstr "Отмена"
 msgid "Done"
 msgstr "Готово"
 
+msgid "Traffic"
+msgstr "Трафик"
+
 msgid "No traffic yet"
 msgstr "Трафика пока нет"
 
