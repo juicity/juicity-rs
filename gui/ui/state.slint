@@ -144,6 +144,12 @@ export global TrafficStore {
     in-out property <string> up-speed;
     in-out property <string> down-total;
     in-out property <string> up-total;
+    in-out property <string> total;
+    // Usage donut arcs as path commands in a viewbox from -1 to 1; `donut-empty`
+    // is a full ring while both totals are 0.
+    in-out property <string> donut-down;
+    in-out property <string> donut-up;
+    in-out property <string> donut-empty;
 }
 export global Actions {
     callback navigate(Page);

@@ -259,6 +259,10 @@ msgstr "完成"
 msgid "Traffic"
 msgstr "流量"
 
+#: gui/ui/components/traffic.slint:143
+msgid "Speed"
+msgstr "網速"
+
 #: gui/ui/components/traffic.slint:46
 msgid "No traffic yet"
 msgstr "尚無流量"

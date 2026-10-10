@@ -4,7 +4,7 @@ import { Caption, Metric, Card, HDivider, Button, IconButton, Pill, SeparatedTex
 import { PageHeader } from "../components/nav.slint";
 import { Banner } from "../components/sheet.slint";
 import { ScrollArea } from "../components/scroll.slint";
-import { TrafficPanel } from "../components/traffic.slint";
+import { SpeedPanel, UsagePanel } from "../components/traffic.slint";
 
 export component OverviewPage inherits VerticalLayout {
     spacing: 16px;
@@ -46,7 +46,7 @@ export component OverviewPage inherits VerticalLayout {
             cards := VerticalLayout {
                 // `parent` is the scroll area; leave out its 10 px gutter.
                 width: parent.width - 10px;
-                // Fill the page so the traffic card reaches its bottom.
+                // Fill the page so the traffic cards reach its bottom.
                 height: max(self.preferred-height, parent.height);
                 padding-bottom: 24px;
                 spacing: 16px;
@@ -144,11 +144,26 @@ export component OverviewPage inherits VerticalLayout {
                         }
                     }
                 }
-                Card {
+                HorizontalLayout {
                     vertical-stretch: 1;
-                    VerticalLayout {
-                        padding: 20px;
-                        TrafficPanel { vertical-stretch: 1; }
+                    spacing: 16px;
+                    Card {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        preferred-width: 0px;
+                        VerticalLayout {
+                            padding: 20px;
+                            SpeedPanel { vertical-stretch: 1; }
+                        }
+                    }
+                    Card {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        preferred-width: 0px;
+                        VerticalLayout {
+                            padding: 20px;
+                            UsagePanel { vertical-stretch: 1; }
+                        }
                     }
                 }
             }

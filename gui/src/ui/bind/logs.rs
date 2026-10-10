@@ -124,6 +124,10 @@ pub fn sync_traffic(ui: &MainWindow, view: &TrafficView) {
     store.set_up_speed(view.up_speed.as_str().into());
     store.set_down_total(view.down_total.as_str().into());
     store.set_up_total(view.up_total.as_str().into());
+    store.set_total(view.total.as_str().into());
+    store.set_donut_down(view.donut.down.as_str().into());
+    store.set_donut_up(view.donut.up.as_str().into());
+    store.set_donut_empty(view.donut.empty.as_str().into());
 }
 
 /// Push fixed page data without a controller (screenshots).

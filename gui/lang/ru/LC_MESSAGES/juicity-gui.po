@@ -193,6 +193,10 @@ msgstr "Готово"
 msgid "Traffic"
 msgstr "Трафик"
 
+#: gui/ui/components/traffic.slint:143
+msgid "Speed"
+msgstr "Скорость"
+
 msgid "No traffic yet"
 msgstr "Трафика пока нет"
 

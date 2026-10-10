@@ -259,6 +259,10 @@ msgstr "Done"
 msgid "Traffic"
 msgstr "Traffic"
 
+#: gui/ui/components/traffic.slint:143
+msgid "Speed"
+msgstr "Speed"
+
 #: gui/ui/components/traffic.slint:46
 msgid "No traffic yet"
 msgstr "No traffic yet"

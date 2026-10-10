@@ -4,10 +4,18 @@
 use super::{Changes, Controller};
 use crate::logging::{LogBuffer, LogLine};
 use crate::traffic::{self, TrafficMonitor, TrafficSnapshot};
+use std::f64::consts::{PI, TAU};
 use std::sync::Arc;
 
 /// Lowest chart scale in bytes per second, so idle traffic stays small.
 const SCALE_FLOOR: f64 = 1024.0;
+
+/// Gap between the two usage donut segments, in radians.
+const DONUT_GAP: f64 = 0.12;
+
+/// Shortest sweep of a non-zero donut segment, in radians, so a tiny share
+/// stays visible.
+const DONUT_MIN_SWEEP: f64 = 0.06;
 
 /// Where the page reads from, plus its own state.
 pub(super) struct LogsState {
@@ -62,15 +70,29 @@ pub struct ChartPaths {
     pub up_line: String,
 }
 
+/// The session usage donut as Slint path commands: clockwise arcs from the
+/// top on a circle of radius 1 around the origin, in a viewbox from -1 to 1.
+/// The stroke width makes the ring.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DonutPaths {
+    pub down: String,
+    pub up: String,
+    /// A full ring when both totals are 0, empty otherwise.
+    pub empty: String,
+}
+
 /// The traffic chart and statistics as the Overview page shows them.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TrafficView {
     pub chart: ChartPaths,
+    pub donut: DonutPaths,
     pub has_samples: bool,
     pub down_speed: String,
     pub up_speed: String,
     pub down_total: String,
     pub up_total: String,
+    /// Both totals together.
+    pub total: String,
 }
 
 /// Monotone cubic interpolation (Fritsch–Butland) through evenly spaced
@@ -168,14 +190,76 @@ fn chart_paths(snapshot: &TrafficSnapshot) -> ChartPaths {
     }
 }
 
+/// Start and end angles of the download and upload segments, in radians
+/// clockwise from the top; `None` for a zero total. A lone series takes the
+/// full circle; two series split it by their shares, with `DONUT_GAP` between
+/// them.
+fn donut_sweeps(down: u64, up: u64) -> [Option<(f64, f64)>; 2] {
+    match (down, up) {
+        (0, 0) => [None, None],
+        (_, 0) => [Some((0.0, TAU)), None],
+        (0, _) => [None, Some((0.0, TAU))],
+        _ => {
+            let reserve = DONUT_GAP + DONUT_MIN_SWEEP;
+            let share = down as f64 / (down as f64 + up as f64);
+            let split = (TAU * share).clamp(reserve, TAU - reserve);
+            let half = DONUT_GAP / 2.0;
+            [Some((half, split - half)), Some((split + half, TAU - half))]
+        }
+    }
+}
+
+/// The circle point at `angle` radians clockwise from the top; the viewbox
+/// `y` grows downwards.
+fn circle_point(angle: f64) -> String {
+    // Round away the float noise so the top reads 0, not -0.
+    let clean = |value: f64| if value.abs() < 5e-5 { 0.0 } else { value };
+    format!("{:.4} {:.4}", clean(angle.sin()), clean(-angle.cos()))
+}
+
+/// Path commands of a clockwise arc; a full circle takes two half arcs, since
+/// one arc cannot end where it starts.
+fn arc_commands((start, end): (f64, f64)) -> String {
+    if end - start >= TAU {
+        return format!(
+            "M {} A 1 1 0 0 1 {} A 1 1 0 0 1 {}",
+            circle_point(start),
+            circle_point(start + PI),
+            circle_point(start)
+        );
+    }
+    let large = u8::from(end - start > PI);
+    format!(
+        "M {} A 1 1 0 {large} 1 {}",
+        circle_point(start),
+        circle_point(end)
+    )
+}
+
+fn donut_paths(down: u64, up: u64) -> DonutPaths {
+    let [down_sweep, up_sweep] = donut_sweeps(down, up);
+    let empty = down_sweep.is_none() && up_sweep.is_none();
+    DonutPaths {
+        down: down_sweep.map(arc_commands).unwrap_or_default(),
+        up: up_sweep.map(arc_commands).unwrap_or_default(),
+        empty: if empty {
+            arc_commands((0.0, TAU))
+        } else {
+            String::new()
+        },
+    }
+}
+
 pub fn traffic_view(snapshot: &TrafficSnapshot) -> TrafficView {
     TrafficView {
         chart: chart_paths(snapshot),
+        donut: donut_paths(snapshot.total_down, snapshot.total_up),
         has_samples: !snapshot.samples.is_empty(),
         down_speed: traffic::format_speed(snapshot.current.down),
         up_speed: traffic::format_speed(snapshot.current.up),
         down_total: traffic::format_bytes(snapshot.total_down),
         up_total: traffic::format_bytes(snapshot.total_up),
+        total: traffic::format_bytes(snapshot.total_down.saturating_add(snapshot.total_up)),
     }
 }
 
@@ -409,6 +493,67 @@ mod tests {
         );
         assert!(view.chart.up_line.starts_with("M 0.000 1.0000 C"));
         assert!(view.chart.up_line.ends_with(&format!(" {b}.000 0.0000")));
+    }
+
+    const RING: &str = "M 0.0000 -1.0000 A 1 1 0 0 1 0.0000 1.0000 A 1 1 0 0 1 0.0000 -1.0000";
+
+    #[test]
+    fn donut_with_zero_totals_is_an_empty_ring() {
+        assert_eq!(donut_sweeps(0, 0), [None, None]);
+        let paths = donut_paths(0, 0);
+        assert_eq!((paths.down.as_str(), paths.up.as_str()), ("", ""));
+        assert_eq!(paths.empty, RING);
+    }
+
+    #[test]
+    fn donut_with_one_series_is_a_full_ring() {
+        assert_eq!(donut_sweeps(512, 0), [Some((0.0, TAU)), None]);
+        assert_eq!(donut_sweeps(0, 512), [None, Some((0.0, TAU))]);
+        let down = donut_paths(512, 0);
+        assert_eq!((down.down.as_str(), down.up.as_str()), (RING, ""));
+        assert!(down.empty.is_empty());
+        let up = donut_paths(0, 512);
+        assert_eq!((up.down.as_str(), up.up.as_str()), ("", RING));
+        assert!(up.empty.is_empty());
+    }
+
+    #[test]
+    fn donut_segments_follow_the_shares() {
+        let half = DONUT_GAP / 2.0;
+        // Three quarters download: the split sits at 270 degrees.
+        let [down, up] = donut_sweeps(3000, 1000);
+        assert_eq!(down, Some((half, 1.5 * PI - half)));
+        assert_eq!(up, Some((1.5 * PI + half, TAU - half)));
+        let paths = donut_paths(3000, 1000);
+        // Only the larger segment takes the large-arc flag.
+        assert!(paths.down.contains(" A 1 1 0 1 1 "));
+        assert!(paths.up.contains(" A 1 1 0 0 1 "));
+        assert!(paths.empty.is_empty());
+        // Equal shares end at the bottom, the gap either side of it.
+        let paths = donut_paths(1, 1);
+        assert_eq!(
+            paths.down,
+            format!(
+                "M {} A 1 1 0 0 1 {}",
+                circle_point(half),
+                circle_point(PI - half)
+            )
+        );
+        assert!(paths.down.starts_with("M 0.0600 -0.9982 A"));
+    }
+
+    #[test]
+    fn donut_segments_keep_a_gap_and_a_visible_sweep() {
+        for (down, up) in [(1, 1), (3, 1), (1, 1_000_000), (1_000_000, 1)] {
+            let [Some(down), Some(up)] = donut_sweeps(down, up) else {
+                panic!("both segments shown");
+            };
+            // The gap sits between the segments and at the top.
+            assert!((up.0 - down.1 - DONUT_GAP).abs() < 1e-12);
+            assert!((TAU - up.1 + down.0 - DONUT_GAP).abs() < 1e-12);
+            assert!(down.1 - down.0 >= DONUT_MIN_SWEEP - 1e-12);
+            assert!(up.1 - up.0 >= DONUT_MIN_SWEEP - 1e-12);
+        }
     }
 
     #[test]
