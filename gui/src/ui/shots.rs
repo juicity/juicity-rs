@@ -17,6 +17,9 @@ const HEIGHT: u32 = 960;
 const SCALE: f32 = 1.5;
 /// The settings mockup is 960 × 900 logical pixels.
 const SETTINGS_HEIGHT: u32 = 1350;
+/// A render fails when more than this share of its pixels differ from the
+/// golden in any channel.
+const GOLDEN_TOLERANCE: f64 = 0.002;
 
 struct HeadlessPlatform {
     window: Rc<MinimalSoftwareWindow>,
@@ -131,8 +134,59 @@ fn compare_mockup(
     Ok(())
 }
 
+/// Compare a render with its committed golden. Returns a failure message, and
+/// writes a diff image next to the render when the golden has the same size.
+fn compare_golden(
+    path: &Path,
+    output: &Path,
+    pixels: &SharedPixelBuffer<Rgb8Pixel>,
+) -> anyhow::Result<Option<String>> {
+    let (width, height) = (pixels.width(), pixels.height());
+    if !path.is_file() {
+        return Ok(Some(format!("Missing golden {}", path.display())));
+    }
+    let golden = image::open(path)?.to_rgb8();
+    if golden.dimensions() != (width, height) {
+        return Ok(Some(format!(
+            "Golden {} is {:?}, the render is {width}x{height}",
+            path.display(),
+            golden.dimensions()
+        )));
+    }
+    let mut changed = 0usize;
+    let mut diff = image::RgbImage::new(width, height);
+    for ((x, y, expected), actual) in golden.enumerate_pixels().zip(pixels.as_slice()) {
+        let delta = [
+            expected[0].abs_diff(actual.r),
+            expected[1].abs_diff(actual.g),
+            expected[2].abs_diff(actual.b),
+        ];
+        if delta != [0; 3] {
+            changed += 1;
+        }
+        diff.put_pixel(x, y, image::Rgb(delta));
+    }
+    let share = changed as f64 / (width * height) as f64;
+    println!(
+        "Golden diff {}: {:.4}% of pixels",
+        path.display(),
+        share * 100.0
+    );
+    if share <= GOLDEN_TOLERANCE {
+        return Ok(None);
+    }
+    diff.save(output)?;
+    Ok(Some(format!(
+        "Golden {} differs in {:.4}% of pixels (limit {:.1}%); diff {}",
+        path.display(),
+        share * 100.0,
+        GOLDEN_TOLERANCE * 100.0,
+        output.display()
+    )))
+}
+
 #[test]
-#[ignore = "Set JUICITY_SHOTS=1 to render the overview, nodes and settings fixtures"]
+#[ignore = "Set JUICITY_SHOTS=1 to render the fixtures and compare them with the goldens"]
 fn shots() -> anyhow::Result<()> {
     anyhow::ensure!(
         std::env::var("JUICITY_SHOTS").as_deref() == Ok("1"),
@@ -150,6 +204,7 @@ fn shots() -> anyhow::Result<()> {
         started: Instant::now(),
     }))?;
     fonts::register_screenshot_fonts()?;
+    let mut failures = Vec::new();
     for language in [UiLang::En, UiLang::ZhCn, UiLang::ZhTw] {
         for dark in [false, true] {
             let ui = MainWindow::new()?;
@@ -193,6 +248,13 @@ fn shots() -> anyhow::Result<()> {
                     image::ColorType::Rgb8,
                 )?;
                 println!("Rendered {}", path.display());
+                if matches!(language, UiLang::En | UiLang::ZhTw) {
+                    failures.extend(compare_golden(
+                        &root.join("tests/golden").join(&filename),
+                        &output.join(format!("diff--golden--{filename}")),
+                        &pixels,
+                    )?);
+                }
                 if language == UiLang::ZhTw {
                     compare_mockup(
                         &root.join(format!("tests/mockup/{page_name}--{theme}--zh-TW.png")),
@@ -204,5 +266,6 @@ fn shots() -> anyhow::Result<()> {
             ui.hide()?;
         }
     }
+    anyhow::ensure!(failures.is_empty(), "{}", failures.join("\n"));
     Ok(())
 }

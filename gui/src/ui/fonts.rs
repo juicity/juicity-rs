@@ -86,11 +86,34 @@ pub fn register_medium(lang: UiLang) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `head.fontRevision` (16.16) of Noto Sans CJK 2.004, the release the
+/// screenshot goldens were rendered with (Ubuntu 26.04 `fonts-noto-cjk` and
+/// `fonts-noto-cjk-extra`).
+#[cfg(test)]
+const SCREENSHOT_CJK_REVISION: u32 = 0x0002_0106;
+
+/// Register the pinned screenshot fonts. `JUICITY_SHOTS_CJK_DIR` names a
+/// directory with the 2.004 CJK files when the system has another release.
 #[cfg(test)]
 pub fn register_screenshot_fonts() -> anyhow::Result<()> {
+    let cjk_dir = std::env::var_os("JUICITY_SHOTS_CJK_DIR").map(std::path::PathBuf::from);
     for name in ["NotoSansCJK-Regular.ttc", "NotoSansCJK-Medium.ttc"] {
-        let path =
-            cjk_file(name).ok_or_else(|| anyhow::anyhow!("Missing screenshot font: {name}"))?;
+        let path = match &cjk_dir {
+            Some(dir) => dir.join(name),
+            None => {
+                cjk_file(name).ok_or_else(|| anyhow::anyhow!("Missing screenshot font: {name}"))?
+            }
+        };
+        let data = std::fs::read(&path)
+            .map_err(|err| anyhow::anyhow!("Missing screenshot font {}: {err}", path.display()))?;
+        let revision = font_revision(&data);
+        anyhow::ensure!(
+            revision == Some(SCREENSHOT_CJK_REVISION),
+            "Screenshot font {} has revision {}, the goldens need Noto Sans CJK 2.004 \
+             ({SCREENSHOT_CJK_REVISION:#x}); set JUICITY_SHOTS_CJK_DIR to a directory with it",
+            path.display(),
+            revision.map_or_else(|| "unknown".to_string(), |value| format!("{value:#x}"))
+        );
         register(&path)?;
     }
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fonts");
@@ -98,4 +121,22 @@ pub fn register_screenshot_fonts() -> anyhow::Result<()> {
         register(&root.join(name))?;
     }
     Ok(())
+}
+
+/// `head.fontRevision` of a font file, or of the first face of a collection.
+#[cfg(test)]
+fn font_revision(data: &[u8]) -> Option<u32> {
+    let u16_at = |at: usize| Some(u16::from_be_bytes(data.get(at..at + 2)?.try_into().ok()?));
+    let u32_at = |at: usize| Some(u32::from_be_bytes(data.get(at..at + 4)?.try_into().ok()?));
+    let face = if data.get(..4)? == b"ttcf" {
+        u32_at(12)? as usize
+    } else {
+        0
+    };
+    let tables = u16_at(face + 4)? as usize;
+    (0..tables)
+        .map(|index| face + 12 + 16 * index)
+        .find(|&record| data.get(record..record + 4) == Some(b"head"))
+        .and_then(|record| u32_at(record + 8))
+        .and_then(|head| u32_at(head as usize + 4))
 }
