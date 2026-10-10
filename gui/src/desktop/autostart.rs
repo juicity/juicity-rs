@@ -196,7 +196,7 @@ fn desktop_entry(exe: &Path) -> String {
 /// it has reserved characters, escape `"` `` ` `` `$` `\` inside the quotes,
 /// double `%` so it is not a field code, then apply the string escapes.
 #[cfg(target_os = "linux")]
-fn exec_argument(arg: &str) -> String {
+pub(crate) fn exec_argument(arg: &str) -> String {
     const RESERVED: &[char] = &[
         ' ', '\t', '\n', '"', '\'', '\\', '>', '<', '~', '|', '&', ';', '$', '*', '?', '#', '(',
         ')', '`',

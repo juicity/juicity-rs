@@ -124,6 +124,8 @@ pub fn run() -> anyhow::Result<()> {
     let software = std::env::args().any(|arg| arg == "--software-render");
     select_backend(software)?;
     slint::set_xdg_app_id(crate::desktop::tray::APP_ID)?;
+    #[cfg(target_os = "linux")]
+    crate::desktop::integration::install();
     // Before any side effect: a second launch shows the first window and exits.
     let on_activate = Box::new(|| {
         if let Err(err) = slint::invoke_from_event_loop(bind::request_activation) {

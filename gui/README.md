@@ -72,6 +72,10 @@ with `include_bytes!`:
   SVG, set through `Window.icon` in `ui/app.slint`
 - `gui/macos/bundle.sh` builds `icon.icns` from the generated PNGs, so no SVG
   converter has to be installed to produce a bundled app
+- On Linux the app installs its desktop entry and hicolor icons into
+  `$XDG_DATA_HOME` (default `~/.local/share`) on start, so Wayland compositors,
+  which look the icon up by app id, show it; this is skipped when a system-wide
+  `io.juicity.gui.desktop` exists
 
 ## Config directory
 
