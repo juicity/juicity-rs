@@ -64,6 +64,18 @@ msgstr "Ссылок импортировано: {}, пропущено: {}"
 msgid "Fix the invalid fields before exporting"
 msgstr "Исправьте ошибки в полях перед экспортом"
 
+msgid "Could not save nodes: {}"
+msgstr "Не удалось сохранить узлы: {}"
+
+msgid "Fix the invalid fields before saving"
+msgstr "Исправьте ошибки в полях перед сохранением"
+
+msgid "Missing fields in {}: {}"
+msgstr "Заполните поля узла {}: {}"
+
+msgid "Nodes were changed outside juicity; saving will overwrite that change"
+msgstr "Узлы изменены вне juicity; сохранение перезапишет это изменение"
+
 msgid "Today {}"
 msgstr "сегодня {}"
 

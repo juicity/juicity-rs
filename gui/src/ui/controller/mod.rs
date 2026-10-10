@@ -8,6 +8,7 @@ mod logs;
 mod nodes;
 mod overview;
 mod persist;
+mod save;
 mod settings;
 mod tray;
 
@@ -19,13 +20,14 @@ pub use overview::{OverviewSnapshot, RuleJob};
 pub use persist::ConfigFile;
 #[cfg(test)]
 use persist::{DEBOUNCE, RETRY};
+pub use save::{Answer, Leave};
 pub use settings::{is_interval_preset, url_summary, SettingError, SettingKey, SettingsSnapshot};
 
 use crate::config::{AppConfig, ProxyProfile, Storage, SystemProxyMode};
 use crate::core::CoreManager;
 use crate::state::{restart_pac_server, GuiState};
 use crate::validate::RequiredField;
-use persist::Persist;
+use persist::{Persist, Saved};
 use std::time::Instant;
 
 /// Side effects that leave the process: the proxy core, the OS proxy
@@ -126,6 +128,14 @@ pub enum Notice {
     CoreExited(String),
     NoNode,
     MissingFields(Vec<RequiredField>),
+    /// Writing profiles.json on Save failed.
+    NodesSaveFailed(String),
+    /// Save refused: the editor has invalid fields.
+    SaveInvalid,
+    /// Save refused: the named node lacks mandatory fields.
+    NodeIncomplete(String, Vec<RequiredField>),
+    /// profiles.json changed on disk while nodes had unsaved edits.
+    ProfilesChanged,
 }
 
 impl Notice {
@@ -142,6 +152,10 @@ impl Notice {
                 | Self::ImportFailed(_)
                 | Self::ExportFailed(_)
                 | Self::ExportInvalid
+                | Self::NodesSaveFailed(_)
+                | Self::SaveInvalid
+                | Self::NodeIncomplete(..)
+                | Self::ProfilesChanged
         )
     }
 }
@@ -238,6 +252,10 @@ pub struct Controller {
     notice: Notice,
     notice_seq: u64,
     nodes: nodes::NodesState,
+    /// The node list as on disk; `gui.profiles` is the working copy.
+    saved: Saved,
+    /// Close or quit waiting for an answer to the unsaved-changes prompt.
+    leave: Option<Leave>,
     /// The open settings sheet; its draft is committed only by 完成.
     sheet: Option<settings::SettingSheet>,
     /// Log and traffic sources plus the Logs page state.
@@ -249,6 +267,7 @@ impl Controller {
         let (gui, loaded) = GuiState::load_tracked(storage);
         let persist = Persist::new(&loaded);
         let nodes = nodes::NodesState::new(&gui);
+        let saved = Saved::new(&gui);
         Self {
             gui,
             effects,
@@ -258,6 +277,8 @@ impl Controller {
             notice: Notice::None,
             notice_seq: 0,
             nodes,
+            saved,
+            leave: None,
             sheet: None,
             logs: logs::LogsState::new(),
         }
@@ -311,7 +332,8 @@ impl Controller {
         (changes, job)
     }
 
-    /// Stop the core, restore the OS proxy to Disable, then flush.
+    /// Stop the core, restore the OS proxy to Disable, then flush. Unsaved
+    /// node edits are dropped: only the saved list is ever written.
     pub fn shutdown(&mut self) {
         self.effects.stop_core(&mut self.gui.core_manager);
         self.connected = false;
@@ -366,7 +388,7 @@ impl Controller {
     /// Write every dirty file now. A failed file stays dirty and is retried
     /// after `RETRY`.
     pub fn flush_all(&mut self, now: Instant) -> anyhow::Result<()> {
-        self.persist.flush(&self.gui, now)
+        self.persist.flush(&self.gui, &self.saved, now)
     }
 
     /// Handle a watcher event: ignore our own writes, keep locally dirty
@@ -374,7 +396,10 @@ impl Controller {
     pub fn on_files_changed(&mut self, now: Instant) -> Changes {
         let old = self.gui.config.clone();
         let edited = self.edited_profile();
-        let reloaded = self.persist.reload_changed(&mut self.gui, now);
+        let was_dirty = self.nodes_dirty();
+        let reloaded = self
+            .persist
+            .reload_changed(&mut self.gui, &mut self.saved, now);
         let mut changes = Changes {
             persist: self.persist.delay(now).is_some(),
             ..Changes::NONE
@@ -383,6 +408,14 @@ impl Controller {
             return changes;
         }
         tracing::info!("config reloaded from disk: {reloaded:?}");
+        if reloaded.contains(&ConfigFile::Profiles) {
+            if !was_dirty {
+                self.gui.profiles = self.saved.profiles.clone();
+            } else if self.nodes_dirty() {
+                // Keep the edits; Save will overwrite the external change.
+                changes |= self.set_notice(Notice::ProfilesChanged);
+            }
+        }
         self.gui.normalize_selected_index();
         changes |= Changes::OVERVIEW | Changes::SETTINGS | self.after_reload(edited);
         if reloaded.contains(&ConfigFile::App) {

@@ -1,6 +1,6 @@
 //! Tray menu state and tray actions.
 
-use super::{Changes, ConfigFile, Controller, Notice, RuleJob};
+use super::{Changes, Controller, Notice, RuleJob};
 use crate::desktop::tray::{TrayEvent, TrayModel};
 use crate::validate::missing_fields;
 use std::time::Instant;
@@ -40,7 +40,7 @@ impl Controller {
             TrayEvent::SetPacRule(rule) => self.set_pac_rule(rule, now),
             TrayEvent::UpdateRules => return self.update_rules(),
             TrayEvent::SelectNode(index) => self.activate_node(index, now),
-            TrayEvent::ImportClipboard => self.import_links(now),
+            TrayEvent::ImportClipboard => self.import_links(),
             TrayEvent::ToggleWindow
             | TrayEvent::Open
             | TrayEvent::ShowNodes
@@ -65,9 +65,7 @@ impl Controller {
         if self.gui.runtime.selected_profile == index {
             return Changes::NONE;
         }
-        self.gui.runtime.selected_profile = index;
-        let mut changes =
-            Changes::OVERVIEW | Changes::NODES | self.mark_dirty(ConfigFile::Runtime, now);
+        let mut changes = Changes::OVERVIEW | Changes::NODES | self.set_working_active(index, now);
         if self.connected {
             changes |= self.start_active(now);
         }
@@ -157,7 +155,11 @@ mod tests {
         let _ = c.on_tray(TrayEvent::SelectNode(0), now);
         let _ = c.on_tray(TrayEvent::ToggleConnection, now);
         let (changes, _) = c.on_tray(TrayEvent::SelectNode(1), now);
-        assert!(changes.overview && changes.persist);
+        assert!(changes.overview);
+        // Osaka is not saved yet, so its index is not persisted.
+        c.flush_all(now).unwrap();
+        let runtime = std::fs::read_to_string(dir.join("runtime.json")).unwrap();
+        assert!(runtime.contains("\"selected_profile\": 0"), "{runtime}");
         assert_eq!(fake.0.borrow().started, ["Tokyo 01", "Osaka"]);
         assert!(fake.0.borrow().running);
         assert_eq!(c.tray_model().active, Some(1));

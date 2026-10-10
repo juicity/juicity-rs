@@ -100,7 +100,8 @@ impl Controller {
         }
     }
 
-    /// Start the selected node (flushing config first) or stop the core.
+    /// Start the active node of the working list or stop the core. Only
+    /// runtime state is written; unsaved node edits stay in memory.
     pub fn toggle_connection(&mut self, now: Instant) -> Changes {
         if self.connected {
             // Totals and history stay; the next counters start a new baseline.
@@ -110,13 +111,6 @@ impl Controller {
             self.nodes.started_with = None;
             self.gui.runtime.was_running = false;
             return Changes::OVERVIEW | Changes::NODES | self.mark_dirty(ConfigFile::Runtime, now);
-        }
-        if let Err(err) = self.flush_all(now) {
-            let retry = Changes {
-                persist: true,
-                ..Changes::NONE
-            };
-            return self.set_notice(Notice::SaveFailed(format!("{err:#}"))) | retry;
         }
         self.start_active(now)
     }

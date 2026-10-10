@@ -1,201 +1,217 @@
 msgid ""
 msgstr ""
-"POT-Creation-Date: 2026-10-10 08:13+0000\n"
+"POT-Creation-Date: 2026-10-10 08:29+0000\n"
 "Language: zh_TW\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
-#: gui/ui/state.slint:68
+#: gui/ui/state.slint:70
 msgid "Connected · {}"
 msgstr "已連線 · {}"
 
-#: gui/ui/state.slint:68
+#: gui/ui/state.slint:70
 msgid "Connecting…"
 msgstr "正在連線…"
 
-#: gui/ui/state.slint:68
+#: gui/ui/state.slint:70
 msgid "Disconnected"
 msgstr "未連線"
 
-#: gui/ui/state.slint:69
+#: gui/ui/state.slint:71
 msgid "System proxy · PAC"
 msgstr "系統代理 · PAC"
 
-#: gui/ui/state.slint:69
+#: gui/ui/state.slint:71
 msgid "System proxy · Global"
 msgstr "系統代理 · 全域"
 
-#: gui/ui/state.slint:69
+#: gui/ui/state.slint:71
 msgid "System proxy · Off"
 msgstr "系統代理 · 關閉"
 
-#: gui/ui/state.slint:70
+#: gui/ui/state.slint:72
 msgid "Links imported"
 msgstr "已匯入連結"
 
-#: gui/ui/state.slint:70
+#: gui/ui/state.slint:72
 msgid "Link copied"
 msgstr "已複製連結"
 
-#: gui/ui/state.slint:70
+#: gui/ui/state.slint:72
 msgid "Could not start proxy: {}"
 msgstr "無法啟動代理：{}"
 
-#: gui/ui/state.slint:70
+#: gui/ui/state.slint:72
 msgid "Rules updated"
 msgstr "已更新規則"
 
-#: gui/ui/state.slint:70
+#: gui/ui/state.slint:72
 msgid "Could not update rules: {}"
 msgstr "無法更新規則：{}"
 
-#: gui/ui/state.slint:70
+#: gui/ui/state.slint:72
 msgid "Could not set system proxy: {}"
 msgstr "無法設定系統代理：{}"
 
-#: gui/ui/state.slint:70
+#: gui/ui/state.slint:72
 msgid "Could not save settings: {}"
 msgstr "無法儲存設定：{}"
 
-#: gui/ui/state.slint:70
+#: gui/ui/state.slint:72
 msgid "Proxy stopped: {}"
 msgstr "代理已停止：{}"
 
-#: gui/ui/state.slint:70
+#: gui/ui/state.slint:72
 msgid "Add a node first"
 msgstr "請先新增節點"
 
-#: gui/ui/state.slint:70
+#: gui/ui/state.slint:72
 msgid "Missing fields: {}"
 msgstr "缺少欄位：{}"
 
-#: gui/ui/state.slint:70
+#: gui/ui/state.slint:72
 msgid "Could not import link: {}"
 msgstr "無法匯入連結：{}"
 
-#: gui/ui/state.slint:70
+#: gui/ui/state.slint:72
 msgid "Could not export link: {}"
 msgstr "無法匯出連結：{}"
 
-#: gui/ui/state.slint:70
+#: gui/ui/state.slint:72
 msgid "Links imported: {}, skipped: {}"
 msgstr "已匯入 {} 個連結，略過 {} 個"
 
-#: gui/ui/state.slint:70
+#: gui/ui/state.slint:72
 msgid "Fix the invalid fields before exporting"
 msgstr "請先修正無效的欄位再匯出"
 
-#: gui/ui/state.slint:71
+#: gui/ui/state.slint:72
+msgid "Could not save nodes: {}"
+msgstr "無法儲存節點：{}"
+
+#: gui/ui/state.slint:72
+msgid "Fix the invalid fields before saving"
+msgstr "請先修正無效的欄位再儲存"
+
+#: gui/ui/state.slint:72
+msgid "Missing fields in {}: {}"
+msgstr "{} 缺少欄位：{}"
+
+#: gui/ui/state.slint:72
+msgid "Nodes were changed outside juicity; saving will overwrite that change"
+msgstr "節點檔案已被其他程式修改，儲存會覆寫該修改"
+
+#: gui/ui/state.slint:73
 msgid "Today {}"
 msgstr "今天 {}"
 
-#: gui/ui/state.slint:71
+#: gui/ui/state.slint:73
 msgid "Yesterday {}"
 msgstr "昨天 {}"
 
-#: gui/ui/state.slint:179 gui/ui/pages/node_editor.slint:64
+#: gui/ui/state.slint:189 gui/ui/pages/node_editor.slint:64
 msgid "Server"
 msgstr "伺服器"
 
-#: gui/ui/state.slint:181 gui/ui/pages/node_editor.slint:87
+#: gui/ui/state.slint:191 gui/ui/pages/node_editor.slint:87
 msgid "Password"
 msgstr "密碼"
 
-#: gui/ui/state.slint:182
+#: gui/ui/state.slint:192
 msgid ", "
 msgstr "、"
 
-#: gui/ui/state.slint:183
+#: gui/ui/state.slint:193
 msgid "Required"
 msgstr "必填"
 
-#: gui/ui/state.slint:184
+#: gui/ui/state.slint:194
 msgid "Enter a port from 1 to 65535"
 msgstr "請輸入 1 至 65535 之間的連接埠"
 
-#: gui/ui/state.slint:185
+#: gui/ui/state.slint:195
 msgid "Enter a whole number of seconds"
 msgstr "請輸入整數秒數"
 
-#: gui/ui/state.slint:186
+#: gui/ui/state.slint:196
 msgid "Enter an address as host:port"
 msgstr "請以「主機:連接埠」格式輸入位址"
 
-#: gui/ui/state.slint:187
+#: gui/ui/state.slint:197
 msgid "Enter a URL that starts with http:// or https://"
 msgstr "請輸入以 http:// 或 https:// 開頭的網址"
 
-#: gui/ui/state.slint:188
+#: gui/ui/state.slint:198
 msgid "Enter a whole number of hours, 1 or more"
 msgstr "請輸入不小於 1 的整數小時數"
 
-#: gui/ui/state.slint:189
+#: gui/ui/state.slint:199
 msgid "Node {}"
 msgstr "節點 {}"
 
-#: gui/ui/state.slint:194
+#: gui/ui/state.slint:204
 msgid "Disconnect"
 msgstr "中斷連線"
 
-#: gui/ui/state.slint:194
+#: gui/ui/state.slint:204
 msgid "Connect"
 msgstr "連線"
 
-#: gui/ui/state.slint:195 gui/ui/pages/overview.slint:24
+#: gui/ui/state.slint:205 gui/ui/pages/overview.slint:24
 msgid "System proxy"
 msgstr "系統代理"
 
-#: gui/ui/state.slint:196 gui/ui/pages/overview.slint:25
+#: gui/ui/state.slint:206 gui/ui/pages/overview.slint:25
 #: gui/ui/pages/settings.slint:53 gui/ui/pages/settings.slint:114
 #: gui/ui/pages/settings.slint:171
 msgid "Off"
 msgstr "關閉"
 
-#: gui/ui/state.slint:198 gui/ui/pages/overview.slint:25
+#: gui/ui/state.slint:208 gui/ui/pages/overview.slint:25
 msgid "Global"
 msgstr "全域"
 
-#: gui/ui/state.slint:199 gui/ui/pages/overview.slint:104
+#: gui/ui/state.slint:209 gui/ui/pages/overview.slint:104
 msgid "Bypass mainland China"
 msgstr "繞過中國大陸"
 
-#: gui/ui/state.slint:200 gui/ui/pages/overview.slint:106
+#: gui/ui/state.slint:210 gui/ui/pages/overview.slint:106
 msgid "Proxy GFW list only"
 msgstr "僅代理 GFW 列表"
 
-#: gui/ui/state.slint:201 gui/ui/pages/overview.slint:111
+#: gui/ui/state.slint:211 gui/ui/pages/overview.slint:111
 msgid "Update rules"
 msgstr "更新規則"
 
-#: gui/ui/state.slint:202 gui/ui/components/nav.slint:39
+#: gui/ui/state.slint:212 gui/ui/components/nav.slint:39
 msgid "Nodes"
 msgstr "節點"
 
-#: gui/ui/state.slint:203
+#: gui/ui/state.slint:213
 msgid "Import from clipboard"
 msgstr "從剪貼簿匯入"
 
-#: gui/ui/state.slint:204
+#: gui/ui/state.slint:214
 msgid "Open juicity"
 msgstr "開啟 juicity"
 
-#: gui/ui/state.slint:205
+#: gui/ui/state.slint:215
 msgid "Nodes…"
 msgstr "節點…"
 
-#: gui/ui/state.slint:206
+#: gui/ui/state.slint:216
 msgid "Logs…"
 msgstr "日誌…"
 
-#: gui/ui/state.slint:207
+#: gui/ui/state.slint:217
 msgid "Settings…"
 msgstr "設定…"
 
-#: gui/ui/state.slint:208
+#: gui/ui/state.slint:218
 msgid "About juicity"
 msgstr "關於 juicity"
 
-#: gui/ui/state.slint:209
+#: gui/ui/state.slint:219
 msgid "Quit"
 msgstr "結束"
 
@@ -227,32 +243,32 @@ msgstr "完成"
 msgid "No traffic yet"
 msgstr "尚無流量"
 
-#: gui/ui/pages/logs.slint:82
+#: gui/ui/pages/logs.slint:84
 msgid "{n} earlier line dropped"
 msgid_plural "{n} earlier lines dropped"
 msgstr[0] "已捨棄 {n} 行較早的日誌"
 
-#: gui/ui/pages/logs.slint:86
+#: gui/ui/pages/logs.slint:90
 msgid "Follow"
 msgstr "跟隨最新"
 
-#: gui/ui/pages/logs.slint:91
+#: gui/ui/pages/logs.slint:96
 msgid "Clear"
 msgstr "清除"
 
-#: gui/ui/pages/logs.slint:105
+#: gui/ui/pages/logs.slint:110
 msgid "Download"
 msgstr "下載"
 
-#: gui/ui/pages/logs.slint:106
+#: gui/ui/pages/logs.slint:111
 msgid "Upload"
 msgstr "上傳"
 
-#: gui/ui/pages/logs.slint:107
+#: gui/ui/pages/logs.slint:112
 msgid "Downloaded"
 msgstr "已下載"
 
-#: gui/ui/pages/logs.slint:108
+#: gui/ui/pages/logs.slint:113
 msgid "Uploaded"
 msgstr "已上傳"
 

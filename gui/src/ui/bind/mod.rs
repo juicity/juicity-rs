@@ -46,6 +46,7 @@ pub fn install(ui: &MainWindow, controller: Controller) {
     WINDOW.with(|w| *w.borrow_mut() = Some(ui.as_weak()));
     overview::wire(ui);
     nodes::wire(ui);
+    desktop::wire(ui);
     settings::wire(ui);
     logs::wire(ui);
     POLL_TIMER.with(|timer| {

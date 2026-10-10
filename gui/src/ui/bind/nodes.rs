@@ -4,8 +4,8 @@ use super::{read, update};
 use crate::config::{ProxyProtocol, SS_METHODS};
 use crate::ui::controller::{DraftData, DraftError, DraftField, ListCommand, NodesSnapshot};
 use crate::ui::{
-    Actions, FieldError, FieldText, MainWindow, MenuItem, NodeCommand, NodeDraft, NodeField,
-    NodeRow, NodeStore, Protocol,
+    Actions, AppState, FieldError, FieldText, MainWindow, MenuItem, NodeCommand, NodeDraft,
+    NodeField, NodeRow, NodeStore, Protocol,
 };
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
@@ -109,16 +109,16 @@ pub fn wire(ui: &MainWindow) {
         let count = read(|c| c.node_count()).unwrap_or(0);
         let number = i32::try_from(count + 1).unwrap_or(i32::MAX);
         let name = ui.global::<FieldText>().invoke_new_node_name(number);
-        update(move |c, now| c.add_node(name.into(), now));
+        update(move |c, _| c.add_node(name.into()));
     });
-    actions.on_import_links(|| update(|c, now| c.import_links(now)));
+    actions.on_import_links(|| update(|c, _| c.import_links()));
     actions.on_node_command(|row, command| {
         if let Some(i) = index(row) {
             update(|c, now| c.node_command(i, command_from(command), now));
         }
     });
     actions.on_edit_node(|field, value| {
-        update(|c, now| c.edit_node(field_from(field), &value, now));
+        update(|c, _| c.edit_node(field_from(field), &value));
     });
     actions.on_set_active_node(|| update(|c, now| c.set_active_node(now)));
     actions.on_export_link(|| update(|c, _| c.export_link()));
@@ -126,7 +126,9 @@ pub fn wire(ui: &MainWindow) {
     actions.on_edit_advanced(|field, value| {
         update(|c, _| c.edit_advanced(field_from(field), &value));
     });
-    actions.on_commit_advanced(|| update(|c, now| c.commit_advanced(now)));
+    actions.on_commit_advanced(|| update(|c, _| c.commit_advanced()));
+    actions.on_save_nodes(|| update(|c, now| c.save_nodes(now)));
+    actions.on_revert_nodes(|| update(|c, _| c.revert_nodes()));
     actions.on_cancel_advanced(|| update(|c, _| c.cancel_advanced()));
 }
 
@@ -220,6 +222,8 @@ pub fn sync(ui: &MainWindow, snapshot: &NodesSnapshot, editor: bool) {
         .collect();
     store.set_errors(ModelRc::new(VecModel::from(errors)));
     store.set_reconnect_required(snapshot.reconnect_required);
+    store.set_dirty(snapshot.dirty);
+    ui.global::<AppState>().set_save_prompt(snapshot.prompt);
     match &snapshot.advanced {
         Some(sheet) => {
             store.set_advanced_draft(draft_to(sheet));
@@ -269,19 +273,30 @@ mod tests {
     }
 
     #[test]
-    fn typing_is_saved_after_the_debounce() {
+    fn typing_is_saved_only_by_save() {
         let (ui, dir) = setup("bind-nodes-save");
+        let store = ui.global::<NodeStore>();
         assert_eq!(field(&ui, "Name").accessible_value().unwrap(), "Tokyo 01");
+        assert!(!store.get_dirty());
         field(&ui, "Name").set_accessible_value("Osaka 01");
         assert_eq!(ui.global::<AppState>().get_active_name(), "Osaka 01");
-        assert!(!std::fs::read_to_string(dir.join("profiles.json"))
-            .unwrap()
-            .contains("Osaka 01"));
+        assert!(store.get_dirty());
+        let read = || std::fs::read_to_string(dir.join("profiles.json")).unwrap();
         std::thread::sleep(DEBOUNCE_WAIT);
         i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(500));
-        let saved = std::fs::read_to_string(dir.join("profiles.json")).unwrap();
-        assert!(saved.contains("Osaka 01"), "{saved}");
+        assert!(!read().contains("Osaka 01"), "no autosave");
+        let serial = store.get_draft_serial();
+        ui.global::<Actions>().invoke_save_nodes();
+        assert!(read().contains("Osaka 01"));
+        assert!(!store.get_dirty());
+        assert_eq!(store.get_draft_serial(), serial, "Save keeps the editor");
         assert!(!dir.join("profiles.tmp").exists());
+        // Revert restores the saved list and reloads the editor.
+        field(&ui, "Name").set_accessible_value("Kyoto 01");
+        ui.global::<Actions>().invoke_revert_nodes();
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        assert_eq!(field(&ui, "Name").accessible_value().unwrap(), "Osaka 01");
+        assert!(!store.get_dirty());
         teardown(&dir);
     }
 
@@ -379,7 +394,16 @@ mod tests {
         i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
         assert_eq!(ui.global::<NodeStore>().get_draft_serial(), serial);
         assert_eq!(field(&ui, "Port").accessible_value().unwrap(), "70000");
-        assert!(ui.global::<NodeStore>().get_reconnect_required());
+        assert!(ui.global::<NodeStore>().get_dirty());
+        // A refused Save keeps the typed text too.
+        ui.global::<Actions>().invoke_save_nodes();
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        assert_eq!(ui.global::<NodeStore>().get_draft_serial(), serial);
+        assert_eq!(field(&ui, "Port").accessible_value().unwrap(), "70000");
+        assert_eq!(
+            ui.global::<AppState>().get_notice(),
+            crate::ui::Notice::SaveInvalid
+        );
         teardown(&dir);
     }
 }

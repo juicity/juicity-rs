@@ -1,6 +1,6 @@
 //! Overview callbacks and snapshot sync.
 
-use super::{logs, spawn_rules, update, update_with};
+use super::{desktop, logs, spawn_rules, update, update_with};
 use crate::config::{PacRuleMode, SystemProxyMode};
 use crate::ui::controller::{Notice as CtlNotice, OverviewSnapshot};
 use crate::ui::{Actions, AppState, Connection, FieldText, MainWindow, Notice, PacRule, ProxyMode};
@@ -56,9 +56,8 @@ pub fn wire(ui: &MainWindow) {
     });
     actions.on_copy_pac_url(|| update(|c, _| c.copy_pac_url()));
     actions.on_dismiss_notice(|| update(|c, _| c.dismiss_notice()));
-    actions.on_quit(|| {
-        let _ = slint::quit_event_loop();
-    });
+    // Cmd-Q; asks first when nodes have unsaved edits.
+    actions.on_quit(desktop::request_quit);
 }
 
 pub fn sync(ui: &MainWindow, snapshot: &OverviewSnapshot) {
@@ -97,12 +96,17 @@ pub fn sync_notice(ui: &MainWindow, notice: &CtlNotice) {
         CtlNotice::CoreExited(d) => (Notice::CoreExited, d.clone()),
         CtlNotice::NoNode => (Notice::NoNode, String::new()),
         CtlNotice::MissingFields(fields) => (Notice::MissingFields, field_list(ui, fields)),
+        CtlNotice::NodesSaveFailed(d) => (Notice::NodesSaveFailed, d.clone()),
+        CtlNotice::SaveInvalid => (Notice::SaveInvalid, String::new()),
+        CtlNotice::NodeIncomplete(name, _) => (Notice::NodeIncomplete, name.clone()),
+        CtlNotice::ProfilesChanged => (Notice::ProfilesChanged, String::new()),
     };
     let state = ui.global::<AppState>();
     state.set_notice(kind);
     state.set_notice_detail(detail.into());
     let extra = match notice {
         CtlNotice::ImportPartial(_, skipped) => skipped.to_string(),
+        CtlNotice::NodeIncomplete(_, fields) => field_list(ui, fields),
         _ => String::new(),
     };
     state.set_notice_extra(extra.into());

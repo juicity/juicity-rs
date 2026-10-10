@@ -1,5 +1,7 @@
-//! Tray, window visibility, close-to-tray and activation by a second launch.
+//! Tray, window visibility, close-to-tray, the unsaved-changes prompt and
+//! activation by a second launch.
 
+use super::super::controller::{Answer, Leave};
 use super::super::{Actions, AppState, MainWindow, Page, TrayText};
 use super::{logs, read, spawn_rules, update_with, WINDOW};
 use crate::desktop::single_instance::Activation;
@@ -48,6 +50,45 @@ fn menu(ui: &MainWindow) -> Option<TrayMenu> {
         quit: text.get_quit().into(),
     };
     Some(TrayMenu { model, labels })
+}
+
+/// Wire the unsaved-changes prompt.
+pub(super) fn wire(ui: &MainWindow) {
+    let actions = ui.global::<Actions>();
+    actions.on_prompt_save(|| answer(Answer::Save));
+    actions.on_prompt_discard(|| answer(Answer::Discard));
+    actions.on_prompt_cancel(|| answer(Answer::Cancel));
+}
+
+/// Ask the controller whether `leave` may proceed; `None` while the prompt
+/// asks first (or the request was ignored).
+fn request(leave: Leave) -> Option<Leave> {
+    update_with(|c, _| c.request_leave(leave)).flatten()
+}
+
+fn answer(answer: Answer) {
+    if let Some(Some(leave)) = update_with(|c, now| c.answer_prompt(answer, now)) {
+        perform(leave);
+    }
+}
+
+fn perform(leave: Leave) {
+    match leave {
+        Leave::Hide => hide_window(),
+        Leave::Quit => {
+            // `ui::run` then calls `bind::shutdown`.
+            let _ = slint::quit_event_loop();
+        }
+    }
+}
+
+/// Tray Quit or Cmd-Q. With unsaved node edits the prompt asks first; a
+/// hidden window is shown so the prompt can be seen.
+pub(super) fn request_quit() {
+    match request(Leave::Quit) {
+        Some(leave) => perform(leave),
+        None => show_window(None),
+    }
 }
 
 /// Create the tray from inside the event loop (tray-icon needs the running
@@ -125,9 +166,7 @@ fn handle(event: TrayEvent) {
             }
             show_window(Some(Page::Settings));
         }
-        TrayEvent::Quit => {
-            let _ = slint::quit_event_loop();
-        }
+        TrayEvent::Quit => request_quit(),
         _ => {
             if let Some(Some(job)) = update_with(|c, now| c.on_tray(event, now)) {
                 spawn_rules(job);
@@ -158,15 +197,22 @@ fn show_window(page: Option<Page>) {
     ui.window().with_winit_window(|w| w.focus_window());
 }
 
+fn hide_window() {
+    let Some(ui) = window() else {
+        return;
+    };
+    if let Err(err) = ui.hide() {
+        tracing::warn!("could not hide the window: {err}");
+    }
+    logs::stop();
+}
+
 fn toggle_window() {
     let Some(ui) = window() else {
         return;
     };
     if ui.window().is_visible() {
-        if let Err(err) = ui.hide() {
-            tracing::warn!("could not hide the window: {err}");
-        }
-        logs::stop();
+        hide_window();
     } else {
         show_window(None);
     }
@@ -178,12 +224,22 @@ fn quits_on_close(close_to_tray: bool, tray_available: bool) -> bool {
     !(close_to_tray && tray_available)
 }
 
+/// The window stays shown while the unsaved-changes prompt asks.
 fn close_requested() -> slint::CloseRequestResponse {
     let close_to_tray = read(|c| c.close_to_tray()).unwrap_or(false);
-    if quits_on_close(close_to_tray, tray_available()) {
-        let _ = slint::quit_event_loop();
+    let leave = if quits_on_close(close_to_tray, tray_available()) {
+        Leave::Quit
+    } else {
+        Leave::Hide
+    };
+    match request(leave) {
+        Some(Leave::Quit) => {
+            let _ = slint::quit_event_loop();
+            slint::CloseRequestResponse::HideWindow
+        }
+        Some(Leave::Hide) => slint::CloseRequestResponse::HideWindow,
+        None => slint::CloseRequestResponse::KeepWindowShown,
     }
-    slint::CloseRequestResponse::HideWindow
 }
 
 /// Wire closing, then show the window unless hide-on-start is set. A hidden
@@ -222,7 +278,7 @@ pub fn window_ready() {
 mod tests {
     use super::super::super::controller::testing::{controller, temp_dir};
     use super::super::super::ProxyMode;
-    use super::super::{install, shutdown};
+    use super::super::{install, shutdown, update};
     use super::*;
 
     fn setup(name: &str) -> (MainWindow, std::path::PathBuf) {
@@ -312,6 +368,64 @@ mod tests {
         );
         shutdown();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Each prompt trigger crossed with each answer.
+    #[test]
+    fn unsaved_nodes_prompt_before_close_and_quit() {
+        use slint::CloseRequestResponse::{HideWindow, KeepWindowShown};
+        i_slint_backend_testing::init_no_event_loop();
+        for trigger in ["close", "tray-quit", "cmd-q", "hide"] {
+            for answer in [Answer::Save, Answer::Discard, Answer::Cancel] {
+                let dir = temp_dir(&format!("desktop-prompt-{trigger}-{answer:?}"));
+                let ui = MainWindow::new().unwrap();
+                install(&ui, controller(&dir).0);
+                let actions = ui.global::<Actions>();
+                let state = ui.global::<AppState>();
+                ui.show().unwrap();
+                // Clean: closing proceeds without asking.
+                assert!(matches!(close_requested(), HideWindow));
+                assert!(!state.get_save_prompt());
+                actions.invoke_edit_node(crate::ui::NodeField::Name, "Osaka 01".into());
+                match trigger {
+                    "close" => assert!(matches!(close_requested(), KeepWindowShown)),
+                    "tray-quit" => {
+                        // Shown first when the window is hidden.
+                        ui.hide().unwrap();
+                        handle(TrayEvent::Quit);
+                        assert!(ui.window().is_visible());
+                    }
+                    "cmd-q" => actions.invoke_quit(),
+                    _ => update(|c, _| c.request_leave(Leave::Hide).0),
+                }
+                assert!(state.get_save_prompt(), "{trigger}");
+                // Repeats and a second launch neither answer nor dismiss it.
+                assert!(matches!(close_requested(), KeepWindowShown));
+                handle(TrayEvent::Quit);
+                request_activation();
+                assert!(state.get_save_prompt());
+                match answer {
+                    Answer::Save => actions.invoke_prompt_save(),
+                    Answer::Discard => actions.invoke_prompt_discard(),
+                    Answer::Cancel => actions.invoke_prompt_cancel(),
+                }
+                assert!(!state.get_save_prompt());
+                let saved = std::fs::read_to_string(dir.join("profiles.json")).unwrap();
+                assert_eq!(saved.contains("Osaka 01"), answer == Answer::Save);
+                let expected = match answer {
+                    Answer::Discard => "Tokyo 01",
+                    _ => "Osaka 01",
+                };
+                assert_eq!(state.get_active_name(), expected);
+                // Only an answered hide hides the window; quitting leaves the
+                // window to the event loop's end.
+                let hidden = trigger == "hide" && answer != Answer::Cancel;
+                assert_eq!(ui.window().is_visible(), !hidden, "{trigger} {answer:?}");
+                drop(ui);
+                shutdown();
+                let _ = std::fs::remove_dir_all(&dir);
+            }
+        }
     }
 
     #[test]

@@ -5,7 +5,7 @@ export enum PacRule { bypass-china, gfw-list }
 export enum PacSource { local, online }
 export enum Protocol { juicity, shadowsocks }
 export enum StartupConnection { off, on, last }
-export enum Notice { none, imported, link-copied, start-failed, rules-updated, rules-failed, proxy-failed, save-failed, core-exited, no-node, missing-fields, import-failed, export-failed, import-partial, export-invalid }
+export enum Notice { none, imported, link-copied, start-failed, rules-updated, rules-failed, proxy-failed, save-failed, core-exited, no-node, missing-fields, import-failed, export-failed, import-partial, export-invalid, nodes-save-failed, save-invalid, node-incomplete, profiles-changed }
 export enum NodeField { name, protocol, server, port, uuid, password, method, sni, allow-insecure, pinned-certchain-sha256, congestion-control, plugin, plugin-options, plugin-args, timeout, group }
 export enum SettingField { mixed-port, direct-url, proxy-url, update-hours, pac-listen, online-pac-url }
 export enum NodeCommand { move-up, move-down, duplicate, delete }
@@ -65,9 +65,11 @@ export global AppState {
     // Second value of a notice (skipped links).
     in-out property <string> notice-extra;
     in-out property <bool> notice-error;
+    // The unsaved-changes prompt is open (closing or quitting waits for it).
+    in-out property <bool> save-prompt;
     out property <string> connection-text: connection == Connection.running ? @tr("Connected · {}", active-name) : connection == Connection.starting ? @tr("Connecting…") : @tr("Disconnected");
     out property <string> proxy-text: proxy-mode == ProxyMode.pac ? @tr("System proxy · PAC") : proxy-mode == ProxyMode.global ? @tr("System proxy · Global") : @tr("System proxy · Off");
-    out property <string> notice-text: notice == Notice.imported ? @tr("Links imported") : notice == Notice.link-copied ? @tr("Link copied") : notice == Notice.start-failed ? @tr("Could not start proxy: {}", notice-detail) : notice == Notice.rules-updated ? @tr("Rules updated") : notice == Notice.rules-failed ? @tr("Could not update rules: {}", notice-detail) : notice == Notice.proxy-failed ? @tr("Could not set system proxy: {}", notice-detail) : notice == Notice.save-failed ? @tr("Could not save settings: {}", notice-detail) : notice == Notice.core-exited ? @tr("Proxy stopped: {}", notice-detail) : notice == Notice.no-node ? @tr("Add a node first") : notice == Notice.missing-fields ? @tr("Missing fields: {}", notice-detail) : notice == Notice.import-failed ? @tr("Could not import link: {}", notice-detail) : notice == Notice.export-failed ? @tr("Could not export link: {}", notice-detail) : notice == Notice.import-partial ? @tr("Links imported: {}, skipped: {}", notice-detail, notice-extra) : notice == Notice.export-invalid ? @tr("Fix the invalid fields before exporting") : "";
+    out property <string> notice-text: notice == Notice.imported ? @tr("Links imported") : notice == Notice.link-copied ? @tr("Link copied") : notice == Notice.start-failed ? @tr("Could not start proxy: {}", notice-detail) : notice == Notice.rules-updated ? @tr("Rules updated") : notice == Notice.rules-failed ? @tr("Could not update rules: {}", notice-detail) : notice == Notice.proxy-failed ? @tr("Could not set system proxy: {}", notice-detail) : notice == Notice.save-failed ? @tr("Could not save settings: {}", notice-detail) : notice == Notice.core-exited ? @tr("Proxy stopped: {}", notice-detail) : notice == Notice.no-node ? @tr("Add a node first") : notice == Notice.missing-fields ? @tr("Missing fields: {}", notice-detail) : notice == Notice.import-failed ? @tr("Could not import link: {}", notice-detail) : notice == Notice.export-failed ? @tr("Could not export link: {}", notice-detail) : notice == Notice.import-partial ? @tr("Links imported: {}, skipped: {}", notice-detail, notice-extra) : notice == Notice.export-invalid ? @tr("Fix the invalid fields before exporting") : notice == Notice.nodes-save-failed ? @tr("Could not save nodes: {}", notice-detail) : notice == Notice.save-invalid ? @tr("Fix the invalid fields before saving") : notice == Notice.node-incomplete ? @tr("Missing fields in {}: {}", notice-detail, notice-extra) : notice == Notice.profiles-changed ? @tr("Nodes were changed outside juicity; saving will overwrite that change") : "";
     out property <string> rules-updated-at: rules-age-days == 0 ? @tr("Today {}", rules-time) : rules-age-days == 1 ? @tr("Yesterday {}", rules-time) : rules-time;
 }
 export global NodeStore {
@@ -76,6 +78,8 @@ export global NodeStore {
     in-out property <NodeDraft> draft;
     in-out property <[FieldError]> errors;
     in-out property <bool> reconnect-required;
+    // The working node list differs from the saved one.
+    in-out property <bool> dirty;
     in-out property <bool> advanced-open;
     in-out property <NodeDraft> advanced-draft;
     in-out property <[string]> methods;
@@ -154,6 +158,12 @@ export global Actions {
     callback edit-advanced(NodeField, string);
     callback commit-advanced;
     callback cancel-advanced;
+    callback save-nodes;
+    callback revert-nodes;
+    // Answers to the unsaved-changes prompt.
+    callback prompt-save;
+    callback prompt-discard;
+    callback prompt-cancel;
     callback set-autostart(bool);
     callback set-language(int);
     callback set-hide-on-start(bool);

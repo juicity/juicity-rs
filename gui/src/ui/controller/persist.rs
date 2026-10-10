@@ -1,6 +1,10 @@
 //! Debounced config persistence with own-write detection.
+//!
+//! Node profiles are never written from the working copy in `GuiState`:
+//! profiles.json and the active index in runtime.json come from [`Saved`],
+//! which changes only on an explicit Save or a reload from disk.
 
-use crate::config::Storage;
+use crate::config::{ProfileStore, ProxyProfile, RuntimeState, Storage};
 use crate::state::GuiState;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
@@ -34,21 +38,61 @@ impl ConfigFile {
         }
     }
 
-    fn bytes(self, gui: &GuiState) -> anyhow::Result<Vec<u8>> {
+    fn bytes(self, gui: &GuiState, saved: &Saved) -> anyhow::Result<Vec<u8>> {
         Ok(match self {
             Self::App => serde_json::to_vec_pretty(&gui.config)?,
-            Self::Profiles => serde_json::to_vec_pretty(&gui.profiles)?,
-            Self::Runtime => serde_json::to_vec_pretty(&gui.runtime)?,
+            Self::Profiles => serde_json::to_vec_pretty(&saved.profiles)?,
+            Self::Runtime => serde_json::to_vec_pretty(&RuntimeState {
+                selected_profile: saved.active,
+                ..gui.runtime.clone()
+            })?,
         })
     }
 
-    fn load(self, gui: &mut GuiState, bytes: &[u8]) -> anyhow::Result<()> {
+    /// Parse `bytes` into the live state; profiles go to `saved` only.
+    fn load(self, gui: &mut GuiState, saved: &mut Saved, bytes: &[u8]) -> anyhow::Result<()> {
         match self {
             Self::App => gui.config = serde_json::from_slice(bytes)?,
-            Self::Profiles => gui.profiles = serde_json::from_slice(bytes)?,
-            Self::Runtime => gui.runtime = serde_json::from_slice(bytes)?,
+            Self::Profiles => {
+                let mut profiles: ProfileStore = serde_json::from_slice(bytes)?;
+                if profiles.profiles.is_empty() {
+                    profiles.profiles.push(ProxyProfile::default());
+                }
+                saved.profiles = profiles;
+                saved.clamp_active();
+            }
+            Self::Runtime => {
+                gui.runtime = serde_json::from_slice(bytes)?;
+                saved.active = gui.runtime.selected_profile;
+                saved.clamp_active();
+            }
         }
         Ok(())
+    }
+}
+
+/// The node list and active node as last written to or read from disk.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Saved {
+    pub profiles: ProfileStore,
+    /// Always a valid index into `profiles`.
+    pub active: usize,
+}
+
+impl Saved {
+    pub fn new(gui: &GuiState) -> Self {
+        let mut saved = Self {
+            profiles: gui.profiles.clone(),
+            active: gui.runtime.selected_profile,
+        };
+        saved.clamp_active();
+        saved
+    }
+
+    pub fn clamp_active(&mut self) {
+        self.active = self
+            .active
+            .min(self.profiles.profiles.len().saturating_sub(1));
     }
 }
 
@@ -94,37 +138,41 @@ impl Persist {
     /// Write every dirty file. Failed files stay dirty and a retry is
     /// scheduled after [`RETRY`]; the first error is returned after trying
     /// all of them.
-    pub fn flush(&mut self, gui: &GuiState, now: Instant) -> anyhow::Result<()> {
+    pub fn flush(&mut self, gui: &GuiState, saved: &Saved, now: Instant) -> anyhow::Result<()> {
         self.due = None;
         let mut result = Ok(());
         for file in ConfigFile::ALL {
             if !self.dirty[file.index()] {
                 continue;
             }
-            let written = file.bytes(gui).and_then(|bytes| {
-                gui.storage
-                    .write_atomic(&file.path(&gui.storage), &bytes)
-                    .map(|()| content_hash(&bytes))
-            });
-            match written {
-                Ok(hash) => {
-                    self.dirty[file.index()] = false;
-                    self.known[file.index()] = Some(hash);
-                }
-                Err(err) => {
-                    self.due = Some(now + RETRY);
-                    if result.is_ok() {
-                        result = Err(err);
-                    }
+            if let Err(err) = self.write(file, gui, saved) {
+                self.due = Some(now + RETRY);
+                if result.is_ok() {
+                    result = Err(err);
                 }
             }
         }
         result
     }
 
+    /// Write `file` now, bypassing the debounce. On failure nothing changes.
+    pub fn write(&mut self, file: ConfigFile, gui: &GuiState, saved: &Saved) -> anyhow::Result<()> {
+        let bytes = file.bytes(gui, saved)?;
+        gui.storage.write_atomic(&file.path(&gui.storage), &bytes)?;
+        self.dirty[file.index()] = false;
+        self.known[file.index()] = Some(content_hash(&bytes));
+        Ok(())
+    }
+
     /// Reload clean files whose content changed on disk. Dirty files keep
-    /// the local value and are written on the next flush.
-    pub fn reload_changed(&mut self, gui: &mut GuiState, now: Instant) -> Vec<ConfigFile> {
+    /// the local value and are written on the next flush. Profiles are
+    /// reloaded into `saved`; the caller decides about the working copy.
+    pub fn reload_changed(
+        &mut self,
+        gui: &mut GuiState,
+        saved: &mut Saved,
+        now: Instant,
+    ) -> Vec<ConfigFile> {
         let mut reloaded = Vec::new();
         for file in ConfigFile::ALL {
             let Ok(bytes) = std::fs::read(file.path(&gui.storage)) else {
@@ -144,7 +192,7 @@ impl Persist {
                 }
                 continue;
             }
-            match file.load(gui, &bytes) {
+            match file.load(gui, saved, &bytes) {
                 Ok(()) => reloaded.push(file),
                 Err(err) => tracing::warn!("ignoring invalid external edit of {file:?}: {err:#}"),
             }

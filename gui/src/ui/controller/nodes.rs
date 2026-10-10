@@ -3,7 +3,7 @@
 //! `NodesState::selected` is the node shown in the editor (UI only);
 //! `runtime.selected_profile` is the active node the core runs.
 
-use super::{Changes, ConfigFile, Controller, Notice};
+use super::{Changes, Controller, Notice};
 use crate::config::{normalize_congestion_control, ProxyProfile, ProxyProtocol};
 use crate::link;
 use crate::state::{non_empty_text, GuiState};
@@ -254,14 +254,18 @@ pub struct NodesSnapshot {
     pub reconnect_required: bool,
     /// The 進階設定 sheet draft while the sheet is open.
     pub advanced: Option<DraftData>,
+    /// The working list differs from the saved one.
+    pub dirty: bool,
+    /// The unsaved-changes prompt is open.
+    pub prompt: bool,
 }
 
 pub(super) struct NodesState {
     selected: usize,
-    draft: DraftData,
-    errors: Vec<(DraftField, DraftError)>,
-    advanced: Option<DraftData>,
-    advanced_errors: Vec<(DraftField, DraftError)>,
+    pub(super) draft: DraftData,
+    pub(super) errors: Vec<(DraftField, DraftError)>,
+    pub(super) advanced: Option<DraftData>,
+    pub(super) advanced_errors: Vec<(DraftField, DraftError)>,
     /// The profile the running core was started with.
     pub(super) started_with: Option<ProxyProfile>,
 }
@@ -313,10 +317,14 @@ impl Controller {
             selected: state.selected,
             draft: state.draft.clone(),
             errors,
+            // Unsaved edits are not applied; compare the saved active node.
             reconnect_required: self.connected
                 && state.selected == active
-                && state.started_with.as_ref() != profiles.get(active),
+                && state.started_with.as_ref()
+                    != self.saved.profiles.profiles.get(self.saved.active),
             advanced: state.advanced.clone(),
+            dirty: self.nodes_dirty(),
+            prompt: self.prompt_open(),
         }
     }
 
@@ -325,7 +333,7 @@ impl Controller {
     }
 
     /// Reload the editor from the selected profile, dropping invalid text.
-    fn load_selected(&mut self) -> Changes {
+    pub(super) fn load_selected(&mut self) -> Changes {
         let last = self.gui.profiles.profiles.len().saturating_sub(1);
         let state = &mut self.nodes;
         state.selected = state.selected.min(last);
@@ -349,13 +357,13 @@ impl Controller {
     }
 
     /// 新增節點: append a default node named `name` and select it.
-    pub fn add_node(&mut self, name: String, now: Instant) -> Changes {
+    pub fn add_node(&mut self, name: String) -> Changes {
         self.gui.profiles.profiles.push(ProxyProfile {
             name,
             ..Default::default()
         });
         self.nodes.selected = self.gui.profiles.profiles.len() - 1;
-        self.load_selected() | self.mark_dirty(ConfigFile::Profiles, now)
+        self.load_selected()
     }
 
     /// Row context menu and footer actions on the node at `index`. Deleting
@@ -396,12 +404,9 @@ impl Controller {
                 Box::new(move |i| if i > index { i - 1 } else { i.min(len - 2) })
             }
         };
-        let mut changes = Changes::OVERVIEW | self.mark_dirty(ConfigFile::Profiles, now);
-        let new_active = remap(active);
-        if new_active != active {
-            self.gui.runtime.selected_profile = new_active;
-            changes |= self.mark_dirty(ConfigFile::Runtime, now);
-        }
+        let mut changes = Changes::OVERVIEW | Changes::NODES;
+        // The saved active index keeps pointing into the saved list.
+        self.gui.runtime.selected_profile = remap(active);
         match command {
             ListCommand::Duplicate => {
                 self.nodes.selected = index + 1;
@@ -431,10 +436,11 @@ impl Controller {
         changes
     }
 
-    /// An editor field changed: validate the draft and save its valid fields.
-    pub fn edit_node(&mut self, field: DraftField, value: &str, now: Instant) -> Changes {
+    /// An editor field changed: validate the draft and copy its valid
+    /// fields into the working list.
+    pub fn edit_node(&mut self, field: DraftField, value: &str) -> Changes {
         self.nodes.draft.set(field, value);
-        let changes = self.commit_draft(now);
+        let changes = self.commit_draft();
         // Menu choices change which fields the editor shows.
         if matches!(field, DraftField::Protocol | DraftField::Method) {
             changes | Changes::EDITOR
@@ -443,7 +449,7 @@ impl Controller {
         }
     }
 
-    fn commit_draft(&mut self, now: Instant) -> Changes {
+    fn commit_draft(&mut self) -> Changes {
         self.nodes.errors = self.nodes.draft.errors();
         let index = self.nodes.selected;
         let Some(profile) = self.gui.profiles.profiles.get_mut(index) else {
@@ -454,11 +460,11 @@ impl Controller {
         if *profile == before {
             return Changes::NODES;
         }
-        let mut changes = Changes::NODES | self.mark_dirty(ConfigFile::Profiles, now);
         if index == self.gui.runtime.selected_profile {
-            changes |= Changes::OVERVIEW;
+            Changes::NODES | Changes::OVERVIEW
+        } else {
+            Changes::NODES
         }
-        changes
     }
 
     /// 設為使用中: make the selected node active; a running core switches to
@@ -473,11 +479,7 @@ impl Controller {
         if !missing.is_empty() {
             return self.set_notice(Notice::MissingFields(missing));
         }
-        let mut changes = Changes::OVERVIEW | Changes::NODES;
-        if self.gui.runtime.selected_profile != index {
-            self.gui.runtime.selected_profile = index;
-            changes |= self.mark_dirty(ConfigFile::Runtime, now);
-        }
+        let mut changes = Changes::OVERVIEW | Changes::NODES | self.set_working_active(index, now);
         if self.connected {
             changes |= self.start_active(now);
         }
@@ -485,14 +487,14 @@ impl Controller {
     }
 
     /// 匯入連結: add every link on the clipboard and select the first one.
-    pub fn import_links(&mut self, now: Instant) -> Changes {
+    pub fn import_links(&mut self) -> Changes {
         match self.effects.paste_text() {
-            Ok(text) => self.import_text(&text, now),
+            Ok(text) => self.import_text(&text),
             Err(err) => self.set_notice(Notice::ImportFailed(format!("{err:#}"))),
         }
     }
 
-    pub fn import_text(&mut self, text: &str, now: Instant) -> Changes {
+    pub fn import_text(&mut self, text: &str) -> Changes {
         let first = self.gui.profiles.profiles.len();
         let mut skipped = 0;
         for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
@@ -526,7 +528,7 @@ impl Controller {
             Notice::ImportPartial(added, skipped)
         };
         self.nodes.selected = first;
-        self.load_selected() | self.mark_dirty(ConfigFile::Profiles, now) | self.set_notice(notice)
+        self.load_selected() | self.set_notice(notice)
     }
 
     /// 匯出連結: copy the selected node's share link.
@@ -566,8 +568,9 @@ impl Controller {
         Changes::NODES
     }
 
-    /// 完成: keep the sheet open while it has errors, else save it.
-    pub fn commit_advanced(&mut self, now: Instant) -> Changes {
+    /// 完成: keep the sheet open while it has errors, else copy it into
+    /// the working list.
+    pub fn commit_advanced(&mut self) -> Changes {
         if !self.nodes.advanced_errors.is_empty() {
             return Changes::NONE;
         }
@@ -575,7 +578,7 @@ impl Controller {
             return Changes::NONE;
         };
         self.nodes.draft.take_advanced(&sheet);
-        self.commit_draft(now) | Changes::EDITOR
+        self.commit_draft() | Changes::EDITOR
     }
 
     /// 取消, Esc or a click on the scrim: drop the sheet draft.
@@ -669,27 +672,33 @@ mod tests {
         let (mut c, _) = controller(&dir);
         let now = Instant::now();
         let before = std::fs::read_to_string(dir.join("profiles.json")).unwrap();
-        let changes = c.edit_node(DraftField::Port, "70000", now);
-        assert!(!changes.persist);
+        let _ = c.edit_node(DraftField::Port, "70000");
+        assert!(!c.nodes().dirty, "invalid text changes nothing");
         assert_eq!(c.nodes().errors, [(DraftField::Port, DraftError::Port)]);
         assert_eq!(c.gui.profiles.profiles[0].server_port, 443);
-        // A valid edit of another field is still saved; the port keeps 443.
-        let changes = c.edit_node(DraftField::Name, "東京 01", now);
-        assert!(changes.persist);
-        c.flush_all(now).unwrap();
-        let saved = std::fs::read_to_string(dir.join("profiles.json")).unwrap();
-        assert_ne!(saved, before);
-        assert!(saved.contains("東京 01") && saved.contains("\"server_port\": 443"));
+        // A valid edit of another field is applied; the port keeps 443.
+        let _ = c.edit_node(DraftField::Name, "東京 01");
+        assert!(c.nodes().dirty);
+        // Save refuses while the editor shows the invalid port.
+        let _ = c.save_nodes(now);
+        assert_eq!(c.notice().0, Notice::SaveInvalid);
+        let read = || std::fs::read_to_string(dir.join("profiles.json")).unwrap();
+        assert_eq!(read(), before);
         // Switching nodes discards the invalid text.
-        let _ = c.add_node("Node 2".into(), now);
+        let _ = c.add_node("Node 2".into());
         let _ = c.select_node(0);
         assert_eq!(c.nodes().draft.port, "443");
         assert!(c.nodes().errors.is_empty());
-        assert!(
-            !c.edit_node(DraftField::Port, "0", now).persist,
+        let _ = c.node_command(1, ListCommand::Delete, now);
+        let _ = c.save_nodes(now);
+        let saved = read();
+        assert!(saved.contains("東京 01") && saved.contains("\"server_port\": 443"));
+        let _ = c.edit_node(DraftField::Port, "0");
+        assert_eq!(
+            c.gui.profiles.profiles[0].server_port, 443,
             "port 0 is rejected"
         );
-        assert!(c.edit_node(DraftField::Port, "8443", now).persist);
+        let _ = c.edit_node(DraftField::Port, "8443");
         assert_eq!(c.gui.profiles.profiles[0].server_port, 8443);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -698,7 +707,6 @@ mod tests {
     fn advanced_sheet_commits_only_on_done() {
         let dir = temp_dir("nodes-sheet");
         let (mut c, _) = controller(&dir);
-        let now = Instant::now();
         let _ = c.open_advanced();
         let _ = c.edit_advanced(DraftField::Sni, "front.example.com");
         let _ = c.edit_advanced(DraftField::CongestionControl, "cubic");
@@ -708,7 +716,7 @@ mod tests {
         assert_eq!(c.nodes().draft.sni, "");
         let _ = c.open_advanced();
         let _ = c.edit_advanced(DraftField::Timeout, "soon");
-        assert_eq!(c.commit_advanced(now), Changes::NONE);
+        assert_eq!(c.commit_advanced(), Changes::NONE);
         assert_eq!(
             c.nodes().errors,
             [(DraftField::Timeout, DraftError::Timeout)]
@@ -716,7 +724,8 @@ mod tests {
         let _ = c.edit_advanced(DraftField::Timeout, "10");
         let _ = c.edit_advanced(DraftField::PinnedCertchainSha256, "aGFzaA");
         let _ = c.edit_advanced(DraftField::CongestionControl, "cubic");
-        assert!(c.commit_advanced(now).persist);
+        assert!(c.commit_advanced().nodes);
+        assert!(c.nodes().dirty);
         let profile = &c.gui.profiles.profiles[0];
         assert_eq!(profile.timeout, 10);
         assert_eq!(profile.pinned_certchain_sha256.as_deref(), Some("aGFzaA"));
@@ -736,8 +745,11 @@ mod tests {
         assert_eq!(fake.0.borrow().started, ["Tokyo 01", "Osaka 01"]);
         assert!(c.nodes().rows[1].in_use);
         assert_eq!(c.overview().active_name, "Osaka 01");
-        // Editing the active node never restarts the core.
-        let _ = c.edit_node(DraftField::Server, "kix.example.com", now);
+        // Editing the active node never restarts the core; once saved,
+        // the editor asks for a reconnect.
+        let _ = c.edit_node(DraftField::Server, "kix.example.com");
+        assert!(!c.nodes().reconnect_required);
+        let _ = c.save_nodes(now);
         assert!(c.nodes().reconnect_required);
         assert_eq!(fake.0.borrow().started.len(), 2);
         let _ = c.select_node(0);
@@ -757,11 +769,10 @@ mod tests {
     fn import_adds_and_selects_links_and_export_copies() {
         let dir = temp_dir("nodes-import");
         let (mut c, fake) = controller(&dir);
-        let now = Instant::now();
         fake.0.borrow_mut().paste = "juicity://u:p@a.example.com:443?congestion_control=cubic#A\n\
              not a link\nss://YWVzLTI1Ni1nY206cGFzcw@127.0.0.1:8388#B\n"
             .into();
-        assert!(c.import_links(now).editor);
+        assert!(c.import_links().editor);
         assert_eq!(c.notice().0, Notice::ImportPartial(2, 1));
         assert_eq!(names(&c), ["Tokyo 01", "A", "B"]);
         assert_eq!(c.nodes().selected, 1);
@@ -772,7 +783,7 @@ mod tests {
         assert!(copied[0].starts_with("juicity://u:p@a.example.com:443?"));
         assert!(copied[0].contains("congestion_control=cubic"));
         fake.0.borrow_mut().paste = "juicity://secret-uuid@broken".into();
-        let _ = c.import_links(now);
+        let _ = c.import_links();
         let Notice::ImportFailed(reason) = c.notice().0 else {
             panic!("import must fail");
         };
@@ -786,7 +797,7 @@ mod tests {
         let dir = temp_dir("nodes-reload");
         let (mut c, _) = controller(&dir);
         let now = Instant::now();
-        let _ = c.edit_node(DraftField::Port, "70000", now);
+        let _ = c.edit_node(DraftField::Port, "70000");
         std::fs::write(dir.join("runtime.json"), r#"{ "close_to_tray": false }"#).unwrap();
         let changes = c.on_files_changed(now);
         assert!(changes.overview && !changes.editor);
@@ -821,7 +832,7 @@ mod tests {
         let (mut c, fake) = controller(&dir);
         let now = Instant::now();
         let _ = c.toggle_connection(now);
-        let _ = c.add_node("Node 2".into(), now);
+        let _ = c.add_node("Node 2".into());
         let _ = c.node_command(0, ListCommand::Delete, now);
         assert_eq!(fake.0.borrow().started, ["Tokyo 01"]);
         assert!(!fake.0.borrow().running);
@@ -836,7 +847,7 @@ mod tests {
         let (mut c, fake) = controller(&dir);
         let now = Instant::now();
         let _ = c.toggle_connection(now);
-        let _ = c.add_node("Node 2".into(), now);
+        let _ = c.add_node("Node 2".into());
         let _ = c.set_active_node(now);
         assert_eq!(c.gui.runtime.selected_profile, 0);
         assert_eq!(fake.0.borrow().started, ["Tokyo 01"]);
@@ -849,24 +860,26 @@ mod tests {
         let dir = temp_dir("nodes-required");
         let (mut c, fake) = controller(&dir);
         let now = Instant::now();
-        let changes = c.edit_node(DraftField::Server, "", now);
-        assert!(!changes.persist);
+        let _ = c.edit_node(DraftField::Server, "");
+        assert!(!c.nodes().dirty);
         assert_eq!(
             c.nodes().errors,
             [(DraftField::Server, DraftError::Required)]
         );
         assert_eq!(c.gui.profiles.profiles[0].server, "tokyo.example.com");
-        let _ = c.edit_node(DraftField::Password, "", now);
+        let _ = c.edit_node(DraftField::Password, "");
         assert_eq!(c.gui.profiles.profiles[0].password, "p");
         // Export refuses while the editor shows errors.
         let _ = c.export_link();
         assert_eq!(c.notice().0, Notice::ExportInvalid);
         assert!(fake.0.borrow().copied.is_empty());
-        // A new node is saved with its empty fields.
-        assert!(c.add_node("Node 2".into(), now).persist);
-        c.flush_all(now).unwrap();
+        // A new node with empty fields cannot be saved.
+        let before = std::fs::read_to_string(dir.join("profiles.json")).unwrap();
+        let _ = c.add_node("Node 2".into());
+        let _ = c.save_nodes(now);
+        assert!(c.notice().0.is_error());
         let saved = std::fs::read_to_string(dir.join("profiles.json")).unwrap();
-        assert!(saved.contains("Node 2") && saved.contains("tokyo.example.com"));
+        assert_eq!(saved, before);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -874,11 +887,10 @@ mod tests {
     fn congestion_control_is_normalized_in_the_editor() {
         let dir = temp_dir("nodes-cc");
         let (mut c, _) = controller(&dir);
-        let now = Instant::now();
         for (input, stored) in [("NewReno", Some("new_reno")), ("vegas", None)] {
             let _ = c.open_advanced();
             let _ = c.edit_advanced(DraftField::CongestionControl, input);
-            let _ = c.commit_advanced(now);
+            let _ = c.commit_advanced();
             assert_eq!(
                 c.gui.profiles.profiles[0].congestion_control.as_deref(),
                 stored
