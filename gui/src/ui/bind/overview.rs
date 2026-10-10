@@ -183,7 +183,7 @@ mod tests {
             [ProxyMode::Global, ProxyMode::Pac, ProxyMode::Off]
         );
         click(&ui, &segment(&ui, "Proxy GFW list only"));
-        click(&ui, &segment(&ui, "Bypass mainland China"));
+        click(&ui, &segment(&ui, "Bypass China"));
         assert_eq!(*rules.borrow(), [PacRule::GfwList, PacRule::BypassChina]);
 
         // The selection follows the state, not the click.

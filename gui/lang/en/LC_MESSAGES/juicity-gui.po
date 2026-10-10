@@ -119,11 +119,11 @@ msgstr "Nodes were changed outside juicity; saving will overwrite that change"
 
 #: gui/ui/state.slint:73
 msgid "Today {}"
-msgstr "Today {}"
+msgstr "today {}"
 
 #: gui/ui/state.slint:73
 msgid "Yesterday {}"
-msgstr "Yesterday {}"
+msgstr "yesterday {}"
 
 #: gui/ui/state.slint:189 gui/ui/pages/node_editor.slint:70
 msgid "Server"
@@ -189,7 +189,7 @@ msgstr "Global"
 
 #: gui/ui/state.slint:209 gui/ui/pages/overview.slint:104
 msgid "Bypass mainland China"
-msgstr "Bypass mainland China"
+msgstr "Bypass China"
 
 #: gui/ui/state.slint:210 gui/ui/pages/overview.slint:106
 msgid "Proxy GFW list only"
