@@ -21,6 +21,7 @@ pub const ACTIVATE_MESSAGE: &[u8] = b"activate";
 pub enum Claim {
     Acquired,
     /// Another process holds it.
+    #[cfg_attr(not(any(target_os = "linux", target_os = "windows")), allow(dead_code))]
     Taken,
     /// The lock cannot be checked (e.g. no session bus).
     Unavailable,
