@@ -1,7 +1,7 @@
 use super::controller::{traffic_view, LogsSnapshot};
 use super::{
-    bind, fonts, prepare, AppState, Connection, MainWindow, NodeDraft, NodeRow, NodeStore, PacRule,
-    Page, Protocol, ProxyMode, SettingsStore, StartupConnection, Theme, Versions,
+    bind, fonts, prepare, AppState, Connection, MainWindow, NodeDraft, NodeRow, NodeStore, Notice,
+    PacRule, Page, Protocol, ProxyMode, SettingsStore, StartupConnection, Theme, Versions,
 };
 use crate::i18n::UiLang;
 use crate::logging::LogLine;
@@ -20,6 +20,9 @@ const HEIGHT: u32 = 960;
 const SCALE: f32 = 1.5;
 /// The settings mockup is 960 × 900 logical pixels.
 const SETTINGS_HEIGHT: u32 = 1350;
+/// The minimum window size (app.slint), rendered at scale 1 for review.
+const MIN_WIDTH: u32 = 960;
+const MIN_HEIGHT: u32 = 640;
 /// A render fails when more than this share of its pixels differ from the
 /// golden in any channel.
 const GOLDEN_TOLERANCE: f64 = 0.002;
@@ -238,6 +241,61 @@ fn compare_golden(
     )))
 }
 
+/// Report-only renders at the minimum window size into `min/`: every page in
+/// every language, plus Nodes under a notice banner. No goldens.
+fn min_shots(window: &MinimalSoftwareWindow, output: &Path) -> anyhow::Result<()> {
+    let output = output.join("min");
+    std::fs::create_dir_all(&output)?;
+    for language in [UiLang::En, UiLang::ZhCn, UiLang::ZhTw, UiLang::Ru] {
+        let ui = MainWindow::new()?;
+        prepare(&ui, language)?;
+        fixture(&ui);
+        // A long value shows that settings rows elide instead of overflowing.
+        ui.global::<SettingsStore>().set_direct_url(
+            "https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/direct-list.txt"
+                .into(),
+        );
+        window.dispatch_event(WindowEvent::ScaleFactorChanged { scale_factor: 1.0 });
+        ui.show()?;
+        window.set_size(PhysicalSize::new(MIN_WIDTH, MIN_HEIGHT));
+        for (page, page_name) in [
+            (Page::Overview, "overview"),
+            (Page::Nodes, "nodes"),
+            (Page::Nodes, "nodes-banner"),
+            (Page::Logs, "logs"),
+            (Page::Settings, "settings"),
+        ] {
+            let state = ui.global::<AppState>();
+            state.set_page(page);
+            if page_name == "nodes-banner" {
+                state.set_notice(Notice::ProfilesChanged);
+                state.set_notice_error(true);
+            } else {
+                state.set_notice(Notice::None);
+            }
+            let mut pixels = SharedPixelBuffer::<Rgb8Pixel>::new(MIN_WIDTH, MIN_HEIGHT);
+            window.request_redraw();
+            anyhow::ensure!(
+                window.draw_if_needed(|renderer| {
+                    renderer.render(pixels.make_mut_slice(), MIN_WIDTH as usize);
+                }),
+                "Headless window did not render"
+            );
+            let path = output.join(format!("{page_name}--{}.png", language.slint_tag()));
+            image::save_buffer(
+                &path,
+                pixels.as_bytes(),
+                MIN_WIDTH,
+                MIN_HEIGHT,
+                image::ColorType::Rgb8,
+            )?;
+            println!("Rendered {}", path.display());
+        }
+        ui.hide()?;
+    }
+    Ok(())
+}
+
 #[test]
 #[ignore = "Set JUICITY_SHOTS=1 to render the fixtures and compare them with the goldens"]
 fn shots() -> anyhow::Result<()> {
@@ -332,6 +390,7 @@ fn shots() -> anyhow::Result<()> {
             ui.hide()?;
         }
     }
+    min_shots(&window, &output)?;
     anyhow::ensure!(failures.is_empty(), "{}", failures.join("\n"));
     Ok(())
 }

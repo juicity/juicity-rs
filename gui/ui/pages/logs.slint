@@ -65,23 +65,44 @@ export component LogsPage inherits VerticalLayout {
     private property <int> serial: LogStore.serial;
     private property <bool> follow: LogStore.follow;
     private property <length> list-height: list.visible-height;
+    private property <length> list-y: list.content-y;
+    private property <length> last-y;
     function to-tail() {
         list.content-y = min(0px, list.visible-height - list.content-height);
+    }
+    function stop-follow() {
+        if LogStore.follow { Actions.set-log-follow(false); }
     }
     init => { if LogStore.follow { root.to-tail(); } }
     changed serial => { if LogStore.follow { root.to-tail(); } }
     changed follow => { if root.follow { root.to-tail(); } }
     changed list-height => { if LogStore.follow { root.to-tail(); } }
+    // A move up that ends short of the tail is the user's (a content drag,
+    // or wheel ticks the Flickable keeps from the list's own handler);
+    // `to-tail` always ends at the tail.
+    changed list-y => {
+        if root.list-y > root.last-y + 0.5px && root.list-y > list.visible-height - list.content-height + 0.5px {
+            root.stop-follow();
+        }
+        root.last-y = root.list-y;
+    }
     spacing: 16px;
     // The page sits outside the window layout, so it carries the bottom padding.
     padding-bottom: 24px;
     PageHeader {
         title: @tr("Logs");
+        // Shrinks and elides first, so Follow and Clear stay visible.
         if LogStore.dropped > 0: VerticalLayout {
             alignment: center;
-            horizontal-stretch: 0;
+            horizontal-stretch: 1;
+            min-width: 0px;
             padding-right: 8px;
-            Caption { text: @tr("{n} earlier line dropped" | "{n} earlier lines dropped" % LogStore.dropped); }
+            Caption {
+                text: @tr("{n} earlier line dropped" | "{n} earlier lines dropped" % LogStore.dropped);
+                horizontal-alignment: right;
+                overflow: elide;
+                min-width: 0px;
+            }
         }
         HorizontalLayout {
             spacing: 8px;
@@ -126,11 +147,7 @@ export component LogsPage inherits VerticalLayout {
             // Columns: time (8), level (5), then target and message.
             content-width: max(self.visible-width, 24px + 36px + (13 + LogStore.max-chars) * LogMetrics.advance);
             content-height: max(self.visible-height, LogStore.rows.length * LogMetrics.row);
-            scrolled => {
-                if LogStore.follow && self.content-y > self.visible-height - self.content-height + 1px {
-                    Actions.set-log-follow(false);
-                }
-            }
+            scrolled-up => { root.stop-follow(); }
             for row in LogStore.rows: Rectangle {
                 width: list.content-width;
                 height: LogMetrics.row;

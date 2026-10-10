@@ -181,6 +181,52 @@ mod tests {
     }
 
     #[test]
+    fn a_user_scroll_up_turns_follow_off() {
+        use slint::platform::WindowEvent;
+        use slint::LogicalPosition;
+        let (ui, buffer, dir) = setup("logs-follow");
+        ui.window().set_size(slint::LogicalSize::new(960.0, 640.0));
+        ui.show().unwrap();
+        ui.global::<Actions>().invoke_navigate(Page::Logs);
+        let store = ui.global::<LogStore>();
+        let push = |count: usize| {
+            for i in 0..count {
+                buffer.push(
+                    tracing::Level::INFO,
+                    "juicity_gui::core",
+                    format!("line {i}"),
+                );
+            }
+            i_slint_backend_testing::mock_elapsed_time(REFRESH);
+        };
+        push(200);
+        assert_eq!(store.get_rows().row_count(), 200);
+        assert!(store.get_follow());
+        // New lines move the list to the tail; that jump keeps Follow on.
+        push(20);
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        assert!(store.get_follow(), "a programmatic tail jump keeps Follow");
+        // A wheel tick down at the tail keeps it too.
+        let over_list = LogicalPosition::new(600.0, 560.0);
+        ui.window().dispatch_event(WindowEvent::PointerScrolled {
+            position: over_list,
+            delta_x: 0.0,
+            delta_y: -40.0,
+        });
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(1000));
+        assert!(store.get_follow(), "scrolling down keeps Follow");
+        // One wheel tick up turns it off before the scroll animation moves.
+        ui.window().dispatch_event(WindowEvent::PointerScrolled {
+            position: over_list,
+            delta_x: 0.0,
+            delta_y: 40.0,
+        });
+        assert!(!store.get_follow(), "a wheel tick up turns Follow off");
+        shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn follow_and_clear_reach_the_page() {
         let (ui, buffer, dir) = setup("logs-actions");
         ui.show().unwrap();

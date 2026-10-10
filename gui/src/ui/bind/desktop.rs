@@ -226,8 +226,12 @@ fn quits_on_close(close_to_tray: bool, tray_available: bool) -> bool {
 
 /// The window stays shown while the unsaved-changes prompt asks.
 fn close_requested() -> slint::CloseRequestResponse {
+    close_with_tray(tray_available())
+}
+
+fn close_with_tray(tray_available: bool) -> slint::CloseRequestResponse {
     let close_to_tray = read(|c| c.close_to_tray()).unwrap_or(false);
-    let leave = if quits_on_close(close_to_tray, tray_available()) {
+    let leave = if quits_on_close(close_to_tray, tray_available) {
         Leave::Quit
     } else {
         Leave::Hide
@@ -237,7 +241,12 @@ fn close_requested() -> slint::CloseRequestResponse {
             let _ = slint::quit_event_loop();
             slint::CloseRequestResponse::HideWindow
         }
-        Some(Leave::Hide) => slint::CloseRequestResponse::HideWindow,
+        // Hide like the tray does, so the logs timer stops now rather than
+        // at its next tick.
+        Some(Leave::Hide) => {
+            hide_window();
+            slint::CloseRequestResponse::HideWindow
+        }
         None => slint::CloseRequestResponse::KeepWindowShown,
     }
 }
@@ -439,6 +448,24 @@ mod tests {
         assert!(quits_on_close(true, false));
         assert!(quits_on_close(false, true));
         assert!(quits_on_close(false, false));
+    }
+
+    #[test]
+    fn close_to_tray_stops_the_logs_timer_at_once() {
+        let (ui, dir) = setup("desktop-close-tray");
+        ui.show().unwrap();
+        ui.global::<Actions>().invoke_navigate(Page::Logs);
+        logs::update_refresh();
+        assert!(logs::refreshing());
+        assert!(matches!(
+            close_with_tray(true),
+            slint::CloseRequestResponse::HideWindow
+        ));
+        assert!(!ui.window().is_visible());
+        assert!(!logs::refreshing(), "stopped before the next tick");
+        drop(ui);
+        shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

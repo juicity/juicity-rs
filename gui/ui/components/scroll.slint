@@ -46,8 +46,9 @@ export component ListView inherits Rectangle {
     in-out property <length> content-height <=> view.content-height;
     in-out property <length> content-x <=> view.content-x;
     in-out property <length> content-y <=> view.content-y;
-    // The user moved the content (wheel, drag or a bar).
-    callback scrolled;
+    // The user scrolled toward the start with the wheel or the vertical bar,
+    // seen from the gesture itself rather than from the (animated) position.
+    callback scrolled-up;
     private property <bool> horizontal: root.content-width > view.width;
     private property <length> v-thumb: max(24px, view.height * view.height / max(1px, root.content-height));
     private property <length> h-thumb: max(24px, view.width * view.width / max(1px, root.content-width));
@@ -59,7 +60,17 @@ export component ListView inherits Rectangle {
         width: parent.width - 10px;
         height: parent.height - (root.horizontal ? 10px : 0px);
         interactive: true;
-        flicked => { root.scrolled(); }
+        // Under the rows. The Flickable forwards a wheel tick here before
+        // scrolling, unless it handled one at this spot within the last 0.8 s.
+        // A positive delta-y scrolls toward the start.
+        TouchArea {
+            width: root.content-width;
+            height: root.content-height;
+            scroll-event(event) => {
+                if event.delta-y > 0 { root.scrolled-up(); }
+                reject
+            }
+        }
         @children
     }
     if root.content-height > view.height: Rectangle {
@@ -78,8 +89,9 @@ export component ListView inherits Rectangle {
             changed pressed => { if self.pressed { root.drag-start = root.content-y; } }
             moved => {
                 if self.pressed {
-                    root.content-y = clamp(root.drag-start - (self.mouse-y - self.pressed-y) * (root.content-height - view.height) / (view.height - root.v-thumb), view.height - root.content-height, 0px);
-                    root.scrolled();
+                    let y = clamp(root.drag-start - (self.mouse-y - self.pressed-y) * (root.content-height - view.height) / (view.height - root.v-thumb), view.height - root.content-height, 0px);
+                    if y > root.content-y { root.scrolled-up(); }
+                    root.content-y = y;
                 }
             }
         }
@@ -101,7 +113,6 @@ export component ListView inherits Rectangle {
             moved => {
                 if self.pressed {
                     root.content-x = clamp(root.drag-start - (self.mouse-x - self.pressed-x) * (root.content-width - view.width) / (view.width - root.h-thumb), view.width - root.content-width, 0px);
-                    root.scrolled();
                 }
             }
         }

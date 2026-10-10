@@ -1,7 +1,7 @@
 Icons in this directory are from Lucide (https://lucide.dev), package lucide-static@1.47.0,
 fetched from https://unpkg.com/lucide-static@1.47.0/icons/<name>.svg.
 Modified: root width/height set to 20 and stroke-width 2 -> 2.1 (about 1.75 px strokes at 20 px).
-Icons: activity, check, chevron-down, chevron-right, clipboard-paste, copy, eye, globe, map-pin,
+Icons: activity, check, chevron-down, chevron-right, clipboard-paste, copy, ellipsis, eye, globe, map-pin,
 plus, power-off, refresh-cw, route, scroll-text, server, settings, shield.
 juicity-logo.svg is the juicity project logo (gui/icon.svg), not part of Lucide.
 

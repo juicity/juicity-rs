@@ -13,6 +13,7 @@ component MenuValue inherits HorizontalLayout {
     in property <[MenuItem]> items;
     callback selected(int);
     horizontal-stretch: 0;
+    min-width: 0px;
     SettingValue { text: root.text; menu: true; clicked => { menu.show(); } }
     Rectangle {
         width: 0px;

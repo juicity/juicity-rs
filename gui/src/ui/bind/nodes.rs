@@ -187,6 +187,7 @@ pub fn sync(ui: &MainWindow, snapshot: &NodesSnapshot, editor: bool) {
             text: (*method).into(),
             checked: *method == snapshot.draft.method,
             enabled: true,
+            danger: false,
         })
         .collect();
     if let Some(model) = sync_model(store.get_method_items(), methods) {
@@ -270,6 +271,47 @@ mod tests {
     fn teardown(dir: &std::path::Path) {
         shutdown();
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn click(ui: &MainWindow, x: f32, y: f32) {
+        use slint::platform::{PointerEventButton, WindowEvent};
+        let position = slint::LogicalPosition::new(x, y);
+        let button = PointerEventButton::Left;
+        ui.window()
+            .dispatch_event(WindowEvent::PointerMoved { position });
+        ui.window()
+            .dispatch_event(WindowEvent::PointerPressed { position, button });
+        ui.window()
+            .dispatch_event(WindowEvent::PointerReleased { position, button });
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+    }
+
+    /// Open the editor's overflow menu and click its `item`th entry.
+    fn overflow(ui: &MainWindow, item: usize) {
+        let more = ElementHandle::find_by_element_id(ui, "NodeEditor::more")
+            .next()
+            .expect("overflow button");
+        let (at, size) = (more.absolute_position(), more.size());
+        click(ui, at.x + size.width / 2.0, at.y + size.height / 2.0);
+        // The 160 px menu opens below the button, right-aligned to it, with
+        // 8 px padding and 44 px rows.
+        let row_y = at.y + size.height + 8.0 + 44.0 * item as f32 + 22.0;
+        click(ui, at.x + size.width - 80.0, row_y);
+    }
+
+    #[test]
+    fn overflow_menu_duplicates_and_deletes() {
+        let (ui, dir) = setup("bind-nodes-overflow");
+        ui.window().set_size(slint::LogicalSize::new(960.0, 900.0));
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        let store = ui.global::<NodeStore>();
+        let count = store.get_rows().row_count();
+        overflow(&ui, 0);
+        assert_eq!(store.get_rows().row_count(), count + 1, "Duplicate");
+        assert!(store.get_dirty());
+        overflow(&ui, 1);
+        assert_eq!(store.get_rows().row_count(), count, "Delete");
+        teardown(&dir);
     }
 
     #[test]
