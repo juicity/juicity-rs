@@ -158,6 +158,8 @@ mod tests {
     fn segments_call_the_mode_and_rule_actions() {
         i_slint_backend_testing::init_no_event_loop();
         let ui = MainWindow::new().unwrap();
+        // The labels below are the English catalog's; a C locale selects none.
+        slint::select_bundled_translation("en").unwrap();
         ui.global::<AppState>().set_page(Page::Overview);
         ui.window().set_size(slint::LogicalSize::new(960.0, 640.0));
         ui.show().unwrap();
