@@ -24,6 +24,9 @@ export global Theme {
     out property <color> green: dark ? #30D158 : #34C759;
     out property <color> red: dark ? #FF453A : #FF3B30;
     out property <color> orange: dark ? #FF9F0A : #FF9500;
+    // Orange dark enough to read as text on a light card.
+    out property <color> warn-text: dark ? #FF9F0A : #B25000;
+    out property <color> scrim: #00000066;
     in-out property <string> cjk: "Noto Sans CJK TC";
     out property <string> latin: "Noto Sans";
     out property <string> mono: "Noto Sans Mono";

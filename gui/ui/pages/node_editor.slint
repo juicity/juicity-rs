@@ -119,7 +119,7 @@ export component NodeEditor inherits Card {
                         height: 40px;
                         HorizontalLayout {
                             Text { text: @tr("Advanced settings"); font-size: 14px; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
-                            VerticalLayout { alignment: center; Icon { source: Icons.chevron-right; colorize: Theme.secondary; } }
+                            VerticalLayout { alignment: center; Icon { source: Icons.chevron-right; size: 16px; colorize: Theme.secondary; } }
                         }
                         TouchArea { clicked => { Actions.open-advanced(); } }
                     }
@@ -151,9 +151,8 @@ export component NodeEditor inherits Card {
             }
         }
         VerticalLayout {
+            padding-top: 8px;
             padding-right: 10px;
-            spacing: 8px;
-            HDivider { }
             // Node edits stay in memory until Save; both are disabled when clean.
             HorizontalLayout {
                 spacing: 8px;

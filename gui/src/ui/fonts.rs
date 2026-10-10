@@ -1,8 +1,9 @@
 use crate::i18n::UiLang;
 
 pub fn cjk_family(lang: UiLang) -> &'static str {
-    // Cyrillic reads better in the bundled Latin face than in the CJK one.
-    if lang == UiLang::Ru {
+    // Latin and Cyrillic read better in the bundled Latin face than in the
+    // CJK one; CJK glyphs in English text fall back to the CJK font.
+    if matches!(lang, UiLang::En | UiLang::Ru) {
         return "Noto Sans";
     }
     let traditional = lang == UiLang::ZhTw;
@@ -57,7 +58,7 @@ fn cjk_file(name: &str) -> Option<std::path::PathBuf> {
 }
 
 pub fn register_medium(lang: UiLang) -> anyhow::Result<()> {
-    if lang == UiLang::Ru {
+    if matches!(lang, UiLang::En | UiLang::Ru) {
         return Ok(());
     }
     #[cfg(target_os = "linux")]

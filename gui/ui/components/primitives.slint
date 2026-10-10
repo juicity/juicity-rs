@@ -145,6 +145,8 @@ export component SeparatedText inherits Rectangle {
     in property <string> detail-font: Theme.cjk;
     in property <length> size: 13px;
     in property <color> foreground: Theme.text;
+    // Elide shortens the detail when the text gets less than its preferred width.
+    in property <TextOverflow> overflow: clip;
     preferred-width: metrics.preferred-width;
     // Measure with the mockup font; only the CJK runs and Latin dot are painted.
     metrics := Text {
@@ -179,9 +181,10 @@ export component SeparatedText inherits Rectangle {
     detail := Text {
         x: label.width + separator.width;
         y: (separator.font-metrics.ascent + separator.font-metrics.descent - self.font-metrics.ascent - self.font-metrics.descent) / 2;
-        width: self.preferred-width;
+        width: root.overflow == TextOverflow.elide ? min(self.preferred-width, max(0px, root.width - label.width - separator.width)) : self.preferred-width;
         height: parent.height;
         text: root.detail;
+        overflow: root.overflow;
         font-family: root.detail-font;
         font-size: root.size;
         color: root.foreground;
@@ -206,7 +209,7 @@ export component Pill inherits Rectangle {
             alignment: center;
             Rectangle { width: 8px; height: 8px; border-radius: 4px; background: root.running ? Theme.green : Theme.secondary; }
         }
-        SeparatedText { text: root.text; detail: root.detail; }
+        SeparatedText { text: root.text; detail: root.detail; overflow: elide; min-width: 0px; }
     }
 }
 

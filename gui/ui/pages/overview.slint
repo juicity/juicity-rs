@@ -122,10 +122,11 @@ export component OverviewPage inherits VerticalLayout {
                             OptionDivider { }
                             OptionRow { icon: Icons.shield; text: @tr("Proxy GFW list only"); selected: AppState.pac-rule == PacRule.gfw-list; clicked => { Actions.set-pac-rule(PacRule.gfw-list); } }
                             Rectangle { min-height: 12px; vertical-stretch: 1; }
+                            // The timestamp wraps to two lines at most beside the button.
                             HorizontalLayout {
                                 spacing: 12px;
-                                Text { text: AppState.rules-age-days < 0 ? @tr("Rules not downloaded yet") : @tr("Rules updated {}", AppState.rules-updated-at); font-size: 12px; color: Theme.secondary; vertical-alignment: center; horizontal-stretch: 1; min-width: 0px; overflow: elide; }
-                                Button { text: @tr("Update rules"); icon: Icons.refresh; has-icon: true; enabled: !AppState.rules-updating; clicked => { Actions.update-rules(); } }
+                                Text { text: AppState.rules-age-days < 0 ? @tr("Rules not downloaded yet") : @tr("Rules updated {}", AppState.rules-updated-at); font-size: 12px; color: Theme.secondary; vertical-alignment: center; horizontal-stretch: 1; min-width: 0px; wrap: word-wrap; overflow: elide; max-height: 36px; }
+                                VerticalLayout { alignment: center; Button { text: @tr("Update rules"); icon: Icons.refresh; has-icon: true; enabled: !AppState.rules-updating; clicked => { Actions.update-rules(); } } }
                             }
                         }
                     }

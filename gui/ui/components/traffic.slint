@@ -37,13 +37,19 @@ component ChartCurve inherits Path {
 }
 
 component TrafficChart inherits Rectangle {
-    height: 64px;
+    // Fills the row below the title, so the card ends where the others do.
+    height: 68px;
     private property <length> mid: self.height / 2;
     for offset in [0, 0.5, 1, 1.5]: Rectangle { y: root.mid * offset; height: 1px; background: Theme.divider; }
     Rectangle { y: root.height - 1px; height: 1px; background: Theme.divider; }
-    ChartCurve { commands: TrafficStore.down-area; fill: Theme.text.with-alpha(0.1); stroke: transparent; }
-    ChartCurve { commands: TrafficStore.up-line; stroke: Theme.secondary; }
-    ChartCurve { commands: TrafficStore.down-line; stroke: Theme.text; }
+    // A small top inset keeps the peak's stroke clear of the top grid line.
+    Rectangle {
+        y: 3px;
+        height: parent.height - 3px;
+        ChartCurve { commands: TrafficStore.down-area; fill: Theme.text.with-alpha(0.1); stroke: transparent; }
+        ChartCurve { commands: TrafficStore.up-line; stroke: Theme.secondary; }
+        ChartCurve { commands: TrafficStore.down-line; stroke: Theme.text; }
+    }
     if !TrafficStore.has-traffic: Text {
         text: @tr("No traffic yet");
         font-size: 12px;
@@ -53,29 +59,29 @@ component TrafficChart inherits Rectangle {
     }
 }
 
-// Speeds and totals as a 2x2 grid beside the titled speed history chart,
-// short enough for the whole Overview to fit the default window.
-export component TrafficPanel inherits HorizontalLayout {
-    spacing: 24px;
-    GridLayout {
-        horizontal-stretch: 0;
-        width: 300px;
-        spacing-horizontal: 16px;
-        spacing-vertical: 8px;
-        Row {
-            Stat { label: @tr("Download"); value: TrafficStore.down-speed; marker: Theme.text; }
-            Stat { label: @tr("Upload"); value: TrafficStore.up-speed; marker: Theme.secondary; }
+// The card title, then the four speeds and totals in one row beside the
+// speed history chart; one stat row keeps the whole Overview within the
+// default window.
+export component TrafficPanel inherits VerticalLayout {
+    Caption { text: @tr("Traffic"); }
+    Rectangle { height: 4px; }
+    HorizontalLayout {
+        spacing: 24px;
+        VerticalLayout {
+            alignment: start;
+            horizontal-stretch: 0;
+            width: 448px;
+            HorizontalLayout {
+                spacing: 16px;
+                Stat { label: @tr("Download"); value: TrafficStore.down-speed; marker: Theme.text; }
+                Stat { label: @tr("Upload"); value: TrafficStore.up-speed; marker: Theme.secondary; }
+                Stat { label: @tr("Downloaded"); value: TrafficStore.down-total; marker: Theme.text; }
+                Stat { label: @tr("Uploaded"); value: TrafficStore.up-total; marker: Theme.secondary; }
+            }
         }
-        Row {
-            Stat { label: @tr("Downloaded"); value: TrafficStore.down-total; marker: Theme.text; }
-            Stat { label: @tr("Uploaded"); value: TrafficStore.up-total; marker: Theme.secondary; }
+        TrafficChart {
+            horizontal-stretch: 1;
+            min-width: 0px;
         }
-    }
-    VerticalLayout {
-        horizontal-stretch: 1;
-        min-width: 0px;
-        spacing: 8px;
-        Caption { text: @tr("Traffic"); }
-        TrafficChart { }
     }
 }

@@ -100,8 +100,9 @@ export component ListView inherits Rectangle {
         y: parent.height - 10px;
         width: view.width;
         height: 10px;
+        // Flush with the gutter's bottom, 8 px above the card's bottom edge.
         Rectangle {
-            y: 4px;
+            y: 6px;
             x: -root.content-x / (root.content-width - view.width) * (view.width - root.h-thumb);
             height: 4px;
             width: root.h-thumb;

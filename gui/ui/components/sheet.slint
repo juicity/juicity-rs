@@ -9,7 +9,7 @@ export component Sheet inherits Rectangle {
     callback cancelled;
     callback completed;
     visible: open;
-    background: #00000066;
+    background: Theme.scrim;
     forward-focus: escape;
     TouchArea { clicked => { root.cancelled(); } }
     escape := FocusScope {
@@ -55,7 +55,7 @@ export component Prompt inherits Rectangle {
     callback accepted;
     callback discarded;
     callback cancelled;
-    background: #00000066;
+    background: Theme.scrim;
     forward-focus: keys;
     TouchArea { clicked => { root.cancelled(); } }
     keys := FocusScope {

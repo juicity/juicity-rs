@@ -47,7 +47,6 @@ export component LogsPage inherits VerticalLayout {
             alignment: center;
             horizontal-stretch: 1;
             min-width: 0px;
-            padding-right: 8px;
             Caption {
                 text: @tr("{n} earlier line dropped" | "{n} earlier lines dropped" % LogStore.dropped);
                 horizontal-alignment: right;
@@ -58,7 +57,6 @@ export component LogsPage inherits VerticalLayout {
         HorizontalLayout {
             spacing: 8px;
             horizontal-stretch: 0;
-            padding-right: 8px;
             Text { text: @tr("Follow"); font-size: 14px; color: Theme.text; vertical-alignment: center; }
             VerticalLayout { alignment: center; Switch { on <=> LogStore.follow; toggled(on) => { Actions.set-log-follow(on); } } }
         }
@@ -77,9 +75,11 @@ export component LogsPage inherits VerticalLayout {
         vertical-stretch: 1;
         min-height: 120px;
         list := ListView {
-            x: 4px;
+            x: 8px;
             y: 8px;
-            width: parent.width - 8px;
+            // Rows span the card minus 8 px padding, like the Nodes list; the
+            // 10 px scroll bar gutter overlaps the right padding.
+            width: parent.width - 6px;
             height: parent.height - 16px;
             // Columns: time (8), level (5), then target and message.
             content-width: max(self.visible-width, 24px + 36px + (13 + LogStore.max-chars) * LogMetrics.advance);
@@ -99,7 +99,7 @@ export component LogsPage inherits VerticalLayout {
                         width: 5 * LogMetrics.advance;
                         font-family: Theme.mono;
                         font-size: LogMetrics.font-size;
-                        color: row.level == "ERROR" ? Theme.red : row.level == "WARN" ? Theme.orange : Theme.secondary;
+                        color: row.level == "ERROR" ? Theme.red : row.level == "WARN" ? Theme.warn-text : Theme.secondary;
                         vertical-alignment: center;
                     }
                     Text { text: row.target; font-family: Theme.mono; font-size: LogMetrics.font-size; color: Theme.secondary; vertical-alignment: center; }
