@@ -11,10 +11,11 @@ import { LabeledField } from "../components/field.slint";
 component MenuValue inherits HorizontalLayout {
     in property <string> text;
     in property <[MenuItem]> items;
+    in property <string> font;
     callback selected(int);
     horizontal-stretch: 0;
     min-width: 0px;
-    SettingValue { text: root.text; menu: true; clicked => { menu.show(); } }
+    SettingValue { text: root.text; font: root.font; menu: true; clicked => { menu.show(); } }
     Rectangle {
         width: 0px;
         menu := PopupMenu {
@@ -84,10 +85,11 @@ export component SettingsPage inherits VerticalLayout {
                             items: [
                                 { text: @tr("Follow system"), checked: SettingsStore.language == 0, enabled: true },
                                 { text: "English", checked: SettingsStore.language == 1, enabled: true },
-                                { text: "简体中文", checked: SettingsStore.language == 2, enabled: true },
-                                { text: "繁體中文", checked: SettingsStore.language == 3, enabled: true },
+                                { text: "简体中文", checked: SettingsStore.language == 2, enabled: true, font: Theme.cjk-sc },
+                                { text: "繁體中文", checked: SettingsStore.language == 3, enabled: true, font: Theme.cjk-tc },
                                 { text: "Русский", checked: SettingsStore.language == 4, enabled: true },
                             ];
+                            font: SettingsStore.language == 2 ? Theme.cjk-sc : SettingsStore.language == 3 ? Theme.cjk-tc : "";
                             selected(index) => { Actions.set-language(index); }
                         }
                     }

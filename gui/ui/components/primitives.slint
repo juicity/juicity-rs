@@ -279,12 +279,14 @@ export component SettingValue inherits Rectangle {
     in property <bool> menu: false;
     // Latin values (ports, addresses, URLs) use the mockup's Latin face.
     in property <bool> latin: false;
+    // Overrides the face when not empty.
+    in property <string> font;
     callback clicked;
     // Long values (URLs) elide instead of pushing the row past the card.
     min-width: 0px;
     HorizontalLayout {
         spacing: 4px;
-        Text { text: root.text; font-family: root.latin ? Theme.latin : Theme.cjk; font-size: 14px; color: Theme.secondary; vertical-alignment: center; overflow: elide; min-width: 0px; horizontal-stretch: 1; }
+        Text { text: root.text; font-family: root.font != "" ? root.font : root.latin ? Theme.latin : Theme.cjk; font-size: 14px; color: Theme.secondary; vertical-alignment: center; overflow: elide; min-width: 0px; horizontal-stretch: 1; }
         VerticalLayout {
             alignment: center;
             padding-right: root.menu ? 2px : 0px;
@@ -300,13 +302,15 @@ export component OptionRow inherits Rectangle {
     in property <bool> selected;
     in property <bool> enabled: true;
     in property <bool> danger: false;
+    // Empty keeps the UI face.
+    in property <string> font;
     callback clicked;
     forward-focus: focus;
     height: 44px;
     HorizontalLayout {
         spacing: 10px;
         VerticalLayout { alignment: center; Icon { source: root.icon; } }
-        Text { text: root.text; font-size: 14px; color: root.danger ? Theme.red : Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+        Text { text: root.text; font-family: root.font == "" ? Theme.cjk : root.font; font-size: 14px; color: root.danger ? Theme.red : Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
         if root.selected: HorizontalLayout {
             padding-right: Theme.chevron-inset - 2px;
             VerticalLayout { alignment: center; Icon { source: Icons.check; size: 16px; } }

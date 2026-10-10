@@ -188,6 +188,7 @@ pub fn sync(ui: &MainWindow, snapshot: &NodesSnapshot, editor: bool) {
             checked: *method == snapshot.draft.method,
             enabled: true,
             danger: false,
+            font: Default::default(),
         })
         .collect();
     if let Some(model) = sync_model(store.get_method_items(), methods) {

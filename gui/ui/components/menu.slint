@@ -27,6 +27,7 @@ export component PopupMenu inherits Rectangle {
                         text: item.text;
                         selected: item.checked;
                         danger: item.danger;
+                        font: item.font;
                         opacity: item.enabled ? 1 : 0.5;
                         clicked => {
                             if item.enabled { root.selected(index); popup.close(); }

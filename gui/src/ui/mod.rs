@@ -26,9 +26,10 @@ fn prepare(window: &MainWindow, language: UiLang) -> anyhow::Result<()> {
 fn apply_language(window: &MainWindow, language: UiLang) -> anyhow::Result<()> {
     fonts::register_medium(language)?;
     slint::select_bundled_translation(language.slint_tag())?;
-    window
-        .global::<Theme>()
-        .set_cjk(fonts::cjk_family(language).into());
+    let theme = window.global::<Theme>();
+    theme.set_cjk(fonts::cjk_family(language).into());
+    theme.set_cjk_sc(fonts::cjk_family(UiLang::ZhCn).into());
+    theme.set_cjk_tc(fonts::cjk_family(UiLang::ZhTw).into());
     Ok(())
 }
 

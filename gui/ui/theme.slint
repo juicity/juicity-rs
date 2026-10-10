@@ -28,6 +28,10 @@ export global Theme {
     out property <color> warn-text: dark ? #FF9F0A : #B25000;
     out property <color> scrim: #00000066;
     in-out property <string> cjk: "Noto Sans CJK TC";
+    // Faces for the 简体中文 and 繁體中文 language names: in a Latin UI the
+    // system fallback may pick a Japanese face that lacks simplified glyphs.
+    in-out property <string> cjk-sc: "Noto Sans CJK SC";
+    in-out property <string> cjk-tc: "Noto Sans CJK TC";
     out property <string> latin: "Noto Sans";
     out property <string> mono: "Noto Sans Mono";
     // Noto Sans Mono advance: 600 / 1000 em for every glyph.

@@ -38,7 +38,8 @@ export struct NodeDraft {
 }
 export struct FieldError { field: NodeField, message: string }
 // `danger` draws the item in red (a destructive command).
-export struct MenuItem { text: string, checked: bool, enabled: bool, danger: bool }
+// `font` overrides the face for one item; empty keeps the UI face.
+export struct MenuItem { text: string, checked: bool, enabled: bool, danger: bool, font: string }
 // One captured log line; the text stays English.
 export struct LogRow { time: string, level: string, target: string, message: string }
 // One chart slot (0 = oldest of HISTORY); heights are fractions of half the chart.
