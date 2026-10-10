@@ -319,6 +319,18 @@ mod tests {
     }
 
     #[test]
+    fn field_errors_follow_a_language_switch() {
+        let (ui, dir) = setup("bind-nodes-language");
+        field(&ui, "Port").set_accessible_value("70000");
+        let store = ui.global::<NodeStore>();
+        ui.global::<Actions>().invoke_set_language(4);
+        assert_eq!(store.get_port_error(), "Введите порт от 1 до 65535");
+        ui.global::<Actions>().invoke_set_language(1);
+        assert_eq!(store.get_port_error(), "Enter a port from 1 to 65535");
+        teardown(&dir);
+    }
+
+    #[test]
     fn sheet_cancel_discards_and_done_commits() {
         let (ui, dir) = setup("bind-nodes-sheet");
         let actions = ui.global::<Actions>();

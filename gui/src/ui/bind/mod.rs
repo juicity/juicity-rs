@@ -124,7 +124,9 @@ fn apply(changes: Changes) {
             if LANGUAGE.get() == Some(language) {
                 return false;
             }
-            super::apply_language(&ui, language).expect("bundled language and fonts are available");
+            if let Err(err) = super::apply_language(&ui, language) {
+                tracing::warn!("could not switch the language: {err:#}");
+            }
             LANGUAGE.set(Some(language));
             true
         })

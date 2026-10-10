@@ -9,7 +9,8 @@
 /// instance to show its window.
 pub type OnActivate = Box<dyn Fn() + Send + Sync>;
 
-/// D-Bus well-known name and Windows object name.
+/// D-Bus well-known name.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub const NAME: &str = "io.juicity.gui";
 /// Message a second Windows instance writes to the pipe.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]

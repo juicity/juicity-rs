@@ -467,6 +467,7 @@ fn run_required(program: &str, args: &[&str]) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 fn run_if_available(program: &str, args: &[&str]) -> anyhow::Result<bool> {
     let mut cmd = command(program);
     cmd.args(args);

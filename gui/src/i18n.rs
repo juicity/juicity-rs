@@ -20,12 +20,15 @@ impl UiLang {
 }
 
 pub fn detect() -> UiLang {
-    let from_env = std::env::var("LANG")
-        .or_else(|_| std::env::var("LC_ALL"))
-        .or_else(|_| std::env::var("LC_MESSAGES"))
-        .ok();
+    let var = |name| std::env::var(name).ok();
+    let from_env = pick_locale([var("LC_ALL"), var("LC_MESSAGES"), var("LANG")]);
     let raw = from_env.unwrap_or_else(|| sys_locale::get_locale().unwrap_or_default());
     normalise(&raw)
+}
+
+/// The first non-empty value in POSIX precedence: LC_ALL, LC_MESSAGES, LANG.
+fn pick_locale(vars: [Option<String>; 3]) -> Option<String> {
+    vars.into_iter().flatten().find(|value| !value.is_empty())
 }
 
 fn normalise(raw: &str) -> UiLang {
@@ -55,7 +58,21 @@ fn normalise(raw: &str) -> UiLang {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalise, UiLang};
+    use super::{normalise, pick_locale, UiLang};
+
+    #[test]
+    fn locale_variables_follow_posix_precedence() {
+        let some = |v: &str| Some(v.to_string());
+        assert_eq!(
+            pick_locale([some("en_US.UTF-8"), None, some("zh_CN.UTF-8")]).as_deref(),
+            Some("en_US.UTF-8")
+        );
+        assert_eq!(
+            pick_locale([some(""), some("ru_RU.UTF-8"), some("zh_CN.UTF-8")]).as_deref(),
+            Some("ru_RU.UTF-8")
+        );
+        assert_eq!(pick_locale([None, None, some("")]), None);
+    }
 
     #[test]
     fn russian_locale_variants() {

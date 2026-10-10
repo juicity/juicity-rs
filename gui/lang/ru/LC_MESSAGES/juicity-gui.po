@@ -65,10 +65,10 @@ msgid "Fix the invalid fields before exporting"
 msgstr "Исправьте ошибки в полях перед экспортом"
 
 msgid "Today {}"
-msgstr "Сегодня {}"
+msgstr "сегодня {}"
 
 msgid "Yesterday {}"
-msgstr "Вчера {}"
+msgstr "вчера {}"
 
 msgid "Server"
 msgstr "Сервер"
@@ -122,7 +122,7 @@ msgid "Proxy GFW list only"
 msgstr "Прокси только для списка GFW"
 
 msgid "Update rules"
-msgstr "Обновить"
+msgstr "Обновить правила"
 
 msgid "Nodes"
 msgstr "Узлы"
@@ -161,7 +161,7 @@ msgid "Done"
 msgstr "Готово"
 
 msgid "Reconnect to apply"
-msgstr "Переподключитесь для применения"
+msgstr "Переподключитесь, чтобы применить"
 
 msgid "Basic"
 msgstr "Основное"
@@ -179,7 +179,7 @@ msgid "Authentication"
 msgstr "Аутентификация"
 
 msgid "Encryption method"
-msgstr "Шифрование"
+msgstr "Метод шифрования"
 
 msgid "Advanced settings"
 msgstr "Дополнительные настройки"
@@ -188,10 +188,10 @@ msgid "Set as active"
 msgstr "Активировать"
 
 msgid "Duplicate"
-msgstr "Копия"
+msgstr "Дублировать"
 
 msgid "Export link"
-msgstr "Экспорт"
+msgstr "Экспорт ссылки"
 
 msgid "Delete"
 msgstr "Удалить"
@@ -227,10 +227,10 @@ msgid "Add node"
 msgstr "Добавить узел"
 
 msgid "Move up"
-msgstr "Выше"
+msgstr "Переместить вверх"
 
 msgid "Move down"
-msgstr "Ниже"
+msgstr "Переместить вниз"
 
 msgid "Connected"
 msgstr "Подключено"
@@ -305,16 +305,16 @@ msgid "Local"
 msgstr "Локальный"
 
 msgid "Direct list"
-msgstr "Список прямых подключений"
+msgstr "Список без прокси"
 
 msgid "Proxy list"
-msgstr "Список прокси"
+msgstr "Список через прокси"
 
 msgid "Auto update"
 msgstr "Автообновление"
 
 msgid "Custom…"
-msgstr "Другой интервал…"
+msgstr "Свой интервал…"
 
 msgid "PAC server"
 msgstr "Сервер PAC"
