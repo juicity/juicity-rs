@@ -396,7 +396,8 @@ impl Controller {
     pub fn on_files_changed(&mut self, now: Instant) -> Changes {
         let old = self.gui.config.clone();
         let edited = self.edited_profile();
-        let was_dirty = self.nodes_dirty();
+        let working_active = self.gui.runtime.selected_profile;
+        let was_dirty = self.list_dirty();
         let reloaded = self
             .persist
             .reload_changed(&mut self.gui, &mut self.saved, now);
@@ -408,11 +409,15 @@ impl Controller {
             return changes;
         }
         tracing::info!("config reloaded from disk: {reloaded:?}");
-        if reloaded.contains(&ConfigFile::Profiles) {
-            if !was_dirty {
+        if !was_dirty {
+            if reloaded.contains(&ConfigFile::Profiles) {
                 self.gui.profiles = self.saved.profiles.clone();
-            } else if self.nodes_dirty() {
-                // Keep the edits; Save will overwrite the external change.
+            }
+            self.gui.runtime.selected_profile = self.saved.active;
+        } else {
+            // Keep the edits; Save will overwrite the external change.
+            self.gui.runtime.selected_profile = working_active;
+            if reloaded.contains(&ConfigFile::Profiles) && self.list_dirty() {
                 changes |= self.set_notice(Notice::ProfilesChanged);
             }
         }

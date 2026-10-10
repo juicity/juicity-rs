@@ -67,7 +67,7 @@ fn request(leave: Leave) -> Option<Leave> {
 }
 
 fn answer(answer: Answer) {
-    if let Some(Some(leave)) = update_with(|c, now| c.answer_prompt(answer, now)) {
+    if let Some(Some(leave)) = update_with(|c, _| c.answer_prompt(answer)) {
         perform(leave);
     }
 }

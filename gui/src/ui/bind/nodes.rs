@@ -127,7 +127,7 @@ pub fn wire(ui: &MainWindow) {
         update(|c, _| c.edit_advanced(field_from(field), &value));
     });
     actions.on_commit_advanced(|| update(|c, _| c.commit_advanced()));
-    actions.on_save_nodes(|| update(|c, now| c.save_nodes(now)));
+    actions.on_save_nodes(|| update(|c, _| c.save_nodes()));
     actions.on_revert_nodes(|| update(|c, _| c.revert_nodes()));
     actions.on_cancel_advanced(|| update(|c, _| c.cancel_advanced()));
 }

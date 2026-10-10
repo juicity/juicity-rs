@@ -1,12 +1,12 @@
 //! Explicit save for nodes: Save, Revert and the unsaved-changes prompt
 //! shown before the window closes or the app quits.
 //!
-//! Every node edit changes only the working list (`gui.profiles`); disk
-//! holds `saved` until Save writes the working list synchronously.
+//! Every node edit changes only the working list (`gui.profiles`) and the
+//! working active node (`gui.runtime.selected_profile`); disk holds `saved`
+//! until Save writes both synchronously.
 
 use super::{Changes, ConfigFile, Controller, Notice};
 use crate::validate::missing_fields;
-use std::time::Instant;
 
 /// What a close request does once it is allowed to proceed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,9 +26,16 @@ pub enum Answer {
 }
 
 impl Controller {
-    /// The working node list differs from the saved one.
-    pub fn nodes_dirty(&self) -> bool {
+    /// The working list or active node differs from the saved ones.
+    pub(super) fn list_dirty(&self) -> bool {
         self.gui.profiles != self.saved.profiles
+            || self.gui.runtime.selected_profile != self.saved.active
+    }
+
+    /// Unsaved node edits: the working list or active node differs from
+    /// the saved ones, or the editor holds invalid text it did not apply.
+    pub fn nodes_dirty(&self) -> bool {
+        self.list_dirty() || self.draft_unapplied()
     }
 
     /// The unsaved-changes prompt is waiting for an answer.
@@ -36,27 +43,21 @@ impl Controller {
         self.leave.is_some()
     }
 
-    /// Make `index` the active node of the working list. It is persisted
-    /// only when the saved list holds the same node at that index.
-    pub(super) fn set_working_active(&mut self, index: usize, now: Instant) -> Changes {
+    /// Make `index` the active node of the working list. Only Save writes
+    /// it; runtime writes keep the saved index.
+    pub(super) fn set_working_active(&mut self, index: usize) {
         self.gui.runtime.selected_profile = index;
-        let same = self.saved.profiles.profiles.get(index).is_some()
-            && self.saved.profiles.profiles.get(index) == self.gui.profiles.profiles.get(index);
-        if same && self.saved.active != index {
-            self.saved.active = index;
-            return self.mark_dirty(ConfigFile::Runtime, now);
-        }
-        Changes::NONE
     }
 
     /// 儲存 / Ctrl+S: validate and write the working list now.
-    pub fn save_nodes(&mut self, now: Instant) -> Changes {
-        self.write_nodes(now).0
+    pub fn save_nodes(&mut self) -> Changes {
+        self.write_nodes().0
     }
 
-    /// Save; the flag is false when nothing was written because a node is
-    /// invalid or the write failed. Either failure cancels a pending leave.
-    fn write_nodes(&mut self, now: Instant) -> (Changes, bool) {
+    /// Save; the flag is false unless both the list and the active index
+    /// reached disk. Any failure keeps the edits dirty and cancels a
+    /// pending leave.
+    fn write_nodes(&mut self) -> (Changes, bool) {
         if !self.nodes_dirty() {
             return (Changes::NONE, true);
         }
@@ -68,18 +69,33 @@ impl Controller {
         next.profiles = self.gui.profiles.clone();
         next.active = self.gui.runtime.selected_profile;
         next.clamp_active();
-        if let Err(err) = self.persist.write(ConfigFile::Profiles, &self.gui, &next) {
-            self.leave = None;
-            let notice = Notice::NodesSaveFailed(format!("{err:#}"));
-            return (Changes::NODES | self.set_notice(notice), false);
+        // The list first, so the index on disk never points past it.
+        if next.profiles != self.saved.profiles {
+            if let Err(err) = self.persist.write(ConfigFile::Profiles, &self.gui, &next) {
+                return self.save_failed(err);
+            }
+            // `saved` follows what reached disk, even if the index fails.
+            self.saved.profiles = next.profiles;
+            self.saved.clamp_active();
         }
-        let active_changed = next.active != self.saved.active;
-        self.saved = next;
-        let mut changes = Changes::NODES | self.clear_save_notice();
-        if active_changed {
-            changes |= self.mark_dirty(ConfigFile::Runtime, now);
+        if next.active != self.saved.active {
+            let written = self.saved.active;
+            self.saved.active = next.active;
+            if let Err(err) = self
+                .persist
+                .write(ConfigFile::Runtime, &self.gui, &self.saved)
+            {
+                self.saved.active = written;
+                return self.save_failed(err);
+            }
         }
-        (changes, true)
+        (Changes::NODES | self.clear_save_notice(), true)
+    }
+
+    fn save_failed(&mut self, err: anyhow::Error) -> (Changes, bool) {
+        self.leave = None;
+        let notice = Notice::NodesSaveFailed(format!("{err:#}"));
+        (Changes::NODES | self.set_notice(notice), false)
     }
 
     /// Why Save must refuse: invalid editor text, or a node that lacks
@@ -109,7 +125,8 @@ impl Controller {
         }
     }
 
-    /// 還原: restore the saved list and active node, then reload the editor.
+    /// 還原: restore the saved list and active node, select the active
+    /// node and reload the editor, dropping invalid text.
     pub fn revert_nodes(&mut self) -> Changes {
         if !self.nodes_dirty() {
             return Changes::NONE;
@@ -117,6 +134,7 @@ impl Controller {
         self.gui.profiles = self.saved.profiles.clone();
         self.gui.runtime.selected_profile = self.saved.active;
         self.gui.normalize_selected_index();
+        self.nodes.selected = self.gui.runtime.selected_profile;
         self.nodes.advanced = None;
         self.nodes.advanced_errors.clear();
         Changes::OVERVIEW | self.load_selected() | self.clear_save_notice()
@@ -137,13 +155,13 @@ impl Controller {
     }
 
     /// Answer the prompt. Returns the stored action when it may proceed.
-    pub fn answer_prompt(&mut self, answer: Answer, now: Instant) -> (Changes, Option<Leave>) {
+    pub fn answer_prompt(&mut self, answer: Answer) -> (Changes, Option<Leave>) {
         let Some(leave) = self.leave else {
             return (Changes::NONE, None);
         };
         match answer {
             Answer::Save => {
-                let (changes, saved) = self.write_nodes(now);
+                let (changes, saved) = self.write_nodes();
                 let leave = saved.then(|| self.leave.take()).flatten();
                 (changes | Changes::NODES, leave)
             }
@@ -165,6 +183,7 @@ mod tests {
     use super::super::DraftField;
     use super::*;
     use crate::config::ProfileStore;
+    use std::time::Instant;
 
     const OSAKA: &str = "juicity://u:p@osaka.example.com:443?congestion_control=bbr#Osaka";
 
@@ -216,7 +235,7 @@ mod tests {
         let _ = c.revert_nodes();
         let _ = c.edit_node(DraftField::Name, "東京 02");
         assert!(c.nodes().dirty);
-        let changes = c.save_nodes(now);
+        let changes = c.save_nodes();
         assert!(changes.nodes);
         assert!(!c.nodes().dirty);
         assert!(disk(&dir).contains("東京 02"));
@@ -234,20 +253,19 @@ mod tests {
     fn save_refuses_invalid_nodes_and_names_incomplete_ones() {
         let dir = temp_dir("save-invalid");
         let (mut c, _) = controller(&dir);
-        let now = Instant::now();
         let before = disk(&dir);
         let _ = c.edit_node(DraftField::Port, "70000");
         let _ = c.edit_node(DraftField::Name, "東京 02");
-        let _ = c.save_nodes(now);
+        let _ = c.save_nodes();
         assert_eq!(c.notice().0, Notice::SaveInvalid);
         let _ = c.edit_node(DraftField::Port, "443");
         let _ = c.add_node("Node 2".into());
         // The new node is shown: its empty fields are flagged inline.
-        let _ = c.save_nodes(now);
+        let _ = c.save_nodes();
         assert_eq!(c.notice().0, Notice::SaveInvalid);
         assert!(!c.nodes().errors.is_empty());
         let _ = c.select_node(0);
-        let _ = c.save_nodes(now);
+        let _ = c.save_nodes();
         let Notice::NodeIncomplete(name, fields) = c.notice().0 else {
             panic!("save must name the incomplete node");
         };
@@ -262,14 +280,13 @@ mod tests {
     fn failed_save_keeps_dirty_and_cancels_the_leave() {
         let dir = temp_dir("save-fail");
         let (mut c, _) = controller(&dir);
-        let now = Instant::now();
         let _ = c.edit_node(DraftField::Name, "東京 02");
         assert_eq!(c.request_leave(Leave::Quit).1, None);
         assert!(c.prompt_open());
         // A directory in place of profiles.json makes the final rename fail.
         std::fs::remove_file(dir.join("profiles.json")).unwrap();
         std::fs::create_dir(dir.join("profiles.json")).unwrap();
-        let (changes, leave) = c.answer_prompt(Answer::Save, now);
+        let (changes, leave) = c.answer_prompt(Answer::Save);
         assert_eq!(leave, None, "the quit is cancelled");
         assert!(changes.notice && changes.nodes);
         assert!(!c.prompt_open());
@@ -279,7 +296,7 @@ mod tests {
         assert_eq!(c.nodes().draft.name, "東京 02");
         // Once the disk is writable again, Save succeeds.
         std::fs::remove_dir(dir.join("profiles.json")).unwrap();
-        let _ = c.save_nodes(now);
+        let _ = c.save_nodes();
         assert!(!c.nodes_dirty());
         assert_eq!(c.notice().0, Notice::None);
         let _ = std::fs::remove_dir_all(&dir);
@@ -291,7 +308,6 @@ mod tests {
             for answer in [Answer::Save, Answer::Discard, Answer::Cancel] {
                 let dir = temp_dir(&format!("save-prompt-{leave:?}-{answer:?}"));
                 let (mut c, _) = controller(&dir);
-                let now = Instant::now();
                 // Clean: the action proceeds without asking.
                 assert_eq!(c.request_leave(leave), (Changes::NONE, Some(leave)));
                 let _ = c.edit_node(DraftField::Name, "東京 02");
@@ -304,7 +320,7 @@ mod tests {
                     Leave::Hide
                 };
                 assert_eq!(c.request_leave(other), (Changes::NONE, None));
-                let serial_bump = c.answer_prompt(answer, now);
+                let serial_bump = c.answer_prompt(answer);
                 assert!(!c.prompt_open());
                 match answer {
                     Answer::Save => {
@@ -328,7 +344,7 @@ mod tests {
                     }
                 }
                 // No prompt pending: answers do nothing.
-                assert_eq!(c.answer_prompt(answer, now), (Changes::NONE, None));
+                assert_eq!(c.answer_prompt(answer), (Changes::NONE, None));
                 let _ = std::fs::remove_dir_all(&dir);
             }
         }
@@ -384,7 +400,7 @@ mod tests {
         let _ = c.edit_node(DraftField::Name, "東京 03");
         std::fs::write(dir.join("profiles.json"), external).unwrap();
         let _ = c.on_files_changed(now);
-        let _ = c.save_nodes(now);
+        let _ = c.save_nodes();
         assert!(disk(&dir).contains("東京 03") && !disk(&dir).contains("Kyoto"));
         // Our own write is not reported as an external change.
         assert_eq!(c.on_files_changed(now), Changes::NONE);
@@ -413,7 +429,7 @@ mod tests {
         assert_eq!(saved.profiles.len(), 1);
         assert_eq!(runtime_index(&dir), 0, "index 1 is not in the saved list");
         // After Save, the index is persisted with the list.
-        let _ = c.save_nodes(now);
+        let _ = c.save_nodes();
         flush(&mut c);
         assert_eq!(runtime_index(&dir), 1);
         c.shutdown();
@@ -421,27 +437,129 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    const A_B: &str = r#"{ "profiles": [
+        { "name": "A", "server": "a.example.com", "uuid": "u", "password": "p" },
+        { "name": "B", "server": "b.example.com", "uuid": "u", "password": "p" }
+    ] }"#;
+
+    fn a_b(name: &str) -> (std::path::PathBuf, Controller, FakeEffects) {
+        let dir = temp_dir(name);
+        std::fs::write(dir.join("profiles.json"), A_B).unwrap();
+        let (c, fake) = controller(&dir);
+        (dir, c, fake)
+    }
+
     #[test]
-    fn setting_an_unchanged_node_active_persists_at_once() {
-        let dir = temp_dir("save-active-clean");
-        std::fs::write(
-            dir.join("profiles.json"),
-            r#"{ "profiles": [
-                { "name": "A", "server": "a.example.com", "uuid": "u", "password": "p" },
-                { "name": "B", "server": "b.example.com", "uuid": "u", "password": "p" }
-            ] }"#,
-        )
-        .unwrap();
-        let (mut c, _) = controller(&dir);
+    fn changing_the_active_node_waits_for_save() {
+        let (dir, mut c, _) = a_b("save-active");
         let now = Instant::now();
-        // Another node has unsaved edits; B itself is unchanged.
-        let _ = c.edit_node(DraftField::Name, "A2");
+        std::fs::write(dir.join("runtime.json"), r#"{ "selected_profile": 0 }"#).unwrap();
+        // From the editor: only the working active node changes.
         let _ = c.select_node(1);
-        assert!(c.set_active_node(now).persist);
+        let _ = c.set_active_node(now);
+        assert!(c.nodes().rows[1].in_use);
+        assert!(c.nodes_dirty(), "a new active node alone is unsaved");
         flush(&mut c);
+        assert_eq!(runtime_index(&dir), 0);
+        // Don't Save restores the saved active node.
+        let _ = c.request_leave(Leave::Hide);
+        let _ = c.answer_prompt(Answer::Discard);
+        assert_eq!(c.gui.runtime.selected_profile, 0);
+        assert!(!c.nodes_dirty());
+        // From the tray: the same, until Save writes the index.
+        let _ = c.on_tray(crate::desktop::tray::TrayEvent::SelectNode(1), now);
+        assert!(c.nodes_dirty());
+        let _ = c.toggle_connection(now);
+        flush(&mut c);
+        assert_eq!(
+            runtime_index(&dir),
+            0,
+            "runtime writes keep the saved index"
+        );
+        assert!(!c.save_nodes().persist, "Save writes at once");
         assert_eq!(runtime_index(&dir), 1);
-        assert!(!disk(&dir).contains("A2"));
+        assert!(!c.nodes_dirty());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_writes_list_and_active_index_or_stays_dirty() {
+        let dir = temp_dir("save-atomic");
+        let (mut c, fake) = controller(&dir);
+        fake.0.borrow_mut().paste = OSAKA.into();
+        let _ = c.import_links();
+        let _ = c.set_active_node(Instant::now());
+        assert_eq!(c.request_leave(Leave::Quit).1, None);
+        // profiles.json is writable, runtime.json is not.
+        std::fs::create_dir(dir.join("runtime.json")).unwrap();
+        let (changes, leave) = c.answer_prompt(Answer::Save);
+        assert_eq!(leave, None, "the quit is cancelled");
+        assert!(changes.notice);
+        assert!(matches!(c.notice().0, Notice::NodesSaveFailed(_)));
+        assert!(!c.prompt_open());
+        // `saved` holds what reached disk: the new list, the old index.
+        assert!(disk(&dir).contains("Osaka"));
+        assert_eq!(c.saved.profiles, c.gui.profiles);
+        assert_eq!(c.saved.active, 0);
+        assert!(c.nodes_dirty());
+        std::fs::remove_dir(dir.join("runtime.json")).unwrap();
+        let _ = c.save_nodes();
+        assert_eq!(runtime_index(&dir), 1);
+        assert!(!c.nodes_dirty());
+        assert_eq!(c.notice().0, Notice::None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn invalid_text_is_unsaved_until_reverted() {
+        let (dir, mut c, _) = a_b("save-invalid-text");
+        let before = disk(&dir);
+        for (field, text) in [(DraftField::Port, "70000"), (DraftField::Server, "")] {
+            let _ = c.edit_node(field, text);
+            assert_eq!(c.gui.profiles, c.saved.profiles, "the text is not applied");
+            assert!(c.nodes().dirty);
+            assert_eq!(c.request_leave(Leave::Quit).1, None, "closing asks first");
+            let _ = c.answer_prompt(Answer::Cancel);
+            // Save refuses and shows the field errors.
+            let _ = c.save_nodes();
+            assert_eq!(c.notice().0, Notice::SaveInvalid);
+            assert!(!c.nodes().errors.is_empty());
+            assert_eq!(disk(&dir), before);
+            // Revert drops the text.
+            assert!(c.revert_nodes().editor);
+            assert!(c.nodes().errors.is_empty());
+            assert!(!c.nodes().dirty);
+        }
+        assert_eq!(c.nodes().draft.port, "443");
+        assert_eq!(c.nodes().draft.server, "a.example.com");
+        // Switching nodes drops invalid text of the node left behind.
+        let _ = c.edit_node(DraftField::Port, "70000");
+        let _ = c.select_node(1);
+        assert!(!c.nodes().dirty);
+        let _ = c.select_node(0);
+        assert_eq!(c.nodes().draft.port, "443");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn revert_and_dont_save_select_the_saved_active_node() {
+        for discard in [false, true] {
+            let (dir, mut c, _) = a_b(&format!("save-revert-select-{discard}"));
+            let _ = c.select_node(1);
+            let _ = c.edit_node(DraftField::Name, "B2");
+            let changes = if discard {
+                let _ = c.request_leave(Leave::Hide);
+                c.answer_prompt(Answer::Discard).0
+            } else {
+                c.revert_nodes()
+            };
+            assert!(changes.editor, "the draft serial is bumped");
+            assert_eq!(c.nodes().selected, 0);
+            assert_eq!(c.nodes().draft.name, "A");
+            assert!(c.nodes().errors.is_empty());
+            assert!(!c.nodes_dirty());
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 
     #[test]
@@ -454,13 +572,13 @@ mod tests {
         assert!(!c.toggle_connection(now).editor);
         fake.0.borrow_mut().traffic = Some((1, 2));
         assert!(!c.poll_core().editor);
-        assert!(!c.save_nodes(now).editor);
+        assert!(!c.save_nodes().editor);
         // Revert, Don't Save and a node switch do.
         let _ = c.edit_node(DraftField::Name, "東京 03");
         assert!(c.revert_nodes().editor);
         let _ = c.edit_node(DraftField::Name, "東京 04");
         let _ = c.request_leave(Leave::Hide);
-        assert!(c.answer_prompt(Answer::Discard, now).0.editor);
+        assert!(c.answer_prompt(Answer::Discard).0.editor);
         let _ = c.add_node("Node 2".into());
         assert!(c.select_node(0).editor);
         let _ = std::fs::remove_dir_all(&dir);
@@ -477,7 +595,7 @@ mod tests {
             !c.nodes().reconnect_required,
             "unsaved edits are not applied"
         );
-        let _ = c.save_nodes(now);
+        let _ = c.save_nodes();
         assert!(c.nodes().reconnect_required);
         let _ = c.toggle_connection(now);
         let _ = c.toggle_connection(now);

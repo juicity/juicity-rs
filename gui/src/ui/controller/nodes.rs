@@ -1,7 +1,8 @@
 //! Nodes page: list operations, the editor draft and the 進階設定 sheet.
 //!
 //! `NodesState::selected` is the node shown in the editor (UI only);
-//! `runtime.selected_profile` is the active node the core runs.
+//! `runtime.selected_profile` is the working active node the core runs;
+//! `saved.active` is the one on disk.
 
 use super::{Changes, Controller, Notice};
 use crate::config::{normalize_congestion_control, ProxyProfile, ProxyProtocol};
@@ -184,6 +185,27 @@ impl DraftData {
         errors
     }
 
+    /// The text of a field that can hold invalid input.
+    fn checked_text(&self, field: DraftField) -> &str {
+        match field {
+            DraftField::Server => &self.server,
+            DraftField::Port => &self.port,
+            DraftField::Uuid => &self.uuid,
+            DraftField::Password => &self.password,
+            DraftField::Timeout => &self.timeout,
+            // `errors` reports no other field.
+            _ => "",
+        }
+    }
+
+    /// Invalid text that `apply_to` kept out of `profile`.
+    fn unapplied(&self, profile: &ProxyProfile) -> bool {
+        let stored = Self::from_profile(profile);
+        self.errors()
+            .iter()
+            .any(|(field, _)| self.checked_text(*field) != stored.checked_text(*field))
+    }
+
     /// Write every changed, valid field into `profile`; invalid or emptied
     /// mandatory fields keep the profile's last valid value.
     fn apply_to(&self, profile: &mut ProxyProfile) {
@@ -261,7 +283,7 @@ pub struct NodesSnapshot {
 }
 
 pub(super) struct NodesState {
-    selected: usize,
+    pub(super) selected: usize,
     pub(super) draft: DraftData,
     pub(super) errors: Vec<(DraftField, DraftError)>,
     pub(super) advanced: Option<DraftData>,
@@ -317,11 +339,11 @@ impl Controller {
             selected: state.selected,
             draft: state.draft.clone(),
             errors,
-            // Unsaved edits are not applied; compare the saved active node.
+            // Unsaved edits are not applied; compare the saved version of
+            // the active node (its index may not be saved yet).
             reconnect_required: self.connected
                 && state.selected == active
-                && state.started_with.as_ref()
-                    != self.saved.profiles.profiles.get(self.saved.active),
+                && state.started_with.as_ref() != self.saved.profiles.profiles.get(active),
             advanced: state.advanced.clone(),
             dirty: self.nodes_dirty(),
             prompt: self.prompt_open(),
@@ -348,10 +370,20 @@ impl Controller {
         Changes::EDITOR
     }
 
+    /// The editor shows invalid text that is not in the working list.
+    pub(super) fn draft_unapplied(&self) -> bool {
+        self.gui
+            .profiles
+            .profiles
+            .get(self.nodes.selected)
+            .is_some_and(|profile| self.nodes.draft.unapplied(profile))
+    }
+
     pub fn select_node(&mut self, index: usize) -> Changes {
         if index == self.nodes.selected || index >= self.gui.profiles.profiles.len() {
             return Changes::NONE;
         }
+        // Deliberate simplification: invalid text of the node left behind is dropped.
         self.nodes.selected = index;
         self.load_selected()
     }
@@ -479,7 +511,8 @@ impl Controller {
         if !missing.is_empty() {
             return self.set_notice(Notice::MissingFields(missing));
         }
-        let mut changes = Changes::OVERVIEW | Changes::NODES | self.set_working_active(index, now);
+        self.set_working_active(index);
+        let mut changes = Changes::OVERVIEW | Changes::NODES;
         if self.connected {
             changes |= self.start_active(now);
         }
@@ -673,14 +706,18 @@ mod tests {
         let now = Instant::now();
         let before = std::fs::read_to_string(dir.join("profiles.json")).unwrap();
         let _ = c.edit_node(DraftField::Port, "70000");
-        assert!(!c.nodes().dirty, "invalid text changes nothing");
+        assert_eq!(
+            c.gui.profiles, c.saved.profiles,
+            "invalid text is not applied"
+        );
+        assert!(c.nodes().dirty, "but it is unsaved");
         assert_eq!(c.nodes().errors, [(DraftField::Port, DraftError::Port)]);
         assert_eq!(c.gui.profiles.profiles[0].server_port, 443);
         // A valid edit of another field is applied; the port keeps 443.
         let _ = c.edit_node(DraftField::Name, "東京 01");
         assert!(c.nodes().dirty);
         // Save refuses while the editor shows the invalid port.
-        let _ = c.save_nodes(now);
+        let _ = c.save_nodes();
         assert_eq!(c.notice().0, Notice::SaveInvalid);
         let read = || std::fs::read_to_string(dir.join("profiles.json")).unwrap();
         assert_eq!(read(), before);
@@ -690,7 +727,7 @@ mod tests {
         assert_eq!(c.nodes().draft.port, "443");
         assert!(c.nodes().errors.is_empty());
         let _ = c.node_command(1, ListCommand::Delete, now);
-        let _ = c.save_nodes(now);
+        let _ = c.save_nodes();
         let saved = read();
         assert!(saved.contains("東京 01") && saved.contains("\"server_port\": 443"));
         let _ = c.edit_node(DraftField::Port, "0");
@@ -749,7 +786,7 @@ mod tests {
         // the editor asks for a reconnect.
         let _ = c.edit_node(DraftField::Server, "kix.example.com");
         assert!(!c.nodes().reconnect_required);
-        let _ = c.save_nodes(now);
+        let _ = c.save_nodes();
         assert!(c.nodes().reconnect_required);
         assert_eq!(fake.0.borrow().started.len(), 2);
         let _ = c.select_node(0);
@@ -859,9 +896,8 @@ mod tests {
     fn emptied_required_fields_keep_the_stored_value() {
         let dir = temp_dir("nodes-required");
         let (mut c, fake) = controller(&dir);
-        let now = Instant::now();
         let _ = c.edit_node(DraftField::Server, "");
-        assert!(!c.nodes().dirty);
+        assert_eq!(c.gui.profiles, c.saved.profiles);
         assert_eq!(
             c.nodes().errors,
             [(DraftField::Server, DraftError::Required)]
@@ -876,7 +912,7 @@ mod tests {
         // A new node with empty fields cannot be saved.
         let before = std::fs::read_to_string(dir.join("profiles.json")).unwrap();
         let _ = c.add_node("Node 2".into());
-        let _ = c.save_nodes(now);
+        let _ = c.save_nodes();
         assert!(c.notice().0.is_error());
         let saved = std::fs::read_to_string(dir.join("profiles.json")).unwrap();
         assert_eq!(saved, before);

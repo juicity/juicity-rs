@@ -65,7 +65,8 @@ impl Controller {
         if self.gui.runtime.selected_profile == index {
             return Changes::NONE;
         }
-        let mut changes = Changes::OVERVIEW | Changes::NODES | self.set_working_active(index, now);
+        self.set_working_active(index);
+        let mut changes = Changes::OVERVIEW | Changes::NODES;
         if self.connected {
             changes |= self.start_active(now);
         }
