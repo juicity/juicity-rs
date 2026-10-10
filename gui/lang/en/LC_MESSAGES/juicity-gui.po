@@ -184,8 +184,8 @@ msgid "Nodes…"
 msgstr "Nodes…"
 
 #: gui/ui/state.slint:206
-msgid "View Logs…"
-msgstr "View Logs…"
+msgid "Logs…"
+msgstr "Logs…"
 
 #: gui/ui/state.slint:207
 msgid "Settings…"

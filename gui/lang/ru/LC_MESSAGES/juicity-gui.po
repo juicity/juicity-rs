@@ -136,7 +136,7 @@ msgstr "Открыть juicity"
 msgid "Nodes…"
 msgstr "Узлы…"
 
-msgid "View Logs…"
+msgid "Logs…"
 msgstr "Журнал…"
 
 msgid "Settings…"
