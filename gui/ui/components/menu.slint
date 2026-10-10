@@ -14,8 +14,13 @@ export component PopupMenu inherits Rectangle {
         width: root.menu-width;
         height: min(352px, root.items.length * 44px + 16px);
         Rectangle {
-            background: Theme.card;
+            background: Theme.popover;
             border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.popover-border;
+            drop-shadow-blur: 24px;
+            drop-shadow-offset-y: 8px;
+            drop-shadow-color: Theme.popover-shadow;
             ScrollArea {
                 x: 8px;
                 y: 8px;
