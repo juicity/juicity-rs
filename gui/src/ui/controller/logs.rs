@@ -74,10 +74,10 @@ pub struct TrafficView {
 }
 
 /// Monotone cubic interpolation (Fritsch–Butland) through evenly spaced
-/// values starting at slot `first`. Each tangent is the harmonic mean of the
+/// values, one per slot from slot 0. Each tangent is the harmonic mean of the
 /// neighbouring slopes, or 0 at a local extreme, which keeps every control
 /// point between the two samples it joins: the curve never overshoots.
-fn monotone_segments(first: usize, values: &[f64]) -> Vec<Segment> {
+fn monotone_segments(values: &[f64]) -> Vec<Segment> {
     let slopes: Vec<f64> = values.windows(2).map(|pair| pair[1] - pair[0]).collect();
     let tangent = |index: usize| -> f64 {
         match (index.checked_sub(1).map(|i| slopes[i]), slopes.get(index)) {
@@ -91,7 +91,7 @@ fn monotone_segments(first: usize, values: &[f64]) -> Vec<Segment> {
     };
     (0..slopes.len())
         .map(|index| {
-            let x = (first + index) as f64;
+            let x = index as f64;
             let (start, end) = (values[index], values[index + 1]);
             [
                 (x, start),
@@ -104,20 +104,28 @@ fn monotone_segments(first: usize, values: &[f64]) -> Vec<Segment> {
 }
 
 /// Download and upload curves: right-aligned in `HISTORY` slots, both scaled
-/// to the larger peak but never below 1 KiB/s.
+/// to the larger peak but never below 1 KiB/s. Slots before the first sample
+/// count as 0, so the curves rise from the baseline at the left edge; with
+/// fewer than two samples there is no curve.
 fn chart_curves(snapshot: &TrafficSnapshot) -> (Vec<Segment>, Vec<Segment>) {
     let scale = snapshot.peak_down.max(snapshot.peak_up).max(SCALE_FLOOR);
     let samples = &snapshot.samples[snapshot.samples.len().saturating_sub(traffic::HISTORY)..];
-    let first = traffic::HISTORY - samples.len();
+    if samples.len() < 2 {
+        return (Vec::new(), Vec::new());
+    }
+    let padding = traffic::HISTORY - samples.len();
     let series = |pick: fn(&traffic::Speed) -> f64| -> Vec<f64> {
-        samples
-            .iter()
-            .map(|sample| (pick(sample) / scale).clamp(0.0, 1.0))
+        std::iter::repeat_n(0.0, padding)
+            .chain(
+                samples
+                    .iter()
+                    .map(|sample| (pick(sample) / scale).clamp(0.0, 1.0)),
+            )
             .collect()
     };
     (
-        monotone_segments(first, &series(|s| s.down)),
-        monotone_segments(first, &series(|s| s.up)),
+        monotone_segments(&series(|s| s.down)),
+        monotone_segments(&series(|s| s.up)),
     )
 }
 
@@ -331,16 +339,33 @@ mod tests {
     }
 
     #[test]
-    fn chart_curves_are_right_aligned_with_a_1_kib_floor() {
+    fn chart_curves_pad_missing_slots_with_zeros() {
         let (down, up) = chart_curves(&speeds(&[(512.0, 0.0), (256.0, 1024.0)]));
         let last = (traffic::HISTORY - 1) as f64;
-        assert_eq!(down.len(), 1);
-        assert_eq!((down[0][0], down[0][3]), ((last - 1.0, 0.5), (last, 0.25)));
-        assert_eq!((up[0][0], up[0][3]), ((last - 1.0, 0.0), (last, 1.0)));
+        // The curves span every slot and start on the baseline at the left edge.
+        assert_eq!(
+            (down.len(), up.len()),
+            (traffic::HISTORY - 1, traffic::HISTORY - 1)
+        );
+        assert_eq!((down[0][0], up[0][0]), ((0.0, 0.0), (0.0, 0.0)));
+        // The padded slots stay on the baseline up to the first sample.
+        for [start, c1, c2, end] in &down[..down.len() - 2] {
+            assert_eq!([start.1, c1.1, c2.1, end.1], [0.0; 4]);
+        }
+        // The samples stay right-aligned, and the rise to the first one is smooth.
+        let rise = down[down.len() - 2];
+        assert_eq!((rise[0], rise[3]), ((last - 2.0, 0.0), (last - 1.0, 0.5)));
+        assert_eq!(rise[1].1, 0.0);
+        assert_monotone(&down);
+        assert_monotone(&up);
+        let (down, up) = (down.last().unwrap(), up.last().unwrap());
+        assert_eq!((down[0], down[3]), ((last - 1.0, 0.5), (last, 0.25)));
+        assert_eq!((up[0], up[3]), ((last - 1.0, 0.0), (last, 1.0)));
         // Above the floor, the larger peak of either direction is the scale.
         let (down, up) = chart_curves(&speeds(&[(8192.0, 2048.0), (4096.0, 0.0)]));
-        assert_eq!((down[0][0].1, down[0][3].1), (1.0, 0.5));
-        assert_eq!(up[0][0].1, 0.25);
+        let (down, up) = (down.last().unwrap(), up.last().unwrap());
+        assert_eq!((down[0].1, down[3].1), (1.0, 0.5));
+        assert_eq!(up[0].1, 0.25);
         // A full history spans every slot from 0.
         let full = vec![(10.0, 10.0); traffic::HISTORY + 5];
         let (down, _) = chart_curves(&speeds(&full));
@@ -373,21 +398,17 @@ mod tests {
         let view = traffic_view(&speeds(&[(0.0, 1024.0), (1024.0, 1024.0)]));
         let (a, b) = (traffic::HISTORY - 2, traffic::HISTORY - 1);
         // The viewbox y grows downwards: full scale is 0, the baseline 1.
-        assert_eq!(
-            view.chart.down_line,
-            format!("M {a}.000 1.0000 C {a}.333 0.6667 {a}.667 0.3333 {b}.000 0.0000")
-        );
-        assert_eq!(
-            view.chart.down_area,
-            format!(
-                "{} L {b}.000 1.0000 L {a}.000 1.0000 Z",
-                view.chart.down_line
-            )
-        );
+        assert!(view.chart.down_line.starts_with("M 0.000 1.0000 C"));
         assert!(view
             .chart
-            .up_line
-            .starts_with(&format!("M {a}.000 0.0000 C")));
+            .down_line
+            .ends_with(&format!(" C {a}.333 1.0000 {a}.667 0.3333 {b}.000 0.0000")));
+        assert_eq!(
+            view.chart.down_area,
+            format!("{} L {b}.000 1.0000 L 0.000 1.0000 Z", view.chart.down_line)
+        );
+        assert!(view.chart.up_line.starts_with("M 0.000 1.0000 C"));
+        assert!(view.chart.up_line.ends_with(&format!(" {b}.000 0.0000")));
     }
 
     #[test]

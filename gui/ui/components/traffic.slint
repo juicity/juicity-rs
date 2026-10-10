@@ -1,22 +1,30 @@
-import { Theme } from "../theme.slint";
+import { Theme, Icons } from "../theme.slint";
 import { TrafficStore } from "../state.slint";
-import { Caption } from "primitives.slint";
+import { Caption, Icon } from "primitives.slint";
 
-component Stat inherits VerticalLayout {
+// A speed or total behind its direction arrow; the label names it for
+// assistive technology only.
+component Reading inherits HorizontalLayout {
+    in property <image> icon;
+    in property <color> tint;
     in property <string> label;
     in property <string> value;
-    in property <color> marker;
-    spacing: 2px;
-    horizontal-stretch: 1;
-    min-width: 0px;
-    preferred-width: 0px;
-    HorizontalLayout {
-        spacing: 6px;
-        alignment: start;
-        VerticalLayout { alignment: center; Rectangle { width: 8px; height: 8px; border-radius: 4px; background: root.marker; } }
-        Caption { text: root.label; overflow: elide; }
+    in property <length> icon-size;
+    in property <length> font-size;
+    in property <int> font-weight;
+    in property <color> color;
+    spacing: 4px;
+    VerticalLayout { alignment: center; Icon { source: root.icon; size: root.icon-size; colorize: root.tint; } }
+    Text {
+        text: root.value;
+        accessible-label: root.label;
+        accessible-value: root.value;
+        font-family: Theme.latin;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        color: root.color;
+        vertical-alignment: center;
     }
-    Text { text: root.value; font-family: Theme.latin; font-size: 17px; font-weight: 500; color: Theme.text; height: 22px; vertical-alignment: center; overflow: elide; }
 }
 
 // Download and upload speed curves rising from a shared baseline; the path
@@ -37,8 +45,8 @@ component ChartCurve inherits Path {
 }
 
 component TrafficChart inherits Rectangle {
-    // Fills the row below the title, so the card ends where the others do.
-    height: 68px;
+    // Fills the row below the header, so the card ends where the others do.
+    height: 64px;
     private property <length> mid: self.height / 2;
     for offset in [0, 0.5, 1, 1.5]: Rectangle { y: root.mid * offset; height: 1px; background: Theme.divider; }
     Rectangle { y: root.height - 1px; height: 1px; background: Theme.divider; }
@@ -59,29 +67,22 @@ component TrafficChart inherits Rectangle {
     }
 }
 
-// The card title, then the four speeds and totals in one row beside the
-// speed history chart; one stat row keeps the whole Overview within the
-// default window.
+// The card title with the speeds and session totals on the right, then the
+// speed history chart across the full card width; the two rows keep the
+// whole Overview within the default window.
 export component TrafficPanel inherits VerticalLayout {
-    Caption { text: @tr("Traffic"); }
-    Rectangle { height: 4px; }
     HorizontalLayout {
-        spacing: 24px;
-        VerticalLayout {
-            alignment: center;
-            horizontal-stretch: 0;
-            width: 400px;
-            HorizontalLayout {
-                spacing: 16px;
-                Stat { label: @tr("Download"); value: TrafficStore.down-speed; marker: Theme.text; }
-                Stat { label: @tr("Upload"); value: TrafficStore.up-speed; marker: Theme.secondary; }
-                Stat { label: @tr("Downloaded"); value: TrafficStore.down-total; marker: Theme.text; }
-                Stat { label: @tr("Uploaded"); value: TrafficStore.up-total; marker: Theme.secondary; }
-            }
-        }
-        TrafficChart {
-            horizontal-stretch: 1;
-            min-width: 0px;
+        height: 20px;
+        spacing: 16px;
+        VerticalLayout { alignment: center; horizontal-stretch: 1; min-width: 0px; Caption { text: @tr("Traffic"); overflow: elide; } }
+        Reading { icon: Icons.arrow-down; tint: Theme.text; label: @tr("Download"); value: TrafficStore.down-speed; icon-size: 16px; font-size: 15px; font-weight: 500; color: Theme.text; }
+        Reading { icon: Icons.arrow-up; tint: Theme.secondary; label: @tr("Upload"); value: TrafficStore.up-speed; icon-size: 16px; font-size: 15px; font-weight: 500; color: Theme.text; }
+        HorizontalLayout {
+            spacing: 8px;
+            Reading { icon: Icons.arrow-down; tint: Theme.text; label: @tr("Downloaded"); value: TrafficStore.down-total; icon-size: 12px; font-size: 12px; font-weight: 400; color: Theme.secondary; }
+            Reading { icon: Icons.arrow-up; tint: Theme.secondary; label: @tr("Uploaded"); value: TrafficStore.up-total; icon-size: 12px; font-size: 12px; font-weight: 400; color: Theme.secondary; }
         }
     }
+    Rectangle { height: 4px; }
+    TrafficChart { }
 }

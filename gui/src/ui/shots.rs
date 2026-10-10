@@ -130,7 +130,7 @@ fn logs_fixture(window: &MainWindow) {
         line("00:06:51", Level::WARN, "juicity_gui::pac", "online PAC file unreachable, serving the local rules"),
         line("00:07:03", Level::INFO, "juicity_client::relay", "tcp 127.0.0.1:52240 -> www.example.org:443 opened"),
     ];
-    let samples: Vec<Speed> = (0..44u32)
+    let samples: Vec<Speed> = (0..crate::traffic::HISTORY as u32)
         .map(|i| Speed {
             // A smooth, plausible session: browsing bursts on a steady base.
             down: 380_000.0
