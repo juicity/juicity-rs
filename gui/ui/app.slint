@@ -1,4 +1,4 @@
-import { Theme } from "theme.slint";
+import { Theme, Icons } from "theme.slint";
 import { Sidebar } from "components/nav.slint";
 import { OverviewPage } from "pages/overview.slint";
 import { NodesPage } from "pages/nodes.slint";
@@ -14,6 +14,8 @@ import { ScrollArea } from "components/scroll.slint";
 
 export component MainWindow inherits Window {
     title: "juicity";
+    // Window and taskbar icon on Windows and X11; Wayland uses the app id.
+    icon: Icons.logo;
     min-width: 960px;
     min-height: 640px;
     preferred-width: 960px;

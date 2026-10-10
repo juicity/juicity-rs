@@ -67,8 +67,9 @@ with `include_bytes!`:
 - 16/32/48 px are additionally converted to raw ARGB for the Linux
   StatusNotifierItem tray icon
 - `icon.ico` is assembled from the 16–256 px bitmaps and, on Windows, compiled
-  into the executable's resources as `IDI_ICON1` (resource id 1) — Windows takes
-  the window and taskbar icon from there
+  into the executable's resources as `IDI_ICON1` (resource id 1), which
+  Explorer shows for the executable; the window and taskbar icon is the same
+  SVG, set through `Window.icon` in `ui/app.slint`
 - `gui/macos/bundle.sh` builds `icon.icns` from the generated PNGs, so no SVG
   converter has to be installed to produce a bundled app
 
