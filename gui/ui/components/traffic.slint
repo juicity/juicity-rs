@@ -6,7 +6,7 @@ component Stat inherits VerticalLayout {
     in property <string> label;
     in property <string> value;
     in property <color> marker;
-    spacing: 4px;
+    spacing: 2px;
     horizontal-stretch: 1;
     min-width: 0px;
     preferred-width: 0px;
@@ -21,7 +21,7 @@ component Stat inherits VerticalLayout {
 
 // Download bars above the centre line, upload bars below it (as upstream).
 component TrafficChart inherits Rectangle {
-    height: 130px;
+    height: 64px;
     private property <length> mid: self.height / 2;
     private property <length> slot: self.width / max(1, TrafficStore.slots);
     for offset in [0, 0.5, 1, 1.5]: Rectangle { y: root.mid * offset; height: 1px; background: Theme.divider; }
@@ -51,15 +51,29 @@ component TrafficChart inherits Rectangle {
     }
 }
 
-// Speeds, totals and the speed history chart.
-export component TrafficPanel inherits VerticalLayout {
-    spacing: 16px;
-    HorizontalLayout {
-        spacing: 16px;
-        Stat { label: @tr("Download"); value: TrafficStore.down-speed; marker: Theme.text; }
-        Stat { label: @tr("Upload"); value: TrafficStore.up-speed; marker: Theme.secondary; }
-        Stat { label: @tr("Downloaded"); value: TrafficStore.down-total; marker: Theme.text; }
-        Stat { label: @tr("Uploaded"); value: TrafficStore.up-total; marker: Theme.secondary; }
+// Speeds and totals as a 2x2 grid beside the titled speed history chart,
+// short enough for the whole Overview to fit the default window.
+export component TrafficPanel inherits HorizontalLayout {
+    spacing: 24px;
+    GridLayout {
+        horizontal-stretch: 0;
+        width: 300px;
+        spacing-horizontal: 16px;
+        spacing-vertical: 8px;
+        Row {
+            Stat { label: @tr("Download"); value: TrafficStore.down-speed; marker: Theme.text; }
+            Stat { label: @tr("Upload"); value: TrafficStore.up-speed; marker: Theme.secondary; }
+        }
+        Row {
+            Stat { label: @tr("Downloaded"); value: TrafficStore.down-total; marker: Theme.text; }
+            Stat { label: @tr("Uploaded"); value: TrafficStore.up-total; marker: Theme.secondary; }
+        }
     }
-    TrafficChart { }
+    VerticalLayout {
+        horizontal-stretch: 1;
+        min-width: 0px;
+        spacing: 8px;
+        Caption { text: @tr("Traffic"); }
+        TrafficChart { }
+    }
 }
