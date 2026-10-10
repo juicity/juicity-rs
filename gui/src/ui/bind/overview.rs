@@ -125,3 +125,70 @@ fn field_list(ui: &MainWindow, fields: &[RequiredField]) -> String {
         .collect();
     names.join(text.get_separator().as_str())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::Page;
+    use i_slint_backend_testing::{AccessibleRole, ElementHandle};
+    use std::{cell::RefCell, rc::Rc, time::Duration};
+
+    fn segment(ui: &MainWindow, label: &str) -> ElementHandle {
+        ElementHandle::find_by_accessible_label(ui, label)
+            .find(|element| element.accessible_role() == Some(AccessibleRole::Tab))
+            .unwrap_or_else(|| panic!("no segment labelled {label}"))
+    }
+
+    fn click(ui: &MainWindow, element: &ElementHandle) {
+        use slint::platform::{PointerEventButton, WindowEvent};
+        let (at, size) = (element.absolute_position(), element.size());
+        let position =
+            slint::LogicalPosition::new(at.x + size.width / 2.0, at.y + size.height / 2.0);
+        let button = PointerEventButton::Left;
+        ui.window()
+            .dispatch_event(WindowEvent::PointerMoved { position });
+        ui.window()
+            .dispatch_event(WindowEvent::PointerPressed { position, button });
+        ui.window()
+            .dispatch_event(WindowEvent::PointerReleased { position, button });
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+    }
+
+    #[test]
+    fn segments_call_the_mode_and_rule_actions() {
+        i_slint_backend_testing::init_no_event_loop();
+        let ui = MainWindow::new().unwrap();
+        ui.global::<AppState>().set_page(Page::Overview);
+        ui.window().set_size(slint::LogicalSize::new(960.0, 640.0));
+        ui.show().unwrap();
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+
+        let modes = Rc::new(RefCell::new(Vec::new()));
+        let rules = Rc::new(RefCell::new(Vec::new()));
+        let actions = ui.global::<Actions>();
+        actions.on_set_proxy_mode({
+            let modes = modes.clone();
+            move |mode| modes.borrow_mut().push(mode)
+        });
+        actions.on_set_pac_rule({
+            let rules = rules.clone();
+            move |rule| rules.borrow_mut().push(rule)
+        });
+
+        click(&ui, &segment(&ui, "Global"));
+        click(&ui, &segment(&ui, "PAC"));
+        click(&ui, &segment(&ui, "Off"));
+        assert_eq!(
+            *modes.borrow(),
+            [ProxyMode::Global, ProxyMode::Pac, ProxyMode::Off]
+        );
+        click(&ui, &segment(&ui, "Proxy GFW list only"));
+        click(&ui, &segment(&ui, "Bypass mainland China"));
+        assert_eq!(*rules.borrow(), [PacRule::GfwList, PacRule::BypassChina]);
+
+        // The selection follows the state, not the click.
+        ui.global::<AppState>().set_proxy_mode(ProxyMode::Global);
+        assert_eq!(segment(&ui, "Global").accessible_checked(), Some(true));
+        assert_eq!(segment(&ui, "Off").accessible_checked(), Some(false));
+    }
+}

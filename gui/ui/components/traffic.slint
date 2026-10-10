@@ -45,8 +45,9 @@ component ChartCurve inherits Path {
 }
 
 component TrafficChart inherits Rectangle {
-    // Fills the row below the header, so the card ends where the others do.
-    height: 64px;
+    // Takes the card's height below the header, down to the page bottom.
+    min-height: 64px;
+    vertical-stretch: 1;
     private property <length> mid: self.height / 2;
     for offset in [0, 0.5, 1, 1.5]: Rectangle { y: root.mid * offset; height: 1px; background: Theme.divider; }
     Rectangle { y: root.height - 1px; height: 1px; background: Theme.divider; }
@@ -68,8 +69,8 @@ component TrafficChart inherits Rectangle {
 }
 
 // The card title with the speeds and session totals on the right, then the
-// speed history chart across the full card width; the two rows keep the
-// whole Overview within the default window.
+// speed history chart across the full card width; the chart grows to fill
+// the rest of the Overview.
 export component TrafficPanel inherits VerticalLayout {
     HorizontalLayout {
         height: 20px;

@@ -338,6 +338,80 @@ export component OptionDivider inherits HorizontalLayout {
     HDivider { }
 }
 
+export struct Segment {
+    icon: image,
+    text: string,
+}
+
+// One choice out of a few equal-width segments on a track; the selected
+// segment is raised. Left and Right move the selection while focused.
+export component SegmentedControl inherits Rectangle {
+    in property <[Segment]> items;
+    in property <int> selected;
+    callback activated(int);
+    private property <length> inset: 2px;
+    private property <length> segment-width: (self.width - 2 * self.inset) / max(1, self.items.length);
+    forward-focus: focus;
+    height: 36px;
+    border-radius: 8px;
+    background: Theme.pill;
+    accessible-role: tab-list;
+    for item[index] in root.items: Rectangle {
+        x: root.inset + index * root.segment-width;
+        y: root.inset;
+        width: root.segment-width;
+        height: root.height - 2 * root.inset;
+        border-radius: 6px;
+        background: index == root.selected ? Theme.card : transparent;
+        accessible-role: tab;
+        accessible-label: item.text;
+        accessible-checkable: true;
+        accessible-checked: index == root.selected;
+        accessible-action-default => { root.activated(index); }
+        HorizontalLayout {
+            padding-left: 6px;
+            padding-right: 6px;
+            spacing: 6px;
+            alignment: center;
+            VerticalLayout {
+                alignment: center;
+                Icon { source: item.icon; size: 16px; colorize: index == root.selected ? Theme.text : Theme.secondary; }
+            }
+            Text {
+                text: item.text;
+                font-size: 13px;
+                font-weight: index == root.selected ? 500 : 400;
+                color: index == root.selected ? Theme.text : Theme.secondary;
+                vertical-alignment: center;
+                overflow: elide;
+                min-width: 0px;
+            }
+        }
+        TouchArea { clicked => { root.activated(index); } }
+    }
+    focus := FocusScope {
+        width: 0px;
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow {
+                if root.selected > 0 { root.activated(root.selected - 1); }
+                return accept;
+            }
+            if event.text == Key.RightArrow {
+                if root.selected < root.items.length - 1 { root.activated(root.selected + 1); }
+                return accept;
+            }
+            return reject;
+        }
+    }
+    Rectangle {
+        visible: focus.has-focus;
+        background: transparent;
+        border-width: Theme.focus-ring-width;
+        border-color: Theme.focus-ring;
+        border-radius: root.border-radius;
+    }
+}
+
 export component GroupLabel inherits Text {
     font-size: 13px;
     font-weight: 500;

@@ -137,13 +137,13 @@ msgid "Off"
 msgstr "Выкл."
 
 msgid "Global"
-msgstr "Весь трафик"
+msgstr "Все сайты"
 
 msgid "Bypass mainland China"
 msgstr "Китай напрямую"
 
 msgid "Proxy GFW list only"
-msgstr "Прокси только для списка GFW"
+msgstr "Только GFW"
 
 msgid "Update rules"
 msgstr "Обновить правила"

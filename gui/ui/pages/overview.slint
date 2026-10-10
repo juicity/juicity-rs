@@ -1,6 +1,6 @@
 import { Theme, Icons } from "../theme.slint";
 import { AppState, Connection, ProxyMode, PacRule, Notice, Actions, Fmt } from "../state.slint";
-import { Caption, Metric, Card, HDivider, Button, IconButton, Pill, SeparatedText, OptionRow, OptionDivider } from "../components/primitives.slint";
+import { Caption, Metric, Card, HDivider, Button, IconButton, Pill, SeparatedText, SegmentedControl } from "../components/primitives.slint";
 import { PageHeader } from "../components/nav.slint";
 import { Banner } from "../components/sheet.slint";
 import { ScrollArea } from "../components/scroll.slint";
@@ -42,13 +42,16 @@ export component OverviewPage inherits VerticalLayout {
             y: 0px;
             width: parent.width + 10px;
             height: parent.height;
-            content-height: cards.preferred-height;
+            content-height: cards.height;
             cards := VerticalLayout {
                 // `parent` is the scroll area; leave out its 10 px gutter.
                 width: parent.width - 10px;
+                // Fill the page so the traffic card reaches its bottom.
+                height: max(self.preferred-height, parent.height);
                 padding-bottom: 24px;
                 spacing: 16px;
                 HorizontalLayout {
+                    vertical-stretch: 0;
                     spacing: 16px;
                     Card {
                         horizontal-stretch: 1;
@@ -93,6 +96,7 @@ export component OverviewPage inherits VerticalLayout {
                     }
                 }
                 HorizontalLayout {
+                    vertical-stretch: 0;
                     spacing: 16px;
                     Card {
                         horizontal-stretch: 1;
@@ -102,12 +106,16 @@ export component OverviewPage inherits VerticalLayout {
                             padding: 20px;
                             alignment: start;
                             Caption { text: @tr("System proxy"); }
-                            Rectangle { height: 4px; }
-                            OptionRow { icon: Icons.power-off; text: @tr("Off"); selected: AppState.proxy-mode == ProxyMode.off; clicked => { Actions.set-proxy-mode(ProxyMode.off); } }
-                            OptionDivider { }
-                            OptionRow { icon: Icons.route; text: "PAC"; selected: AppState.proxy-mode == ProxyMode.pac; clicked => { Actions.set-proxy-mode(ProxyMode.pac); } }
-                            OptionDivider { }
-                            OptionRow { icon: Icons.globe; text: @tr("Global"); selected: AppState.proxy-mode == ProxyMode.global; clicked => { Actions.set-proxy-mode(ProxyMode.global); } }
+                            Rectangle { height: 12px; }
+                            SegmentedControl {
+                                items: [
+                                    { icon: Icons.power-off, text: @tr("Off") },
+                                    { icon: Icons.route, text: "PAC" },
+                                    { icon: Icons.globe, text: @tr("Global") },
+                                ];
+                                selected: AppState.proxy-mode == ProxyMode.global ? 2 : AppState.proxy-mode == ProxyMode.pac ? 1 : 0;
+                                activated(index) => { Actions.set-proxy-mode(index == 2 ? ProxyMode.global : index == 1 ? ProxyMode.pac : ProxyMode.off); }
+                            }
                         }
                     }
                     Card {
@@ -117,10 +125,15 @@ export component OverviewPage inherits VerticalLayout {
                         VerticalLayout {
                             padding: 20px;
                             Caption { text: @tr("PAC rules"); }
-                            Rectangle { height: 4px; }
-                            OptionRow { icon: Icons.map-pin; text: @tr("Bypass mainland China"); selected: AppState.pac-rule == PacRule.bypass-china; clicked => { Actions.set-pac-rule(PacRule.bypass-china); } }
-                            OptionDivider { }
-                            OptionRow { icon: Icons.shield; text: @tr("Proxy GFW list only"); selected: AppState.pac-rule == PacRule.gfw-list; clicked => { Actions.set-pac-rule(PacRule.gfw-list); } }
+                            Rectangle { height: 12px; }
+                            SegmentedControl {
+                                items: [
+                                    { icon: Icons.map-pin, text: @tr("Bypass mainland China") },
+                                    { icon: Icons.shield, text: @tr("Proxy GFW list only") },
+                                ];
+                                selected: AppState.pac-rule == PacRule.gfw-list ? 1 : 0;
+                                activated(index) => { Actions.set-pac-rule(index == 1 ? PacRule.gfw-list : PacRule.bypass-china); }
+                            }
                             Rectangle { min-height: 12px; vertical-stretch: 1; }
                             // The timestamp wraps to two lines at most beside the button.
                             HorizontalLayout {
@@ -132,9 +145,10 @@ export component OverviewPage inherits VerticalLayout {
                     }
                 }
                 Card {
+                    vertical-stretch: 1;
                     VerticalLayout {
                         padding: 20px;
-                        TrafficPanel { }
+                        TrafficPanel { vertical-stretch: 1; }
                     }
                 }
             }
