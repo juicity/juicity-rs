@@ -27,11 +27,8 @@ export component MainWindow inherits Window {
     forward-focus: keys;
     keys := FocusScope {
         capture-key-pressed(event) => {
-            // Cmd-Q quits through the unsaved-changes prompt.
-            if Platform.os == OperatingSystemType.macos && event.modifiers.control && event.text.to-lowercase() == "q" {
-                Actions.quit();
-                return accept;
-            }
+            // Cmd-Q is the accelerator of Quit in the macOS application
+            // menu (desktop/tray/native.rs), so it is not handled here.
             // Ctrl/Cmd+S saves nodes while the Nodes page has no sheet open.
             if event.modifiers.control && event.text.to-lowercase() == "s" && AppState.page == Page.nodes && !NodeStore.advanced-open && !AppState.save-prompt {
                 Actions.save-nodes();

@@ -17,6 +17,11 @@ use std::sync::Arc;
 /// Tray id and theme icon name; matches the `.desktop` file.
 pub const APP_ID: &str = "io.juicity.gui";
 
+/// The event behind Quit in the macOS application menu. It shares the tray's
+/// menu event handler, so it runs the same request as tray Quit.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub const APP_MENU_QUIT: TrayEvent = TrayEvent::Quit;
+
 /// What the tray shows, built by the controller.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TrayModel {
@@ -177,6 +182,8 @@ pub struct Tray {
     inner: linux::LinuxTray,
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     inner: Option<native::NativeTray>,
+    #[cfg(target_os = "macos")]
+    app_menu: Option<native::AppMenu>,
 }
 
 impl Tray {
@@ -189,10 +196,19 @@ impl Tray {
                 inner: linux::LinuxTray::start(menu, sink),
             }
         }
-        #[cfg(any(target_os = "windows", target_os = "macos"))]
+        #[cfg(target_os = "windows")]
         {
             Self {
                 inner: native::NativeTray::start(&menu, sink),
+            }
+        }
+        // After the tray, which sets the menu event handler both menus use.
+        #[cfg(target_os = "macos")]
+        {
+            let inner = native::NativeTray::start(&menu, sink);
+            Self {
+                inner,
+                app_menu: native::AppMenu::install(&menu.labels.quit),
             }
         }
         #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
@@ -223,6 +239,10 @@ impl Tray {
     pub fn update(&self, menu: TrayMenu) {
         #[cfg(target_os = "linux")]
         self.inner.update(menu);
+        #[cfg(target_os = "macos")]
+        if let Some(app_menu) = &self.app_menu {
+            app_menu.set_quit_label(&menu.labels.quit);
+        }
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         if let Some(inner) = &self.inner {
             inner.update(&menu);

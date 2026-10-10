@@ -82,7 +82,7 @@ fn perform(leave: Leave) {
     }
 }
 
-/// Tray Quit or Cmd-Q. With unsaved node edits the prompt asks first; a
+/// Tray Quit, or Quit (Cmd-Q) in the macOS application menu. With unsaved node edits the prompt asks first; a
 /// hidden window is shown so the prompt can be seen.
 pub(super) fn request_quit() {
     match request(Leave::Quit) {
@@ -375,7 +375,7 @@ mod tests {
     fn unsaved_nodes_prompt_before_close_and_quit() {
         use slint::CloseRequestResponse::{HideWindow, KeepWindowShown};
         i_slint_backend_testing::init_no_event_loop();
-        for trigger in ["close", "tray-quit", "cmd-q", "hide"] {
+        for trigger in ["close", "tray-quit", "app-menu-quit", "hide"] {
             for answer in [Answer::Save, Answer::Discard, Answer::Cancel] {
                 let dir = temp_dir(&format!("desktop-prompt-{trigger}-{answer:?}"));
                 let ui = MainWindow::new().unwrap();
@@ -395,7 +395,12 @@ mod tests {
                         handle(TrayEvent::Quit);
                         assert!(ui.window().is_visible());
                     }
-                    "cmd-q" => actions.invoke_quit(),
+                    // The macOS menu item (and Cmd-Q) sends this id
+                    // through the tray's menu event handler.
+                    "app-menu-quit" => {
+                        let id = crate::desktop::tray::APP_MENU_QUIT.menu_id();
+                        handle(TrayEvent::from_menu_id(&id).unwrap());
+                    }
                     _ => update(|c, _| c.request_leave(Leave::Hide).0),
                 }
                 assert!(state.get_save_prompt(), "{trigger}");

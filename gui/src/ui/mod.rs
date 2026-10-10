@@ -45,8 +45,8 @@ fn renderer_error(software: bool, err: impl Into<anyhow::Error>) -> anyhow::Erro
     }
 }
 
-pub fn run() -> anyhow::Result<()> {
-    let software = std::env::args().any(|arg| arg == "--software-render");
+#[cfg(not(target_os = "macos"))]
+fn select_backend(software: bool) -> anyhow::Result<()> {
     let backend = slint::BackendSelector::new();
     let backend = if software {
         backend
@@ -56,6 +56,73 @@ pub fn run() -> anyhow::Result<()> {
         backend
     };
     backend.select()?;
+    Ok(())
+}
+
+/// On macOS the winit backend is built here because `BackendSelector`
+/// cannot turn off Slint's default menu bar. Its Quit item sends AppKit
+/// `terminate:`, which winit cannot cancel: it would skip the save prompt
+/// and `bind::shutdown`. The tray module installs an application menu
+/// whose Quit runs the same request as tray Quit instead. A `terminate:`
+/// that remains (Dock Quit, logging out) ends the process from inside the
+/// event loop, so `run_event_loop_until_quit` never returns;
+/// [`ShutdownOnExit`] runs the shutdown there.
+#[cfg(target_os = "macos")]
+fn select_backend(software: bool) -> anyhow::Result<()> {
+    let renderer = if software {
+        Some("software".to_owned())
+    } else {
+        std::env::var("SLINT_BACKEND")
+            .ok()
+            .and_then(|value| env_renderer(&value))
+    };
+    let builder = i_slint_backend_winit::Backend::builder()
+        .with_default_menu_bar(false)
+        .with_custom_application_handler(Box::new(ShutdownOnExit));
+    let builder = match renderer {
+        Some(name) => builder.with_renderer_name(name),
+        None => builder,
+    };
+    slint::platform::set_platform(Box::new(builder.build()?))?;
+    Ok(())
+}
+
+/// The renderer named by `SLINT_BACKEND`, read as Slint's selector reads it
+/// (`winit-software`, `software`, `skia`, ...). Winit is the only backend.
+#[cfg(any(target_os = "macos", test))]
+fn env_renderer(value: &str) -> Option<String> {
+    let value = value.to_lowercase();
+    let renderer = match value.split_once('-') {
+        Some((_, renderer)) => renderer,
+        None => match value.as_str() {
+            "sw" | "software" => "software",
+            "femtovg" | "skia" | "vello" => value.as_str(),
+            _ => "",
+        },
+    };
+    (!renderer.is_empty()).then(|| renderer.to_owned())
+}
+
+/// Runs `bind::shutdown` when winit's loop exits, including through
+/// `applicationWillTerminate:`. It runs again after a normal return from the
+/// event loop and does nothing then.
+#[cfg(target_os = "macos")]
+struct ShutdownOnExit;
+
+#[cfg(target_os = "macos")]
+impl i_slint_backend_winit::CustomApplicationHandler for ShutdownOnExit {
+    fn exiting(
+        &mut self,
+        _event_loop: &i_slint_backend_winit::winit::event_loop::ActiveEventLoop,
+    ) -> i_slint_backend_winit::EventResult {
+        bind::shutdown();
+        i_slint_backend_winit::EventResult::Propagate
+    }
+}
+
+pub fn run() -> anyhow::Result<()> {
+    let software = std::env::args().any(|arg| arg == "--software-render");
+    select_backend(software)?;
     slint::set_xdg_app_id(crate::desktop::tray::APP_ID)?;
     // Before any side effect: a second launch shows the first window and exits.
     let on_activate = Box::new(|| {
@@ -88,4 +155,19 @@ pub fn run() -> anyhow::Result<()> {
     let result = slint::run_event_loop_until_quit();
     bind::shutdown();
     result.map_err(|err| renderer_error(software, err))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::env_renderer;
+
+    #[test]
+    fn env_renderer_matches_slint_backend_values() {
+        assert_eq!(env_renderer("winit-software").as_deref(), Some("software"));
+        assert_eq!(env_renderer("Winit-Skia").as_deref(), Some("skia"));
+        assert_eq!(env_renderer("sw").as_deref(), Some("software"));
+        assert_eq!(env_renderer("femtovg").as_deref(), Some("femtovg"));
+        assert_eq!(env_renderer("winit"), None);
+        assert_eq!(env_renderer(""), None);
+    }
 }

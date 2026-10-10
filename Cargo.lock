@@ -3877,6 +3877,7 @@ dependencies = [
  "directories",
  "embed-resource",
  "i-slint-backend-testing",
+ "i-slint-backend-winit",
  "image",
  "juicity-client",
  "juicity-common",

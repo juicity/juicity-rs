@@ -191,3 +191,57 @@ fn build_menu(menu: &TrayMenu) -> Menu {
     }
     root
 }
+
+/// The macOS application menu. It replaces Slint's default one, whose Quit
+/// item sends `terminate:` and so skips the save prompt and the shutdown
+/// that restores the system proxy (`ui::select_backend` turns the default
+/// off). Quit here is a plain item with the tray's Quit id and Cmd-Q, so it
+/// reaches the UI thread through the [`MenuEvent`] handler set in
+/// [`NativeTray::start`] and runs the same request as tray Quit.
+#[cfg(target_os = "macos")]
+pub struct AppMenu {
+    // Kept alive while it is the main menu.
+    _menu: Menu,
+    quit: MenuItem,
+}
+
+#[cfg(target_os = "macos")]
+impl AppMenu {
+    /// Install the menu on NSApp. Must run on the main thread.
+    pub fn install(quit_label: &str) -> Option<Self> {
+        use tray_icon::menu::accelerator::{Accelerator, Code, Modifiers};
+        let quit = MenuItem::with_id(
+            super::APP_MENU_QUIT.menu_id(),
+            escape_mnemonic(quit_label, '&'),
+            true,
+            Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyQ)),
+        );
+        // Slint's default app menu, except for Quit. macOS titles the first
+        // submenu with the app name.
+        let app = Submenu::new("App", true);
+        let menu = Menu::new();
+        let built = menu.append(&app).and_then(|_| {
+            app.append_items(&[
+                &PredefinedMenuItem::about(None, None),
+                &PredefinedMenuItem::separator(),
+                &PredefinedMenuItem::services(None),
+                &PredefinedMenuItem::separator(),
+                &PredefinedMenuItem::hide(None),
+                &PredefinedMenuItem::hide_others(None),
+                &PredefinedMenuItem::show_all(None),
+                &PredefinedMenuItem::separator(),
+                &quit,
+            ])
+        });
+        if let Err(err) = built {
+            tracing::warn!("application menu failed: {err}");
+            return None;
+        }
+        menu.init_for_nsapp();
+        Some(Self { _menu: menu, quit })
+    }
+
+    pub fn set_quit_label(&self, label: &str) {
+        self.quit.set_text(escape_mnemonic(label, '&'));
+    }
+}

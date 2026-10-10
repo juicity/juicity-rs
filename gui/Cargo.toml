@@ -40,6 +40,11 @@ windows-registry = "0.5"
 # Single instance for the Slint UI: named mutex, named pipe, foreground rights.
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Pipes", "Win32_System_RemoteDesktop", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# Builds Slint's winit backend without its default menu bar, whose Quit
+# bypasses the save prompt; same version as `slint`.
+i-slint-backend-winit = { version = "=1.18.1", default-features = false, features = ["muda"] }
+
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 tray-icon = "0.24"
 image = { version = "0.25", default-features = false, features = ["png"] }

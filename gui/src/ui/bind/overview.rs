@@ -1,6 +1,6 @@
 //! Overview callbacks and snapshot sync.
 
-use super::{desktop, logs, spawn_rules, update, update_with};
+use super::{logs, spawn_rules, update, update_with};
 use crate::config::{PacRuleMode, SystemProxyMode};
 use crate::ui::controller::{Notice as CtlNotice, OverviewSnapshot};
 use crate::ui::{Actions, AppState, Connection, FieldText, MainWindow, Notice, PacRule, ProxyMode};
@@ -56,8 +56,6 @@ pub fn wire(ui: &MainWindow) {
     });
     actions.on_copy_pac_url(|| update(|c, _| c.copy_pac_url()));
     actions.on_dismiss_notice(|| update(|c, _| c.dismiss_notice()));
-    // Cmd-Q; asks first when nodes have unsaved edits.
-    actions.on_quit(desktop::request_quit);
 }
 
 pub fn sync(ui: &MainWindow, snapshot: &OverviewSnapshot) {
