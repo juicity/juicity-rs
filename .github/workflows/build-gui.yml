@@ -105,18 +105,18 @@ jobs:
         run: tar -xzf juicity-offline-source.tar.gz
 
       # ── Install dependencies ─────────────────────────────────────────────
-      # GPUI needs libxkbcommon + libxkbcommon-x11, libwayland-client and
-      # libxcb at build time. The x11 development files live in a separate
-      # package (libxkbcommon-x11-dev) on Debian/Ubuntu. Vulkan (blade) is
-      # dlopen'd at runtime, not linked, so no vulkan dev packages are needed
-      # to build. macOS uses Metal and Windows uses native Win32/Direct3D, so
+      # GPUI needs libxkbcommon + libxkbcommon-x11, libwayland-client, libxcb
+      # and fontconfig (via zed-font-kit) at build time. The x11 development
+      # files live in a separate package (libxkbcommon-x11-dev) on
+      # Debian/Ubuntu. Vulkan (blade) is dlopen'd at runtime, not linked, so
+      # no vulkan dev packages are needed to build. macOS uses Metal and Windows uses native Win32/Direct3D, so
       # no extra packages are needed.
 
       - name: Install GPUI build deps (Linux)
         if: matrix.os == 'linux'
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev
+          sudo apt-get install -y pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev libfontconfig1-dev
 
       - name: Install Rust toolchain (Linux/macOS)
         if: matrix.os != 'windows'
