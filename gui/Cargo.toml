@@ -20,7 +20,9 @@ url.workspace = true
 base64.workspace = true
 # Encodes the share links the QR share sheet shows.
 qrcode.workspace = true
-ureq = "2.9"
+# Uses the process-wide rustls CryptoProvider (aws-lc-rs) installed at startup,
+# so the `rustls` feature (which would pull in the ring provider) is disabled.
+ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "gzip"] }
 
 slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-femtovg", "renderer-software", "compat-1-2", "accessibility", "unstable-fontique-011", "unstable-winit-030"] }
 # Clipboard and local time for the Slint UI; both are already in the lockfile via Slint.

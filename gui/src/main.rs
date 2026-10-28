@@ -35,6 +35,9 @@ fn main() -> anyhow::Result<()> {
     // Console output plus the in-memory buffer the log window reads.
     logging::init(&log_level);
 
+    // ureq (rule list downloads) relies on the process-wide rustls provider.
+    juicity_client::install_default_crypto_provider();
+
     #[cfg(target_os = "linux")]
     if let Some(address) = session_bus {
         tracing::info!("using session bus address {address}");

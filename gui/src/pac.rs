@@ -221,11 +221,11 @@ pub fn load_rules(data_dir: &Path) -> (Vec<String>, Vec<String>) {
 // ── Download helper ───────────────────────────────────────────────────────────
 
 fn download_file(url: &str, dest: &Path) -> anyhow::Result<()> {
-    let response = ureq::get(url)
+    let mut response = ureq::get(url)
         .call()
         .map_err(|e| anyhow::anyhow!("Failed to download {}: {}", url, e))?;
 
-    let mut reader = response.into_reader();
+    let mut reader = response.body_mut().as_reader();
     // Download to a temp file first, then perform atomic rename.
     // `with_extension` replaces the extension, so pass `"tmp"` (not `".tmp"`)
     // to get `china-list.tmp` rather than `china-list..tmp`.
@@ -367,7 +367,8 @@ mod tests {
         ureq::get(&format!("http://{addr}{path}"))
             .call()
             .expect("HTTP client request failed")
-            .into_string()
+            .body_mut()
+            .read_to_string()
             .expect("HTTP client could not read the body")
     }
 
