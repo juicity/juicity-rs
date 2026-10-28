@@ -51,17 +51,27 @@ pub struct BindDialer {
 #[async_trait::async_trait]
 impl Dialer for BindDialer {
     async fn dial_tcp(&self, addr: &str) -> anyhow::Result<TcpStream> {
-        // Use tokio's TcpSocket for binding
-        // Select IPv4 or IPv6 based on bind_addr address family
-        let socket = if self.bind_addr.is_ipv4() {
-            tokio::net::TcpSocket::new_v4()?
-        } else {
-            tokio::net::TcpSocket::new_v6()?
-        };
-        socket.bind(std::net::SocketAddr::new(self.bind_addr, 0))?;
-        let addr: std::net::SocketAddr = addr.parse()?;
-        let stream =
-            tokio::time::timeout(consts::DEFAULT_DIAL_TIMEOUT, socket.connect(addr)).await??;
+        let stream = tokio::time::timeout(consts::DEFAULT_DIAL_TIMEOUT, async {
+            let addresses = tokio::net::lookup_host(addr).await?;
+            let mut last_error = std::io::Error::new(
+                std::io::ErrorKind::AddrNotAvailable,
+                "no target addresses match the outbound bind address family",
+            );
+            for target in addresses.filter(|target| target.is_ipv4() == self.bind_addr.is_ipv4()) {
+                let socket = if self.bind_addr.is_ipv4() {
+                    tokio::net::TcpSocket::new_v4()?
+                } else {
+                    tokio::net::TcpSocket::new_v6()?
+                };
+                socket.bind(std::net::SocketAddr::new(self.bind_addr, 0))?;
+                match socket.connect(target).await {
+                    Ok(stream) => return Ok(stream),
+                    Err(error) => last_error = error,
+                }
+            }
+            Err(last_error)
+        })
+        .await??;
         stream.set_nodelay(true)?;
         // Enable TCP keep-alive probes.
         let sock_ref = socket2::SockRef::from(&stream);

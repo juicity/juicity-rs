@@ -33,16 +33,8 @@ struct UnderlaySession {
     relay_abort: Option<tokio::task::AbortHandle>,
 }
 
-/// Juicity proxy server
-/// Create a UDP socket with SO_REUSEPORT enabled (Unix only), optionally in
-/// dual-stack mode.
-///
-/// When `dual_stack` is true, an IPv6 socket is created with `IPV6_V6ONLY=false`
-/// so it accepts both IPv4 and IPv6 traffic on the same port.
-///
-/// On non-Unix platforms (e.g. Windows) this creates a regular socket without
-/// SO_REUSEPORT, since the option is not available.
-fn create_reuseport_socket(
+/// Create the UDP socket shared by QUIC and underlay traffic.
+fn create_server_socket(
     addr: &SocketAddr,
     dual_stack: bool,
 ) -> std::io::Result<std::net::UdpSocket> {
@@ -53,8 +45,6 @@ fn create_reuseport_socket(
         Domain::IPV4
     };
     let sock = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))?;
-    #[cfg(unix)]
-    sock.set_reuse_port(true)?;
     if dual_stack {
         sock.set_only_v6(false)?;
     }
@@ -62,6 +52,7 @@ fn create_reuseport_socket(
     Ok(std::net::UdpSocket::from(sock))
 }
 
+/// Juicity proxy server.
 pub struct JuicityServer {
     users: Arc<HashMap<Uuid, String>>,
     server_config: quinn::ServerConfig,
@@ -227,83 +218,30 @@ impl JuicityServer {
             (sa, addr.to_string(), false)
         };
 
-        // ── Socket setup ──
-        // On Unix: create N reuseport sockets (one per core) for kernel-level
-        // load distribution.  On Windows: create a single socket (SO_REUSEPORT
-        // is not available).
+        // A single endpoint owns every connection ID, including after NAT rebinding.
+        // Independent SO_REUSEPORT endpoints cannot route migrated connections.
         let runtime = quinn::default_runtime()
             .ok_or_else(|| anyhow::anyhow!("no async runtime found for quinn"))?;
-
         let (underlay_tx, underlay_rx) =
             tokio::sync::mpsc::channel(crate::underlay_socket::UNDERLAY_CHANNEL_CAPACITY);
-
-        #[cfg(unix)]
-        let (server_underlay_socket, endpoints, num_sockets) = {
-            let num_sockets = std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(4);
-            let mut first_sidecar: Option<Arc<tokio::net::UdpSocket>> = None;
-            let mut endpoints: Vec<quinn::Endpoint> = Vec::with_capacity(num_sockets);
-
-            for i in 0..num_sockets {
-                let socket = create_reuseport_socket(&socket_addr, dual_stack)?;
-                socket.set_nonblocking(true)?;
-                let sidecar = socket.try_clone()?;
-                sidecar.set_nonblocking(true)?;
-
-                if i == 0 {
-                    first_sidecar = Some(Arc::new(tokio::net::UdpSocket::from_std(sidecar)?));
-                }
-
-                let wrapped = runtime.wrap_udp_socket(socket)?;
-                let demux = Arc::new(crate::underlay_socket::DemuxUdpSocket::new(
-                    wrapped,
-                    underlay_tx.clone(),
-                ));
-                let endpoint = Endpoint::new_with_abstract_socket(
-                    EndpointConfig::default(),
-                    Some(self.server_config.clone()),
-                    demux,
-                    runtime.clone(),
-                )?;
-                endpoints.push(endpoint);
-            }
-
-            let server_underlay_socket =
-                first_sidecar.ok_or_else(|| anyhow::anyhow!("no sockets created"))?;
-            (server_underlay_socket, endpoints, num_sockets)
-        };
-
-        #[cfg(not(unix))]
-        let (server_underlay_socket, endpoints) = {
-            let socket = create_reuseport_socket(&socket_addr, dual_stack)?;
-            socket.set_nonblocking(true)?;
-            let sidecar = socket.try_clone()?;
-            sidecar.set_nonblocking(true)?;
-            let server_underlay_socket = Arc::new(tokio::net::UdpSocket::from_std(sidecar)?);
-
-            let wrapped = runtime.wrap_udp_socket(socket)?;
-            let demux = Arc::new(crate::underlay_socket::DemuxUdpSocket::new(
-                wrapped,
-                underlay_tx.clone(),
-            ));
-            let endpoint = Endpoint::new_with_abstract_socket(
-                EndpointConfig::default(),
-                Some(self.server_config.clone()),
-                demux,
-                runtime.clone(),
-            )?;
-            (server_underlay_socket, vec![endpoint])
-        };
-
-        #[cfg(unix)]
-        tracing::info!(
-            "Juicity server listening on {} ({} reuseport sockets)",
-            log_addr,
-            num_sockets,
-        );
-        #[cfg(not(unix))]
-        tracing::info!("Juicity server listening on {} (single socket)", log_addr,);
+        let socket = create_server_socket(&socket_addr, dual_stack)?;
+        socket.set_nonblocking(true)?;
+        let server_underlay_socket =
+            Arc::new(tokio::net::UdpSocket::from_std(socket.try_clone()?)?);
+        let demux = Arc::new(crate::underlay_socket::DemuxUdpSocket::new(
+            runtime.wrap_udp_socket(socket)?,
+            underlay_tx,
+        ));
+        // The demultiplexer reserves packets with a clear QUIC fixed bit for underlay.
+        let mut endpoint_config = EndpointConfig::default();
+        endpoint_config.grease_quic_bit(false);
+        let endpoint = Endpoint::new_with_abstract_socket(
+            endpoint_config,
+            Some(self.server_config.clone()),
+            demux,
+            runtime,
+        )?;
+        tracing::info!("Juicity server listening on {}", log_addr);
 
         let certificate_resolver = self.certificate_resolver.clone();
         let _certificate_guard = AbortOnDrop(
@@ -356,133 +294,123 @@ impl JuicityServer {
             .abort_handle(),
         );
 
-        // Broadcast shutdown to all accept workers.
+        // Signal shutdown to the accept worker.
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
         // If an accept worker does not stop promptly after shutdown is broadcast,
         // abort it after this timeout.
         let accept_stop_timeout = std::time::Duration::from_secs(3);
         // Grace period for connection handlers after accepting stops.
         let connection_drain_timeout = std::time::Duration::from_secs(5);
-        // Bound concurrent per-endpoint connection handlers.
+        // Bound concurrent connection handlers.
         let max_concurrent_connection_handlers = 1024usize;
 
-        let mut accept_guards: Vec<AbortOnDrop> = Vec::new();
-        let mut accept_handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+        let users = self.users.clone();
+        let in_flight = self.in_flight.clone();
+        let udp_pool = self.udp_endpoint_pool.clone();
+        let dialer = self.dialer.clone();
+        let disable_443 = self.disable_outbound_udp443;
+        let mut accept_shutdown = shutdown_rx;
 
-        // Spawn one accept loop per endpoint so the kernel distributes
-        // incoming packets across cores via SO_REUSEPORT.
-        for endpoint in endpoints {
-            let users = self.users.clone();
-            let in_flight = self.in_flight.clone();
-            let udp_pool = self.udp_endpoint_pool.clone();
-            let dialer = self.dialer.clone();
-            let disable_443 = self.disable_outbound_udp443;
-            let mut accept_shutdown = shutdown_rx.clone();
+        let accept_handle = tokio::spawn(async move {
+            let mut conn_tasks: tokio::task::JoinSet<()> = tokio::task::JoinSet::new();
+            let conn_limit = Arc::new(tokio::sync::Semaphore::new(
+                max_concurrent_connection_handlers,
+            ));
 
-            let accept_handle = tokio::spawn(async move {
-                let mut conn_tasks: tokio::task::JoinSet<()> = tokio::task::JoinSet::new();
-                let conn_limit = Arc::new(tokio::sync::Semaphore::new(
-                    max_concurrent_connection_handlers,
-                ));
+            loop {
+                while conn_tasks.try_join_next().is_some() {}
 
-                loop {
-                    while conn_tasks.try_join_next().is_some() {}
-
-                    tokio::select! {
-                        changed = accept_shutdown.changed() => {
-                            match changed {
-                                Ok(()) if *accept_shutdown.borrow() => {
-                                    break;
-                                }
-                                Ok(()) => {}
-                                Err(_) => {
-                                    break;
-                                }
+                tokio::select! {
+                    changed = accept_shutdown.changed() => {
+                        match changed {
+                            Ok(()) if *accept_shutdown.borrow() => {
+                                break;
+                            }
+                            Ok(()) => {}
+                            Err(_) => {
+                                break;
                             }
                         }
-                        incoming = endpoint.accept() => {
-                            let Some(incoming) = incoming else {
-                                break;
-                            };
+                    }
+                    incoming = endpoint.accept() => {
+                        let Some(incoming) = incoming else {
+                            break;
+                        };
 
-                            let permit = match conn_limit.clone().acquire_owned().await {
-                                Ok(p) => p,
-                                Err(_) => break,
-                            };
+                        let permit = match conn_limit.clone().acquire_owned().await {
+                            Ok(p) => p,
+                            Err(_) => break,
+                        };
 
-                            let users = users.clone();
-                            let in_flight = in_flight.clone();
-                            let udp_pool = udp_pool.clone();
-                            let dialer = dialer.clone();
-                            let disable_443 = disable_443;
+                        let users = users.clone();
+                        let in_flight = in_flight.clone();
+                        let udp_pool = udp_pool.clone();
+                        let dialer = dialer.clone();
+                        let disable_443 = disable_443;
 
-                            conn_tasks.spawn(async move {
-                                let _permit = permit;
-                                if let Err(e) = handle_connection(
-                                    incoming,
-                                    users,
-                                    in_flight,
-                                    udp_pool,
-                                    dialer,
-                                    disable_443,
-                                )
-                                .await
-                                {
-                                    tracing::warn!("Connection handler error: {:?}", e);
-                                }
-                            });
-                        }
+                        conn_tasks.spawn(async move {
+                            let _permit = permit;
+                            if let Err(e) = handle_connection(
+                                incoming,
+                                users,
+                                in_flight,
+                                udp_pool,
+                                dialer,
+                                disable_443,
+                            )
+                            .await
+                            {
+                                tracing::warn!("Connection handler error: {:?}", e);
+                            }
+                        });
                     }
                 }
+            }
 
-                // Drain existing connection handlers first.
-                let deadline = tokio::time::Instant::now() + connection_drain_timeout;
-                while !conn_tasks.is_empty() {
-                    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-                    if remaining.is_zero() {
-                        break;
-                    }
-                    match tokio::time::timeout(remaining, conn_tasks.join_next()).await {
-                        Ok(Some(_)) => {}
-                        Ok(None) => break,
-                        Err(_) => break,
-                    }
+            // Drain existing connection handlers first.
+            let deadline = tokio::time::Instant::now() + connection_drain_timeout;
+            while !conn_tasks.is_empty() {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                if remaining.is_zero() {
+                    break;
                 }
-
-                // Any still-running handlers are force-aborted after grace period.
-                if !conn_tasks.is_empty() {
-                    conn_tasks.abort_all();
-                    while conn_tasks.join_next().await.is_some() {}
+                match tokio::time::timeout(remaining, conn_tasks.join_next()).await {
+                    Ok(Some(_)) => {}
+                    Ok(None) => break,
+                    Err(_) => break,
                 }
-            });
+            }
 
-            accept_guards.push(AbortOnDrop(accept_handle.abort_handle()));
-            accept_handles.push(accept_handle);
-        }
+            // Any still-running handlers are force-aborted after grace period.
+            if !conn_tasks.is_empty() {
+                conn_tasks.abort_all();
+                while conn_tasks.join_next().await.is_some() {}
+            }
+        });
+
+        let accept_guard = AbortOnDrop(accept_handle.abort_handle());
 
         // Wait until shutdown is requested by the caller.
         shutdown.await;
-        tracing::info!("shutdown requested: stopping accept loops");
+        tracing::info!("shutdown requested: stopping accept loop");
 
         // 1) Stop accepting new connections.
         let _ = shutdown_tx.send(true);
 
-        // 2) Let accept workers finish draining in-flight connection handlers.
+        // 2) Let the accept worker drain in-flight connection handlers.
         let stop_deadline = tokio::time::Instant::now() + accept_stop_timeout;
         while tokio::time::Instant::now() < stop_deadline {
-            if accept_handles.iter().all(|h| h.is_finished()) {
+            if accept_handle.is_finished() {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
 
-        // 3) Force-abort any accept workers still not exited.
-        drop(accept_guards);
+        // 3) Force-abort the accept worker if it has not exited.
+        drop(accept_guard);
 
-        // Join all workers so task resources are reclaimed before returning.
-        for handle in accept_handles {
-            let _ = handle.await;
-        }
+        // Join the worker so task resources are reclaimed before returning.
+        let _ = accept_handle.await;
 
         Ok(())
     }
@@ -1132,7 +1060,10 @@ async fn handle_stream(
 ) -> anyhow::Result<()> {
     // Read proxy header via async reader
     let (network, hostname, port) = protocol::read_proxy_header_async(&mut recv_stream).await?;
-    let target = format!("{}:{}", hostname, port);
+    let target = match hostname.parse::<std::net::IpAddr>() {
+        Ok(ip) => SocketAddr::new(ip, port).to_string(),
+        Err(_) => format!("{}:{}", hostname, port),
+    };
 
     match network {
         protocol::NETWORK_TCP => {
