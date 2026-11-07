@@ -28,9 +28,27 @@ use uuid::Uuid;
 #[derive(Clone)]
 struct UnderlaySession {
     target: Arc<str>,
-    cipher: Arc<UnderlayCipher>,
+    psk: Arc<[u8]>,
     /// Abort handle for the relay-back task; `None` until the task is spawned.
     relay_abort: Option<tokio::task::AbortHandle>,
+}
+
+fn underlay_cipher_from_salt(
+    psk: &[u8],
+    salt: &[u8; juicity_underlay::SALT_LEN],
+) -> anyhow::Result<UnderlayCipher> {
+    let subkey = juicity_underlay::derive_subkey(psk, salt)?;
+    Ok(UnderlayCipher::from_subkey(&subkey))
+}
+
+fn underlay_cipher_for_packet(psk: &[u8], packet: &[u8]) -> anyhow::Result<UnderlayCipher> {
+    anyhow::ensure!(
+        packet.len() >= juicity_underlay::SALT_LEN,
+        "underlay packet too short to contain salt"
+    );
+    let mut salt = [0u8; juicity_underlay::SALT_LEN];
+    salt.copy_from_slice(&packet[..juicity_underlay::SALT_LEN]);
+    underlay_cipher_from_salt(psk, &salt)
 }
 
 /// Create the UDP socket shared by QUIC and underlay traffic.
@@ -501,7 +519,9 @@ async fn run_underlay_packet_loop(
                 // Clone payload only when we're committed to the fast path.
                 // This is the hot path — most packets hit here.
                 let mut payload = packet.payload.clone();
-                if session.cipher.decrypt_in_place(&mut payload).is_ok() {
+                let decrypted = underlay_cipher_for_packet(&session.psk, &payload)
+                    .and_then(|cipher| cipher.decrypt_in_place(&mut payload));
+                if decrypted.is_ok() {
                     if crate::udp::send_to(
                         &send_socket,
                         &payload[juicity_underlay::SALT_LEN..],
@@ -551,12 +571,12 @@ async fn run_underlay_packet_loop(
 /// shared server port.  It performs the following steps:
 ///
 /// 1. **Existing session fast path** — If the source address already has a
-///    cached [`UnderlaySession`], decrypt the payload in-place using the
-///    session's cipher and forward it to the cached target via the UDP
-///    endpoint pool.
+///    cached [`UnderlaySession`], derive the packet cipher from its salt,
+///    decrypt in-place, and forward to the cached target via the UDP endpoint
+///    pool.
 /// 2. **New session slow path** — Otherwise, extract the salt from the
 ///    payload, look up the corresponding in-flight underlay auth (via
-///    [`InFlightUnderlayKey::evict`]), derive a per-session cipher,
+///    [`InFlightUnderlayKey::evict`]), verify the first packet,
 ///    create a UDP endpoint (+ relay-back task), and insert the session
 ///    into the LRU cache.
 ///
@@ -606,17 +626,29 @@ async fn handle_non_quic_underlay_packet(
                 // moka's time_to_idle handles TTL automatically.
                 // A successful get() means the entry is still valid.
                 // Extract only the fields we need:
-                // - cipher: Arc clone is just a refcount increment
+                // - psk: Arc clone is just a refcount increment
                 // - target: Arc<str> clone is just a refcount increment
-                Some((s.cipher.clone(), s.target.clone()))
+                Some((s.psk.clone(), s.target.clone()))
             }
             None => None,
         }
     };
 
     // ── Existing session: decrypt + forward immediately ──
-    if let Some((ref cipher, ref target)) = existing_session {
-        // In-place decrypt using cached cipher (plaintext at &payload[SALT_LEN..])
+    if let Some((ref psk, ref target)) = existing_session {
+        let cipher = match underlay_cipher_for_packet(psk, &payload) {
+            Ok(cipher) => cipher,
+            Err(e) => {
+                tracing::debug!(
+                    "drop invalid underlay packet from {} for target {}: {:?}",
+                    source,
+                    &**target,
+                    e
+                );
+                return Ok(());
+            }
+        };
+        // Plaintext remains at &payload[SALT_LEN..] after in-place decryption.
         if let Err(e) = cipher.decrypt_in_place(&mut payload) {
             tracing::debug!(
                 "drop invalid underlay packet from {} for target {}: {:?}",
@@ -672,12 +704,16 @@ async fn handle_non_quic_underlay_packet(
     // ── New session: auth, decrypt, create endpoint+relay, then insert ──
     let mut salt = [0u8; consts::UNDERLAY_SALT_LEN];
     salt.copy_from_slice(&payload[..consts::UNDERLAY_SALT_LEN]);
-    let (auth, cipher) = match in_flight
+    let auth = match in_flight
         .evict(&salt, |auth| {
             // Keep auth available until a packet proves possession of its PSK.
-            let subkey = juicity_underlay::derive_subkey(&auth.psk, &salt)
-                .expect("derive_subkey failed: invalid PSK length");
-            let cipher = UnderlayCipher::from_subkey(&subkey);
+            let cipher = match underlay_cipher_from_salt(&auth.psk, &salt) {
+                Ok(cipher) => cipher,
+                Err(e) => {
+                    tracing::debug!("drop invalid underlay auth for {}: {:?}", source, e);
+                    return None;
+                }
+            };
             if let Err(e) = cipher.decrypt_in_place(&mut payload) {
                 tracing::debug!(
                     "drop first underlay packet from {} for target {}: {:?}",
@@ -687,11 +723,11 @@ async fn handle_non_quic_underlay_packet(
                 );
                 return None;
             }
-            Some(cipher)
+            Some(())
         })
         .await
     {
-        Some(verified) => verified,
+        Some((auth, ())) => auth,
         None => {
             tracing::debug!(
                 "drop non-QUIC packet from {}: missing or invalid in-flight underlay auth",
@@ -706,7 +742,7 @@ async fn handle_non_quic_underlay_packet(
         return Ok(());
     }
 
-    let cipher = Arc::new(cipher);
+    let psk: Arc<[u8]> = Arc::from(auth.psk.clone());
     let target = auth.metadata.target_addr();
 
     // ── Create UDP endpoint and spawn relay-back task BEFORE inserting session ──
@@ -734,7 +770,7 @@ async fn handle_non_quic_underlay_packet(
 
     let relay_abort = if let Some(recv_socket) = recv_socket_for_relay {
         let relay_back = server_socket.clone();
-        let session_cipher = cipher.clone();
+        let session_psk = psk.clone();
         let sessions_for_task = sessions.clone();
         let udp_pool_for_task = udp_pool.clone();
 
@@ -798,7 +834,18 @@ async fn handle_non_quic_underlay_packet(
                         outbuf.reserve(n + juicity_underlay::SALT_LEN + juicity_underlay::TAG_LEN);
                         outbuf.resize(juicity_underlay::SALT_LEN, 0);
                         outbuf.extend_from_slice(&buf[..n]);
-                        if session_cipher.encrypt_in_place(&mut outbuf, &salt).is_err() {
+                        let cipher = match underlay_cipher_from_salt(&session_psk, &salt) {
+                            Ok(cipher) => cipher,
+                            Err(e) => {
+                                tracing::error!(
+                                    "underlay reply key derivation failed for {}: {:?}",
+                                    source,
+                                    e
+                                );
+                                break;
+                            }
+                        };
+                        if cipher.encrypt_in_place(&mut outbuf, &salt).is_err() {
                             break;
                         }
 
@@ -835,7 +882,7 @@ async fn handle_non_quic_underlay_packet(
 
     let session = UnderlaySession {
         target: Arc::from(target.as_str()),
-        cipher,
+        psk,
         relay_abort,
     };
 

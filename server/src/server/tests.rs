@@ -21,13 +21,14 @@ async fn failing_dns_lookup_does_not_block_next_lookup() {
 }
 
 #[tokio::test]
-async fn invalid_underlay_packet_does_not_consume_auth() {
+async fn underlay_packets_use_fresh_salts_without_consuming_invalid_auth() {
     use crate::underlay_socket::UnderlayPacket;
 
     let target = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let target_addr = target.local_addr().unwrap();
     let server_socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
-    let peer: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+    let client = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let peer = client.local_addr().unwrap();
     let salt = [0u8; 32];
     let psk = vec![0x42; 32];
     let in_flight = Arc::new(crate::inflight::InFlightUnderlayKey::new(
@@ -66,11 +67,43 @@ async fn invalid_underlay_packet_does_not_consume_auth() {
         .unwrap();
     }
     let mut buf = [0u8; 128];
-    let (n, _) = tokio::time::timeout(Duration::from_secs(1), target.recv_from(&mut buf))
+    let (n, relay_addr) = tokio::time::timeout(Duration::from_secs(1), target.recv_from(&mut buf))
         .await
         .expect("valid packet must still be relayed after a forged packet")
         .unwrap();
     assert_eq!(&buf[..n], b"authenticated payload");
+
+    let mut next_salt = salt;
+    next_salt[31] ^= 1;
+    let payload = juicity_underlay::encrypt_udp(&psk, b"second", &next_salt).unwrap();
+    handle_non_quic_underlay_packet(
+        UnderlayPacket { peer, payload },
+        in_flight.clone(),
+        pool.clone(),
+        sessions.clone(),
+        server_socket.clone(),
+        false,
+    )
+    .await
+    .unwrap();
+    let (n, second_relay_addr) =
+        tokio::time::timeout(Duration::from_secs(1), target.recv_from(&mut buf))
+            .await
+            .expect("second datagram with a fresh salt must reach the target")
+            .unwrap();
+    assert_eq!(&buf[..n], b"second");
+    assert_eq!(second_relay_addr, relay_addr);
+
+    target.send_to(b"reply", relay_addr).await.unwrap();
+    let (n, _) = tokio::time::timeout(Duration::from_secs(1), client.recv_from(&mut buf))
+        .await
+        .expect("reply must reach the client")
+        .unwrap();
+    assert_eq!(
+        juicity_underlay::decrypt_udp(&psk, &buf[..n]).unwrap(),
+        b"reply"
+    );
+
     if let Some(session) = sessions.get(&peer) {
         if let Some(abort) = session.relay_abort {
             abort.abort();
